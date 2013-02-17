@@ -362,7 +362,9 @@ class Wrapper(GroupNode):
     merging = False
 
     def query(self, parser):
-        return attach(self.qclass(self.nodes[0].query(parser)), self)
+        q = self.nodes[0].query(parser)
+        if q:
+            return attach(self.qclass(q), self)
 
 
 class ErrorNode(SyntaxNode):
