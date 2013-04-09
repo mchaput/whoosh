@@ -37,7 +37,9 @@ from whoosh.compat import xrange
 IDCHARS = "0123456789abcdefghijklmnopqrstuvwxyz"
 
 
-if sys.platform == 'win32':
+if hasattr(time, "perf_counter"):
+    now = time.perf_counter
+elif sys.platform == 'win32':
     now = time.clock
 else:
     now = time.time

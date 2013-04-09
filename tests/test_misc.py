@@ -7,6 +7,15 @@ from whoosh.util.numeric import length_to_byte, byte_to_length
 from whoosh.util.testing import TempStorage
 
 
+def test_now():
+    import time
+    from whoosh.util import now
+
+    t1 = now()
+    t2 = now()
+    assert t1 < t2
+
+
 def test_storage_creation():
     import tempfile, uuid
     from whoosh import fields
