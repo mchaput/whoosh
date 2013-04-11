@@ -25,33 +25,33 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import os.path, random, shutil, sys, tempfile, traceback
-from functools import wraps
+import os, shutil, sys, tempfile
 
 from whoosh.filedb.filestore import FileStorage
-from whoosh.util import now
+from whoosh.util import random_name
 
 
 class TempDir(object):
-    def __init__(self, basename=None, parentdir=None, ext=".whoosh",
+    def __init__(self, basename="", parentdir=None, ext=".whoosh",
                  suppress=frozenset(), keepdir=False):
-        assert basename != "basename"
-        self.basename = basename or hex(random.randint(0, 1000000000))[2:]
-        parentdir = parentdir or tempfile.gettempdir()
-        dirname = os.path.join(parentdir, self.basename + ext)
+        self.basename = basename or random_name(8)
+        self.parentdir = parentdir
+
+        dirname = parentdir or tempfile.mkdtemp(ext, self.basename)
         self.dir = os.path.abspath(dirname)
         self.suppress = suppress
         self.keepdir = keepdir
-        self.onexit = None
 
     def __enter__(self):
         if not os.path.exists(self.dir):
             os.makedirs(self.dir)
         return self.dir
 
+    def cleanup(self):
+        pass
+
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.onexit:
-            self.onexit()
+        self.cleanup()
         if not self.keepdir:
             try:
                 shutil.rmtree(self.dir)
