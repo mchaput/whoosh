@@ -153,3 +153,7 @@ class DatastoreStorage(Storage):
 
     def lock(self, name):
         return MemcacheLock(name)
+
+    def temp_storage(self, name=None):
+        tempstore = DatastoreStorage()
+        return tempstore.create()
