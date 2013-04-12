@@ -400,6 +400,42 @@ def test_patterns():
         assert_equal(q._find_prefix(q.text), "a")
 
 
+def test_or_nots1():
+    # Issue #285
+    schema = fields.Schema(a=fields.KEYWORD(stored=True),
+                           b=fields.KEYWORD(stored=True))
+    st = RamStorage()
+    ix = st.create_index(schema)
+    with ix.writer() as w:
+        w.add_document(a=u("alfa"), b=u("charlie"))
+
+    with ix.searcher() as s:
+        q = query.And([query.Term("a", "alfa"),
+                       query.Or([query.Not(query.Term("b", "bravo")),
+                                 query.Not(query.Term("b", "charlie"))
+                                 ])
+                       ])
+        r = s.search(q)
+        assert len(r) == 1
+
+
+def test_or_nots2():
+    # Issue #286
+    schema = fields.Schema(a=fields.KEYWORD(stored=True),
+                           b=fields.KEYWORD(stored=True))
+    st = RamStorage()
+    ix = st.create_index(schema)
+    with ix.writer() as w:
+        w.add_document(b=u("bravo"))
+
+    with ix.searcher() as s:
+        q = query.Or([query.Term("a", "alfa"),
+                      query.Not(query.Term("b", "alfa"))
+                      ])
+        r = s.search(q)
+        assert len(r) == 1
+
+
 
 
 

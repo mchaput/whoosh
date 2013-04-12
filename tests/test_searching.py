@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from nose.tools import assert_equal, assert_raises  # @UnresolvedImport
 
 from whoosh import analysis, fields, index, qparser, query, searching, scoring
-from whoosh.compat import u, xrange, text_type, permutations
+from whoosh.compat import b, u, xrange, text_type, permutations
 from whoosh.filedb.filestore import RamStorage
 
 
@@ -95,9 +95,9 @@ def test_or():
 
 
 def test_not():
-    _run_query(query.Or([query.Term("value", u("red")),
-                         query.Term("name", u("yellow")),
-                         query.Not(query.Term("name", u("quick")))]),
+    _run_query(query.And([query.Or([query.Term("value", u("red")),
+                                    query.Term("name", u("yellow"))]),
+                          query.Not(query.Term("name", u("quick")))]),
                [u("A"), u("E")])
 
 
@@ -1275,7 +1275,22 @@ def test_too_many_prefix_positions():
         assert_equal([(i, [0]) for i in xrange(200)], items)
 
 
+def test_groupedby_with_terms():
+    schema = fields.Schema(content=fields.TEXT, organism=fields.ID)
+    ix = RamStorage().create_index(schema)
 
+    with ix.writer() as w:
+        w.add_document(organism=u("mus"), content=u("IPFSTD1 IPFSTD_kdwq134 Kaminski-all Study00:00:00"))
+        w.add_document(organism=u("mus"), content=u("IPFSTD1 IPFSTD_kdwq134 Kaminski-all Study"))
+        w.add_document(organism=u("hs"), content=u("This is the first document we've added!"))
+
+    with ix.searcher() as s:
+        q = qparser.QueryParser("content", schema=ix.schema).parse(u("IPFSTD1"))
+        r = s.search(q, groupedby=["organism"], terms=True)
+        assert len(r) == 2
+        assert r.groups("organism") == {"mus": [1, 0]}
+        assert r.has_matched_terms()
+        assert r.matched_terms() == set([('content', b('ipfstd1'))])
 
 
 

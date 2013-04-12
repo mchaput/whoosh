@@ -154,8 +154,8 @@ class Ordered(nary.And):
     def matcher(self, searcher, weighting=None):
         from whoosh.spans import SpanBefore
 
-        return self._matcher(SpanBefore._Matcher, None, searcher,
-                             weighting=weighting)
+        return self._tree_matcher(self.subqueries, SpanBefore._Matcher, searcher,
+                                  weighting, None)
 
 
 

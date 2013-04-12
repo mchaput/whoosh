@@ -1,4 +1,4 @@
-# coding: utf8
+# coding: utf-8
 
 # Copyright 2007 Matt Chaput. All rights reserved.
 #
@@ -1353,6 +1353,8 @@ class IntraWordFilter(Filter):
                 this = 1
             elif text.isdigit():
                 this = 2
+            else:
+                this = None
 
             # Is this the same type as the previous part?
             if (buf and (this == last == 1 and mergewords)
