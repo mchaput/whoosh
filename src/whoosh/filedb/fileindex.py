@@ -158,7 +158,19 @@ class TOC(object):
         for num in __version__[:3]:
             stream.write_varint(num)
 
-        stream.write_string(pickle.dumps(schema, -1))
+        try:
+            stream.write_string(pickle.dumps(schema, -1))
+        except pickle.PicklingError:
+            # Try to narrow down the error to a single field
+            for fieldname, field in schema.items():
+                try:
+                    pickle.dumps(field)
+                except pickle.PicklingError:
+                    e = sys.exc_info()[1]
+                    raise pickle.PicklingError("%s %s=%r" % (e, fieldname, field))
+            # Otherwise, re-raise the original exception
+            raise
+            
         stream.write_int(self.generation)
         stream.write_int(0)  # Unused
         stream.write_pickle(self.segments)
