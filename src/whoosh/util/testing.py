@@ -73,11 +73,13 @@ class TempStorage(TempDir):
         TempDir.__init__(self, **kwargs)
         self._debug = debug
 
+    def cleanup(self):
+        self.store.close()
+
     def __enter__(self):
         dirpath = TempDir.__enter__(self)
-        store = FileStorage(dirpath, debug=self._debug)
-        self.onexit = lambda: store.close()
-        return store
+        self.store = FileStorage(dirpath, debug=self._debug)
+        return self.store
 
 
 class TempIndex(TempStorage):
