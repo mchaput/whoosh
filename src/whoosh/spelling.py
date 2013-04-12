@@ -28,6 +28,7 @@
 """This module contains helper functions for correcting typos in user queries.
 """
 
+import warnings
 from collections import defaultdict
 from heapq import heappush, heapreplace
 
@@ -315,12 +316,15 @@ class SimpleQueryCorrector(QueryCorrector):
 
 class SpellChecker(object):
     """This feature is obsolete.
+    Use :meth:`whoosh.searching.Searcher.corrector` instead.
+    See the "Correcting errors in user queries" page in the user documentation.
     """
 
     def __init__(self, storage, indexname="SPELL",
                  booststart=2.0, boostend=1.0,
                  mingram=3, maxgram=4,
                  minscore=0.5):
+        warnings.warn("SpellChecker object is deprecated", DeprecationWarning)
         self.storage = storage
         self.indexname = indexname
 
