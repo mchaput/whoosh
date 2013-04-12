@@ -37,7 +37,7 @@ from whoosh import __version__
 from whoosh.compat import xrange
 from whoosh.filedb.structfile import ChecksumFile
 from whoosh.legacy import toc_loaders
-from whoosh.compat import dumps, loads, string_type
+from whoosh.compat import pickle, string_type
 from whoosh.fields import ensure_schema
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE, _LONG_SIZE
 
@@ -694,14 +694,14 @@ class TOC(object):
         # If the user passed a schema, use it, otherwise unpickle the schema
         # we just read
         if not schema:
-            schema = loads(pick)
+            schema = pickle.loads(pick)
 
         # Read the list of segments
         numsegments = stream.read_varint()
         segments = []
         for _ in xrange(numsegments):
             segtype = stream.read_string()  # @UnusedVariable
-            segment = loads(stream.read_string())
+            segment = pickle.loads(stream.read_string())
             segments.append(segment)
 
         return schema, segments
@@ -720,7 +720,20 @@ class TOC(object):
         self._write_preamble(stream)
 
         # Write pickles as strings to allow them to be skipped
-        stream.write_string(dumps(schema, -1))
+        try:
+            stream.write_string(pickle.dumps(schema, -1))
+        except pickle.PicklingError:
+            # Try to narrow down the error to a single field
+            for fieldname, field in schema.items():
+                try:
+                    pickle.dumps(field)
+                except pickle.PicklingError:
+                    e = sys.exc_info()[1]
+                    raise pickle.PicklingError("%s %s=%r"
+                                               % (e, fieldname, field))
+            # Otherwise, re-raise the original exception
+            raise
+
         # Write the list of segments
         stream.write_varint(len(self.segments))
         for segment in self.segments:
@@ -730,7 +743,7 @@ class TOC(object):
             segtype = segment.__class__
             typename = "%s.%s" % (segtype.__module__, segtype.__name__)
             stream.write_string(typename.encode("latin1"))
-            stream.write_string(dumps(segment, -1))
+            stream.write_string(pickle.dumps(segment, -1))
 
         stream.write_uint(stream.checksum())
         stream.close()
