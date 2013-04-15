@@ -1144,7 +1144,7 @@ class Schema(object):
         """Returns the field objects in this schema.
         """
 
-        return itervalues(self._fields)
+        return iter(self._fields.values())
 
     def __getitem__(self, name):
         """Returns the field associated with the given field name.
