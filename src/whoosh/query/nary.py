@@ -371,7 +371,7 @@ class DisjunctionMax(CompoundQuery):
         r += " ".join(sorted(text_type(s) for s in self.subqueries))
         r += u(")")
         if self.tiebreak:
-            s += u("~") + text_type(self.tiebreak)
+            r += u("~") + text_type(self.tiebreak)
         return r
 
     __str__ = __unicode__
