@@ -135,12 +135,14 @@ algorithms. The default is :class:`~whoosh.scoring.BM25F`.
 You can set the scoring object to use when you create the searcher using the
 ``weighting`` keyword argument::
 
-    with myindex.searcher(weighting=whoosh.scoring.Cosine()) as s:
+    from whoosh import scoring
+
+    with myindex.searcher(weighting=scoring.TF_IDF()) as s:
         ...
 
-A scoring object is an object with a :meth:`~whoosh.scoring.Weighting.score`
-method that takes information about the term to score and returns a score as a
-floating point number.
+A weighting model is a :class:`~whoosh.scoring.WeightingModel` subclass with a
+``scorer()`` method that produces a "scorer" instance. This instance has a
+method that takes the current matcher and returns a floating point score.
 
 Sorting
 -------
@@ -173,12 +175,12 @@ that are not permitted in the results.
     with myindex.searcher() as s:
         qp = qparser.QueryParser("content", myindex.schema)
         user_q = qp.parse(query_string)
-        
+
         # Only show documents in the "rendering" chapter
         allow_q = query.Term("chapter", "rendering")
         # Don't show any documents where the "tag" field contains "todo"
         restrict_q = query.Term("tag", "todo")
-        
+
         results = s.search(user_q, filter=allow_q, mask=restrict_q)
 
 (If you specify both a ``filter`` and a ``mask``, and a matching document
@@ -190,11 +192,11 @@ To find out how many results were filtered out of the results, use
     with myindex.searcher() as s:
         qp = qparser.QueryParser("content", myindex.schema)
         user_q = qp.parse(query_string)
-        
+
         # Filter documents older than 7 days
         old_q = query.DateRange("created", None, datetime.now() - timedelta(days=7))
         results = s.search(user_q, mask=old_q)
-        
+
         print("Filtered out %d older documents" % results.filtered_count)
 
 
@@ -214,7 +216,7 @@ You can then get information about which terms matched from the
     if results.has_matched_terms():
         # What terms matched in the results?
         print(results.matched_terms())
-        
+
         # What terms matched in each hit?
         for hit in results:
             print(hit.matched_terms())
@@ -246,7 +248,7 @@ See :doc:`/facets` for information on facets.
         # Set the facet to collapse on and the maximum number of documents per
         # facet value (default is 1)
         results = s.collector(collapse="hostname", collapse_limit=3)
-        
+
         # Dictionary mapping collapse keys to the number of documents that
         # were filtered out by collapsing on that key
         print(results.collapsed_counts)
@@ -268,7 +270,7 @@ price, and eliminate all but the highest rated item of each product type::
         price_facet = sorting.FieldFacet("price", reverse=True)
         type_facet = sorting.FieldFacet("type")
         rating_facet = sorting.FieldFacet("rating", reverse=True)
-    
+
         results = s.collector(sortedby=price_facet,  # Sort by reverse price
                               collapse=type_facet,  # Collapse on product type
                               collapse_order=rating_facet  # Collapse to highest rated
@@ -294,13 +296,13 @@ Time limited searches
 To limit the amount of time a search can take::
 
     from whoosh.collectors import TimeLimitCollector, TimeLimit
-    
+
     with myindex.searcher() as s:
         # Get a collector object
         c = s.collector(limit=None, sortedby="title_exact")
         # Wrap it in a TimeLimitedCollector and set the time limit to 10 seconds
         tlc = TimeLimitedCollector(c, timelimit=10.0)
-      
+
         # Try searching
         try:
             s.search_with_collector(myquery, tlc)
