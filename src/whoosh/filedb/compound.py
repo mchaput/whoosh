@@ -61,9 +61,6 @@ class CompoundStorage(FileStorage):
             try:
                 fileno = self._file.fileno()
                 self._source = mmap.mmap(fileno, 0, access=mmap.ACCESS_READ)
-                # If that worked, we can close the file handle we were given
-                self._file.close()
-                self._file = None
             except (mmap.error, OSError):
                 e = sys.exc_info()[1]
                 # If we got an error because there wasn't enough memory to
@@ -71,6 +68,12 @@ class CompoundStorage(FileStorage):
                 # (slower) "sub-file" implementation
                 if e.errno == errno.ENOMEM:
                     pass
+                else:
+                    raise
+            else:
+                # If that worked, we can close the file handle we were given
+                self._file.close()
+                self._file = None
 
     def __repr__(self):
         return "<%s (%s)>" % (self.__class__.__name__, self._name)
