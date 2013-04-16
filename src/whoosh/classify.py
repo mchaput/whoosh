@@ -43,7 +43,11 @@ class ExpansionModel(object):
     def __init__(self, doc_count, field_length):
         self.N = doc_count
         self.collection_total = field_length
-        self.mean_length = self.collection_total / self.N
+
+        if self.N:
+            self.mean_length = self.collection_total / self.N
+        else:
+            self.mean_length = 0
 
     def normalizer(self, maxweight, top_total):
         raise NotImplementedError
@@ -65,7 +69,7 @@ class Bo1Model(ExpansionModel):
 class Bo2Model(ExpansionModel):
     def normalizer(self, maxweight, top_total):
         f = maxweight * self.N / self.collection_total
-        return (maxweight * log((1.0 + f) / f, 2) + log(1.0 + f, 2))
+        return maxweight * log((1.0 + f) / f, 2) + log(1.0 + f, 2)
 
     def score(self, weight_in_top, weight_in_collection, top_total):
         f = weight_in_top * top_total / self.collection_total
@@ -84,7 +88,7 @@ class KLModel(ExpansionModel):
         if wit_over_tt < wic_over_ct:
             return 0
         else:
-            return wit_over_tt * log((wit_over_tt)
+            return wit_over_tt * log(wit_over_tt
                                      / (weight_in_top / self.collection_total),
                                      2)
 
@@ -100,15 +104,16 @@ class Expander(object):
         :param fieldname: The name of the field in which to search.
         :param model: (classify.ExpansionModel) The model to use for expanding
             the query terms. If you omit this parameter, the expander uses
-            scoring.Bo1Model by default.
+            :class:`Bo1Model` by default.
         """
 
         self.ixreader = ixreader
         self.fieldname = fieldname
+        doccount =  self.ixreader.doc_count_all()
+        fieldlen = self.ixreader.field_length(fieldname)
 
         if type(model) is type:
-            model = model(self.ixreader.doc_count_all(),
-                          self.ixreader.field_length(fieldname))
+            model = model(doccount, fieldlen)
         self.model = model
 
         # Maps words to their weight in the top N documents.
@@ -329,13 +334,13 @@ def two_pass_variance(data):
     sum2 = 0
 
     for x in data:
-        n = n + 1
+        n += 1
         sum1 = sum1 + x
 
     mean = sum1 / n
 
     for x in data:
-        sum2 = sum2 + (x - mean) * (x - mean)
+        sum2 += (x - mean) * (x - mean)
 
     variance = sum2 / (n - 1)
     return variance
@@ -349,8 +354,8 @@ def weighted_incremental_variance(data_weight_pairs):
         temp = weight + sumweight
         Q = x - mean
         R = Q * weight / temp
-        S = S + sumweight * Q * R
-        mean = mean + R
+        S += sumweight * Q * R
+        mean += R
         sumweight = temp
     Variance = S / (sumweight - 1)  # if sample is the population, omit -1
     return Variance
