@@ -64,7 +64,7 @@ class CompoundStorage(FileStorage):
                 # If that worked, we can close the file handle we were given
                 self._file.close()
                 self._file = None
-            except OSError:
+            except (mmap.error, OSError):
                 e = sys.exc_info()[1]
                 # If we got an error because there wasn't enough memory to
                 # open the map, ignore it and fall through, we'll just use the
