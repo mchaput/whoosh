@@ -1,6 +1,6 @@
 from __future__ import with_statement
 
-from whoosh import analysis, classify, fields, formats
+from whoosh import analysis, classify, fields, formats, query
 from whoosh.compat import u, text_type
 from whoosh.filedb.filestore import RamStorage
 from whoosh.util.testing import TempIndex
@@ -111,3 +111,22 @@ def test_more_like():
             docnum = s.document_number(id="3")
             r = s.more_like(docnum, "text")
             assert [hit["id"] for hit in r] == ["5", "4"]
+
+
+def test_empty_more_like():
+    schema = fields.Schema(text=fields.TEXT)
+    with TempIndex(schema, "emptymore") as ix:
+        with ix.searcher() as s:
+            assert s.doc_count() == 0
+            q = query.Term("a", u("b"))
+            r = s.search(q)
+            assert r.scored_length() == 0
+            assert r.key_terms("text") == []
+
+            ex = classify.Expander(s.reader(), "text")
+            assert ex.expanded_terms(1) == []
+
+
+
+
+
