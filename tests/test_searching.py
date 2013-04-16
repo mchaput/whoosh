@@ -1552,6 +1552,28 @@ def test_score_length():
             p.next()
 
 
+def test_terms_with_filter():
+    schema = fields.Schema(text=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(text=u("alfa bravo charlie delta"))
+        w.add_document(text=u("bravo charlie delta echo"))
+        w.add_document(text=u("charlie delta echo foxtrot"))
+        w.add_document(text=u("delta echo foxtrot golf"))
+        w.add_document(text=u("echo foxtrot golf hotel"))
+        w.add_document(text=u("foxtrot golf hotel alfa"))
+        w.add_document(text=u("golf hotel alfa bravo"))
+        w.add_document(text=u("hotel alfa bravo charlie"))
+
+    with ix.searcher() as s:
+        workingset = set([1, 2, 3])
+        q = query.Term("text", u("foxtrot"))
+        r = s.search_page(q, pagenum=1, pagelen=5, terms=True,
+                          filter=workingset)
+
+        assert r.scored_length() == 2
+        assert [hit.docnum for hit in r] == [2, 3]
+
 
 
 
