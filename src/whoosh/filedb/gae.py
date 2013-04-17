@@ -17,6 +17,8 @@ To open an existing index::
     ix = DatastoreStorage().open_index()
 """
 
+import time
+
 from google.appengine.api import memcache  # @UnresolvedImport
 from google.appengine.ext import db  # @UnresolvedImport
 
@@ -32,6 +34,7 @@ class DatastoreFile(db.Model):
     """
 
     value = db.BlobProperty()
+    mtime = db.IntegerProperty(default=0)
 
     def __init__(self, *args, **kwargs):
         super(DatastoreFile, self).__init__(*args, **kwargs)
@@ -52,6 +55,7 @@ class DatastoreFile(db.Model):
         oldvalue = self.value
         self.value = self.getvalue()
         if oldvalue != self.value:
+            self.mtime = int(time.time())
             self.put()
             memcache.set(self.key().id_or_name(), self.value,
                          namespace="DatastoreFile")
@@ -127,7 +131,7 @@ class DatastoreStorage(Storage):
         return DatastoreFile.get_by_key_name(name) is not None
 
     def file_modified(self, name):
-        return -1  # -1 means that we do not support this
+        return DatastoreFile.get_by_key_name(name).mtime
 
     def file_length(self, name):
         return len(DatastoreFile.get_by_key_name(name).value)
@@ -140,6 +144,7 @@ class DatastoreStorage(Storage):
         file = DatastoreFile.get_by_key_name(name)
         newfile = DatastoreFile(key_name=newname)
         newfile.value = file.value
+        newfile.mtime = file.mtime
         newfile.put()
         file.delete()
 
