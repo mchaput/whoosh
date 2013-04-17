@@ -123,10 +123,10 @@ controlling the maximum number of characters of context to add at the beginning
 and end of a fragment::
 
     # Allow larger fragments
-    results.formatter.maxchars = 300
+    results.fragmenter.maxchars = 300
 
     # Show more context before and after
-    results.formatter.surround = 50
+    results.fragmenter.surround = 50
 
 
 Fragmenter
