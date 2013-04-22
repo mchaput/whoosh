@@ -725,12 +725,12 @@ class FilterCollector(WrappingCollector):
         _allow = self._allow
         _restrict = self._restrict
 
-        if _allow or _restrict:
+        if _allow is not None or _restrict is not None:
             filtered_count = self.filtered_count
             for sub_docnum in child.matches():
                 global_docnum = self.offset + sub_docnum
-                if ((_allow and global_docnum not in _allow)
-                    or (_restrict and global_docnum in _restrict)):
+                if ((_allow is not None and global_docnum not in _allow)
+                    or (_restrict is not None and global_docnum in _restrict)):
                     filtered_count += 1
                     continue
                 child.collect(sub_docnum)
