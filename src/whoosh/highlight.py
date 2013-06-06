@@ -105,7 +105,7 @@ class Fragment(object):
         available).
     """
 
-    def __init__(self, text, matches, startchar=0, endchar=-1):
+    def __init__(self, text, matches, startchar=0, endchar= -1):
         """
         :param text: the source text of the fragment.
         :param matches: a list of objects which have ``startchar`` and
@@ -845,20 +845,18 @@ class Highlighter(object):
         from_bytes = field.from_bytes
 
         if text is None:
-            d = hitobj.fields()
-            if fieldname not in d:
-                raise KeyError("Field %r is not in the stored fields."
-                               % fieldname)
-            text = d[fieldname]
+            if fieldname not in hitobj:
+                raise KeyError("Field %r is not stored." % fieldname)
+            text = hitobj[fieldname]
 
-        # Get the terms searched for/matched
+        # Get the terms searched for/matched in this field
         if results.has_matched_terms():
-            bterms = hitobj.matched_terms()
+            bterms = (term for term in hitobj.matched_terms()
+                      if term[0] == fieldname)
         else:
-            bterms = results.query_terms(expand=True)
-        # Convert bytes to unicode, only take terms in this field
-        words = frozenset(from_bytes(btext) for fname, btext in bterms
-                          if fname == fieldname)
+            bterms = results.query_terms(expand=True, fieldname=fieldname)
+        # Convert bytes to unicode
+        words = frozenset(from_bytes(term[1]) for term in bterms)
 
         if not words:
             # No terms matches in this field

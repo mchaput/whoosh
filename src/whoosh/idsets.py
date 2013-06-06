@@ -64,10 +64,10 @@ class DocIdSet(object):
     def copy(self):
         raise NotImplementedError
 
-    def add(self):
+    def add(self, n):
         raise NotImplementedError
 
-    def discard(self):
+    def discard(self, n):
         raise NotImplementedError
 
     def update(self, other):
@@ -549,3 +549,43 @@ class SortedIntSet(DocIdSet):
 
         pos = bisect_right(data, i)
         return data[pos]
+
+
+class MultiIdSet(DocIdSet):
+    """Wraps multiple SERIAL sub-DocIdSet objects and presents them as an
+    aggregated, read-only set.
+    """
+
+    def __init__(self, idsets, offsets):
+        """
+        :param idsets: a list of DocIdSet objects.
+        :param offsets: a list of offsets corresponding to the DocIdSet objects
+            in ``idsets``.
+        """
+
+        assert len(idsets) == len(offsets)
+        self.idsets = idsets
+        self.offsets = offsets
+
+    def _document_set(self, n):
+        offsets = self.offsets
+        return max(bisect_left(offsets, n), len(self.offsets) - 1)
+
+    def _set_and_docnum(self, n):
+        setnum = self._document_set(n)
+        offset = self.offsets[setnum]
+        return self.idsets[setnum], n - offset
+
+    def __len__(self):
+        return sum(len(idset) for idset in self.idsets)
+
+    def __iter__(self):
+        for idset, offset in izip(self.idsets, self.offsets):
+            for docnum in idset:
+                yield docnum + offset
+
+    def __contains__(self, item):
+        idset, n = self._set_and_docnum(item)
+        return n in idset
+
+

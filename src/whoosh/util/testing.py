@@ -25,7 +25,12 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import os, shutil, sys, tempfile
+import os.path
+import random
+import shutil
+import sys
+import tempfile
+from contextlib import contextmanager
 
 from whoosh.filedb.filestore import FileStorage
 from whoosh.util import random_name
@@ -115,3 +120,11 @@ def check_abstract_methods(base, subclass):
             if is_abstract_method(oattr):
                 raise Exception("%s.%s not overridden"
                                 % (subclass.__name__, attrname))
+
+
+@contextmanager
+def timing(name=None):
+    t = now()
+    yield
+    t = now() - t
+    print "%s: %0.06f s" % (name or '', t)
