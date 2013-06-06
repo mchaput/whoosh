@@ -29,7 +29,7 @@ from whoosh.analysis.filters import Filter
 from whoosh.compat import integer_types
 from whoosh.lang.dmetaphone import double_metaphone
 from whoosh.lang.porter import stem
-from whoosh.util.cache import lru_cache, unbound_cache
+from whoosh.util.cache import lfu_cache, unbound_cache
 
 
 class StemFilter(Filter):
@@ -95,6 +95,8 @@ class StemFilter(Filter):
             self.ignore = state["ignores"]
         elif "ignore" not in state:
             self.ignore = frozenset()
+        if "lang" not in state:
+            self.lang = None
         if "cache" in state:
             del state["cache"]
 
@@ -113,7 +115,7 @@ class StemFilter(Filter):
             if self.cachesize < 0:
                 self._stem = unbound_cache(stemfn)
             elif self.cachesize > 1:
-                self._stem = lru_cache(self.cachesize)(stemfn)
+                self._stem = lfu_cache(self.cachesize)(stemfn)
         else:
             self._stem = stemfn
 

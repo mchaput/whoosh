@@ -44,10 +44,11 @@ class Term(qcore.Query):
 
     __inittypes__ = dict(fieldname=str, text=text_type, boost=float)
 
-    def __init__(self, fieldname, text, boost=1.0):
+    def __init__(self, fieldname, text, boost=1.0, minquality=None):
         self.fieldname = fieldname
         self.text = text
         self.boost = boost
+        self.minquality = minquality
 
     def __eq__(self, other):
         return (other
@@ -116,6 +117,8 @@ class Term(qcore.Query):
                 w = context.weighting
 
             m = searcher.postings(self.fieldname, text, weighting=w)
+            if self.minquality:
+                m.set_min_quality(self.minquality)
             if self.boost != 1.0:
                 m = matching.WrappingMatcher(m, boost=self.boost)
             return m
@@ -128,7 +131,6 @@ class MultiTerm(qcore.Query):
     same field.
     """
 
-    TOO_MANY_CLAUSES = 1024
     constantscore = False
 
     def _btexts(self, ixreader):
@@ -164,14 +166,17 @@ class MultiTerm(qcore.Query):
             return qcore.NullQuery
 
     def estimate_size(self, ixreader):
-        return sum(ixreader.doc_frequency(self.fieldname, text)
-                   for text in self._btexts(ixreader))
+        return sum(ixreader.doc_frequency(self.fieldname, btext)
+                   for btext in self._btexts(ixreader))
 
     def estimate_min_size(self, ixreader):
         return min(ixreader.doc_frequency(self.fieldname, text)
                    for text in self._btexts(ixreader))
 
     def matcher(self, searcher, context=None):
+        from whoosh.query import Or, PreloadedOr
+        from whoosh.util import now
+
         fieldname = self.fieldname
         constantscore = self.constantscore
 
@@ -182,45 +187,20 @@ class MultiTerm(qcore.Query):
 
         if len(qs) == 1:
             # If there's only one term, just use it
-            q = qs[0]
-        elif constantscore or len(qs) > self.TOO_MANY_CLAUSES:
-            # If there's so many clauses that an Or search would take forever,
-            # trade memory for time and just find all the matching docs and
-            # serve them as one ListMatcher
-            fmt = searcher.schema[fieldname].format
-            doc_to_values = defaultdict(list)
-            doc_to_weights = defaultdict(float)
-            for q in qs:
-                m = q.matcher(searcher)
-                while m.is_active():
-                    docnum = m.id()
-                    doc_to_values[docnum].append(m.value())
-                    if not constantscore:
-                        doc_to_weights[docnum] += m.weight()
-                    m.next()
-
-            docnums = sorted(doc_to_values.keys())
-            # This is a list of lists of value strings -- ListMatcher will
-            # actually do the work of combining multiple values if the user
-            # asks for them
-            values = [doc_to_values[docnum] for docnum in docnums]
-
-            kwargs = {"values": values, "format": fmt}
-            if constantscore:
-                kwargs["all_weights"] = self.boost
-            else:
-                kwargs["weights"] = [doc_to_weights[docnum]
-                                     for docnum in docnums]
-
-            #return matching.ListMatcher(docnums, term=term, **kwargs)
-            return matching.ListMatcher(docnums, **kwargs)
+            m = qs[0].matcher(searcher, context)
+        elif constantscore:
+            # To tell the sub-query that score doesn't matter, set weighting
+            # to None
+            if context:
+                context = context.set(weighting=None)
+            t = now()
+            plo = PreloadedOr(qs, boost=self.boost)
+            print "b=", now() - t
+            m = plo.matcher(searcher, context)
+            print "c=", now() - t
         else:
-            # The default case: Or the terms together
-            from whoosh.query import Or
-            q = Or(qs)
-
-        m = q.matcher(searcher, context)
-        #m = matching.SingleTermMatcher(m, term)
+            # Or the terms together
+            m = Or(qs, boost=self.boost).matcher(searcher, context)
         return m
 
 
@@ -260,6 +240,7 @@ class PatternQuery(MultiTerm):
         # Subclasses/instances should set the SPECIAL_CHARS attribute to a set
         # of characters that mark the end of the literal prefix
         specialchars = self.SPECIAL_CHARS
+        i = 0
         for i, char in enumerate(text):
             if char in specialchars:
                 break
@@ -297,6 +278,14 @@ class Prefix(PatternQuery):
     def _btexts(self, ixreader):
         return ixreader.expand_prefix(self.fieldname, self.text)
 
+    def matcher(self, searcher, context=None):
+        if self.text == "":
+            from whoosh.query import Every
+            eq = Every(self.fieldname, boost=self.boost)
+            return eq.matcher(searcher, context)
+        else:
+            return PatternQuery.matcher(self, searcher, context)
+
 
 class Wildcard(PatternQuery):
     """Matches documents that contain any terms that match a "glob" pattern.
@@ -305,7 +294,7 @@ class Wildcard(PatternQuery):
     >>> Wildcard("content", u"in*f?x")
     """
 
-    SPECIAL_CHARS = frozenset("*?")
+    SPECIAL_CHARS = frozenset("*?[")
 
     def __unicode__(self):
         return "%s:%s" % (self.fieldname, self.text)
@@ -332,6 +321,14 @@ class Wildcard(PatternQuery):
             return Prefix(self.fieldname, self.text[:-1], boost=self.boost)
         else:
             return self
+
+    def matcher(self, searcher, context=None):
+        if self.text == "*":
+            from whoosh.query import Every
+            eq = Every(self.fieldname, boost=self.boost)
+            return eq.matcher(searcher, context)
+        else:
+            return PatternQuery.matcher(self, searcher, context)
 
     # _btexts() implemented in PatternQuery
 
@@ -370,6 +367,14 @@ class Regex(PatternQuery):
             # the very last of them is not part of the real prefix:
             prefix = prefix[:-1]
         return prefix
+
+    def matcher(self, searcher, context=None):
+        if self.text == ".*":
+            from whoosh.query import Every
+            eq = Every(self.fieldname, boost=self.boost)
+            return eq.matcher(searcher, context)
+        else:
+            return PatternQuery.matcher(self, searcher, context)
 
     # _btexts() implemented in PatternQuery
 
