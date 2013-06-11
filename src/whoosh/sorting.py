@@ -224,7 +224,7 @@ class ColumnCategorizer(Categorizer):
 
     def set_searcher(self, segment_searcher, docoffset):
         r = segment_searcher.reader()
-        self._creader = r.column_reader(self._fieldname)
+        self._creader = r.column_reader(self._fieldname, translate=False)
 
     def key_for(self, matcher, segment_docnum):
         return self._creader.sort_key(segment_docnum, self._reverse)
@@ -244,7 +244,7 @@ class ReversedColumnCategorizer(ColumnCategorizer):
         reader = global_searcher.reader()
         self._doccount = reader.doc_count_all()
 
-        global_creader = reader.column_reader(fieldname)
+        global_creader = reader.column_reader(fieldname, translate=False)
         self._values = sorted(set(global_creader))
 
     def key_for(self, matcher, segment_docnum):
@@ -280,7 +280,7 @@ class OverlappingCategorizer(Categorizer):
         if self._use_vectors:
             pass
         elif self._use_column:
-            self._creader = reader.column_reader(fieldname)
+            self._creader = reader.column_reader(fieldname, translate=False)
         else:
             # Otherwise, cache the values in each document in a huge list
             # of lists

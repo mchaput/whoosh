@@ -820,16 +820,16 @@ class SegmentReader(IndexReader):
         coltype = self.schema[fieldname].column_type
         return coltype and self._perdoc.has_column(fieldname)
 
-    def column_reader(self, fieldname, column=None):
+    def column_reader(self, fieldname, column=None, translate=True):
         fieldobj = self.schema[fieldname]
         if self.has_column(fieldname):
             ctype = column or fieldobj.column_type
             creader = self._perdoc.column_reader(fieldname, ctype)
-
-            # Wrap the column in a translator to present nice values to the
-            # caller instead of sortable column values
-            translate = fieldobj.from_column_value
-            creader = columns.TranslatingColumnReader(creader, translate)
+            if translate:
+                # Wrap the column in a Translator to give the caller
+                # nice values instead of sortable representations
+                fcv = fieldobj.from_column_value
+                creader = columns.TranslatingColumnReader(creader, fcv)
         else:
             # If the field wasn't indexed with a column, create one from
             # postings and cache it

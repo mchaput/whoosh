@@ -514,4 +514,4 @@ def test_hit_column():
         r = s.search(query.Term("text", "alfa"))
         assert len(r) == 1
         hit = r[0]
-        assert hit["text"] == "alfa bravo charlie"
+        assert hit["text"] == u("alfa bravo charlie")

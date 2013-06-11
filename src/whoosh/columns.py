@@ -1089,9 +1089,6 @@ class PostingColumnReader(ColumnReader):
             for docid in postings.all_ids():
                 values[docid] = btext
 
-    def sort_key(self, docnum, reverse=False):
-        return self._frombytes(self._values.get(docnum, emptybytes))
-
     def __len__(self):
         return self._length
 
