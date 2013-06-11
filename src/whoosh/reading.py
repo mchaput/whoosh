@@ -591,7 +591,7 @@ class SegmentReader(IndexReader):
 
         # self.files is a storage object from which to load the segment files.
         # This is different from the general storage (which will be used for
-        # cahces) if the segment is in a compound file.
+        # caches) if the segment is in a compound file.
         if segment.is_compound():
             # Open the compound file as a storage object
             files = segment.open_compound_file(storage)
@@ -601,6 +601,7 @@ class SegmentReader(IndexReader):
             self._storage = OverlayStorage(files, storage)
         else:
             self._storage = storage
+        self._column_cache = {}
 
         # Get subreaders from codec
         self._codec = codec if codec else segment.codec()
@@ -811,7 +812,7 @@ class SegmentReader(IndexReader):
                                             prefix=prefix)
         gr = self._get_graph()
         return fst.within(gr, text, k=maxdist, prefix=prefix,
-                           address=self._graph.root(fieldname))
+                          address=self._graph.root(fieldname))
 
     # Column methods
 
@@ -821,11 +822,23 @@ class SegmentReader(IndexReader):
 
     def column_reader(self, fieldname, column=None):
         fieldobj = self.schema[fieldname]
-        column = column or fieldobj.column_type
-        reader = self._perdoc.column_reader(fieldname, column)
+        if self.has_column(fieldname):
+            ctype = column or fieldobj.column_type
+            creader = self._perdoc.column_reader(fieldname, ctype)
 
-        translate = fieldobj.from_column_value
-        creader = columns.TranslatingColumnReader(reader, translate)
+            # Wrap the column in a translator to present nice values to the
+            # caller instead of sortable column values
+            translate = fieldobj.from_column_value
+            creader = columns.TranslatingColumnReader(creader, translate)
+        else:
+            # If the field wasn't indexed with a column, create one from
+            # postings and cache it
+            if fieldname in self._column_cache:
+                creader = self._column_cache[fieldname]
+            else:
+                creader = columns.PostingColumnReader(self, fieldname)
+                self._column_cache[fieldname] = creader
+
         return creader
 
 
@@ -850,10 +863,10 @@ class EmptyReader(IndexReader):
     def iter_from(self, fieldname, text):
         return iter([])
 
-    def iter_field(self, fieldname):
+    def iter_field(self, fieldname, prefix=''):
         return iter([])
 
-    def iter_prefix(self, fieldname):
+    def iter_prefix(self, fieldname, prefix=''):
         return iter([])
 
     def lexicon(self, fieldname):

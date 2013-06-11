@@ -148,6 +148,10 @@ class MemPerDocReader(base.PerDocumentReader):
     def supports_columns(self):
         return True
 
+    def has_column(self, fieldname):
+        filename = "%s.c" % fieldname
+        return self._storage.file_exists(filename)
+
     def column_reader(self, fieldname, column):
         filename = "%s.c" % fieldname
         colfile = self._storage.open_file(filename)

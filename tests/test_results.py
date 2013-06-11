@@ -3,6 +3,7 @@ from __future__ import with_statement
 import pytest
 
 from whoosh import analysis, fields, formats, highlight, qparser, query
+from whoosh.codec.whoosh3 import W3Codec
 from whoosh.compat import u, xrange, text_type, permutations
 from whoosh.filedb.filestore import RamStorage
 
@@ -506,7 +507,7 @@ def test_hit_column():
     # With column
     schema = fields.Schema(text=fields.TEXT(sortable=True))
     ix = RamStorage().create_index(schema)
-    with ix.writer() as w:
+    with ix.writer(codec=W3Codec()) as w:
         w.add_document(text=u("alfa bravo charlie"))
 
     with ix.searcher() as s:
