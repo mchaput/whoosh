@@ -2,6 +2,7 @@ from __future__ import with_statement
 import inspect, random, sys
 
 from whoosh import columns, fields, query
+from whoosh.codec.whoosh3 import W3Codec
 from whoosh.compat import b, u, BytesIO, bytes_type, text_type
 from whoosh.compat import izip, xrange, dumps, loads
 from whoosh.filedb import compound
@@ -174,7 +175,7 @@ def test_multivalue():
     schema = fields.Schema(s=fields.TEXT(sortable=True),
                            n=fields.NUMERIC(sortable=True))
     ix = RamStorage().create_index(schema)
-    with ix.writer() as w:
+    with ix.writer(codec=W3Codec()) as w:
         w.add_document(s=u("alfa foxtrot charlie").split(), n=[100, 200, 300])
         w.add_document(s=u("juliet bravo india").split(), n=[10, 20, 30])
 
@@ -190,7 +191,7 @@ def test_column_field():
     schema = fields.Schema(a=fields.TEXT(sortable=True),
                            b=fields.COLUMN(columns.RefBytesColumn()))
     with TempIndex(schema, "columnfield") as ix:
-        with ix.writer() as w:
+        with ix.writer(codec=W3Codec()) as w:
             w.add_document(a=u("alfa bravo"), b=b("charlie delta"))
             w.add_document(a=u("bravo charlie"), b=b("delta echo"))
             w.add_document(a=u("charlie delta"), b=b("echo foxtrot"))
@@ -213,7 +214,7 @@ def test_column_query():
                            a=fields.ID(sortable=True),
                            b=fields.NUMERIC(sortable=True))
     with TempIndex(schema, "columnquery") as ix:
-        with ix.writer() as w:
+        with ix.writer(codec=W3Codec()) as w:
             w.add_document(id=1, a=u("alfa"), b=10)
             w.add_document(id=2, a=u("bravo"), b=20)
             w.add_document(id=3, a=u("charlie"), b=30)

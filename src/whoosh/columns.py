@@ -1061,6 +1061,49 @@ class TranslatingColumnReader(ColumnReader):
         return (translate(v) for v in self._reader)
 
 
+# Fake column reader for fields without columns
+
+class PostingColumnReader(ColumnReader):
+    """
+    Builds a synthetic column for fields that weren't indexed with column
+    storage. This object reads every posting for every term in the field, so
+    building it is quite expensive and the reader should cache it once it's
+    built.
+    """
+
+    def __init__(self, reader, fieldname):
+        self._length = reader.doc_count_all()
+        # Dictionary mapping document IDs to values
+        self._values = values = {}
+
+        fieldobj = reader.schema[fieldname]
+        self._frombytes =fieldobj.from_bytes
+
+        # Read the terms in the field in sorted order
+
+        btexts = fieldobj.sortable_terms(reader, fieldname)
+        for btext in btexts:
+            # Read the document IDs containing this term
+            # Global doc ids
+            postings = reader.postings(fieldname, btext)
+            for docid in postings.all_ids():
+                values[docid] = btext
+
+    def sort_key(self, docnum, reverse=False):
+        return self._frombytes(self._values.get(docnum, emptybytes))
+
+    def __len__(self):
+        return self._length
+
+    def __getitem__(self, docnum):
+        return self._values.get(docnum, emptybytes)
+
+    def __iter__(self):
+        values = self._values
+        for docnum in xrange(self._length):
+            yield values.get(docnum, emptybytes)
+
+
 # Column wrappers
 
 class WrappedColumn(Column):

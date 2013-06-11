@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from whoosh import analysis, fields, index, qparser, query, searching, scoring
+from whoosh.codec.whoosh3 import W3Codec
 from whoosh.compat import b, u, text_type
 from whoosh.compat import xrange, permutations, izip_longest
 from whoosh.filedb.filestore import RamStorage
@@ -1357,6 +1358,54 @@ def test_collapse():
                            size=fields.NUMERIC,
                            tag=fields.KEYWORD(sortable=True))
     ix = RamStorage().create_index(schema)
+    with ix.writer(codec=W3Codec()) as w:
+        for id, text, size, tag in domain:
+            w.add_document(id=u(id), text=u(text), size=size, tag=u(tag))
+
+    with ix.searcher() as s:
+        q = query.Term("text", "blah")
+        r = s.search(q, limit=None)
+        assert " ".join(hit["id"] for hit in r) == "f c a d h b g"
+
+        col = s.collector(limit=3)
+        col = collectors.CollapseCollector(col, "tag")
+        s.search_with_collector(q, col)
+        r = col.results()
+        assert " ".join(hit["id"] for hit in r) == "f c h"
+
+        col = s.collector(limit=None)
+        col = collectors.CollapseCollector(col, "tag")
+        s.search_with_collector(q, col)
+        r = col.results()
+        assert " ".join(hit["id"] for hit in r) == "f c h b g"
+
+        r = s.search(query.Every(), sortedby="size")
+        assert " ".join(hit["id"] for hit in r) == "e c b d a f h g"
+
+        col = s.collector(sortedby="size")
+        col = collectors.CollapseCollector(col, "tag")
+        s.search_with_collector(query.Every(), col)
+        r = col.results()
+        assert " ".join(hit["id"] for hit in r) == "e c b d h g"
+
+
+def test_collapse_nocolumn():
+    from whoosh import collectors
+
+    # id, text, size, tag
+    domain = [("a", "blah blah blah", 5, "x"),
+              ("b", "blah", 3, "y"),
+              ("c", "blah blah blah blah", 2, "z"),
+              ("d", "blah blah", 4, "x"),
+              ("e", "bloop", 1, "-"),
+              ("f", "blah blah blah blah blah", 6, "x"),
+              ("g", "blah", 8, "w"),
+              ("h", "blah blah", 7, "=")]
+
+    schema = fields.Schema(id=fields.STORED, text=fields.TEXT,
+                           size=fields.NUMERIC,
+                           tag=fields.KEYWORD)
+    ix = RamStorage().create_index(schema)
     with ix.writer() as w:
         for id, text, size, tag in domain:
             w.add_document(id=u(id), text=u(text), size=size, tag=u(tag))
@@ -1401,6 +1450,42 @@ def test_collapse_length():
     schema = fields.Schema(key=fields.ID(sortable=True),
                            word=fields.ID(stored=True))
     ix = RamStorage().create_index(schema)
+    with ix.writer(codec=W3Codec()) as w:
+        for word in domain:
+            w.add_document(key=word[0], word=word)
+
+    with ix.searcher() as s:
+        q = query.Every()
+
+        def check(r):
+            words = " ".join(hit["word"] for hit in r)
+            assert words == "alfa bravo charlie delta echo foxtrot golf"
+            assert r.scored_length() == 7
+            assert len(r) == 7
+
+        r = s.search(q, collapse="key", collapse_limit=1, limit=None)
+        check(r)
+
+        r = s.search(q, collapse="key", collapse_limit=1, limit=50)
+        check(r)
+
+        r = s.search(q, collapse="key", collapse_limit=1, limit=10)
+        check(r)
+
+
+def test_collapse_length_nocolumn():
+    domain = u("alfa apple agnostic aplomb arc "
+               "bravo big braid beer "
+               "charlie crouch car "
+               "delta dog "
+               "echo "
+               "foxtrot fold flip "
+               "golf gym goop"
+               ).split()
+
+    schema = fields.Schema(key=fields.ID(),
+                           word=fields.ID(stored=True))
+    ix = RamStorage().create_index(schema)
     with ix.writer() as w:
         for word in domain:
             w.add_document(key=word[0], word=word)
@@ -1431,6 +1516,43 @@ def test_collapse_order():
                            price=fields.NUMERIC(sortable=True),
                            rating=fields.NUMERIC(sortable=True),
                            tag=fields.ID(sortable=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer(codec=W3Codec()) as w:
+        w.add_document(id="a", price=10, rating=1, tag=u("x"))
+        w.add_document(id="b", price=80, rating=3, tag=u("y"))
+        w.add_document(id="c", price=60, rating=1, tag=u("z"))
+        w.add_document(id="d", price=30, rating=2)
+        w.add_document(id="e", price=50, rating=3, tag=u("x"))
+        w.add_document(id="f", price=20, rating=1, tag=u("y"))
+        w.add_document(id="g", price=50, rating=2, tag=u("z"))
+        w.add_document(id="h", price=90, rating=5)
+        w.add_document(id="i", price=50, rating=5, tag=u("x"))
+        w.add_document(id="j", price=40, rating=1, tag=u("y"))
+        w.add_document(id="k", price=50, rating=4, tag=u("z"))
+        w.add_document(id="l", price=70, rating=2)
+
+    with ix.searcher() as s:
+        def check(kwargs, target):
+            r = s.search(query.Every(), limit=None, **kwargs)
+            assert " ".join(hit["id"] for hit in r) == target
+
+        price = sorting.FieldFacet("price", reverse=True)
+        rating = sorting.FieldFacet("rating", reverse=True)
+        tag = sorting.FieldFacet("tag")
+
+        check(dict(sortedby=price), "h b l c e g i k j d f a")
+        check(dict(sortedby=price, collapse=tag), "h b l c e d")
+        check(dict(sortedby=price, collapse=tag, collapse_order=rating),
+              "h b l i k d")
+
+
+def test_collapse_order_nocolumn():
+    from whoosh import sorting
+
+    schema = fields.Schema(id=fields.STORED,
+                           price=fields.NUMERIC(),
+                           rating=fields.NUMERIC(),
+                           tag=fields.ID())
     ix = RamStorage().create_index(schema)
     with ix.writer() as w:
         w.add_document(id="a", price=10, rating=1, tag=u("x"))

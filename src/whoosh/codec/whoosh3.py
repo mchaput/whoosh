@@ -26,7 +26,7 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 """
-This module implements a "codec" for writing/reading Whoosh 3 indexes.
+This module implements a "codec" for writing/reading Whoosh X indexes.
 """
 
 import struct

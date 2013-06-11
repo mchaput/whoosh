@@ -142,7 +142,7 @@ class PerDocumentWriter(object):
 
     @abstractmethod
     def add_column_value(self, fieldname, columnobj, value):
-        raise NotImplementedError
+        raise NotImplementedError("Codec does not implement writing columns")
 
     @abstractmethod
     def add_vector_items(self, fieldname, fieldobj, items):

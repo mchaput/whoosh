@@ -547,6 +547,7 @@ def test_special_spelled_field():
 def test_plaintext_codec():
     pytest.importorskip("ast")
     from whoosh.codec.plaintext import PlainTextCodec
+    from whoosh.codec.whoosh3 import W3Codec
 
     ana = analysis.StemmingAnalyzer()
     schema = fields.Schema(a=fields.TEXT(vector=True, sortable=True),
@@ -556,7 +557,7 @@ def test_plaintext_codec():
 
     st = RamStorage()
     ix = st.create_index(schema)
-    with ix.writer() as w:
+    with ix.writer(codec=W3Codec()) as w:
         w.add_document(a=u("alfa bravo charlie"), b="hello", c=100,
                        d=u("quelling whining echoing"))
         w.add_document(a=u("bravo charlie delta"), b=1000, c=200,
@@ -648,6 +649,7 @@ def test_memory_codec():
     c_values = [cfield.from_bytes(t) for t in c_sortables]
     assert c_values, [-200, -100, 100, 200, 300]
 
+    assert reader.has_column("c")
     c_values = list(reader.column_reader("c"))
     assert c_values == [100, 200, 300, -100, -200]
 

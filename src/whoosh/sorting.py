@@ -196,21 +196,23 @@ class FieldFacet(FacetType):
         fieldname = self.fieldname
         fieldobj = global_searcher.schema[fieldname]
 
-        # If we're grouping with allow_overlap=True, all we can use is
-        # OverlappingCategorizer
         if self.allow_overlap:
+            # If we're grouping with allow_overlap=True, all we can use is
+            # OverlappingCategorizer
             c = OverlappingCategorizer(global_searcher, fieldname)
         else:
+            # Check if the field has a real column and if it's reversible
+            reversible = False
             if global_searcher.reader().has_column(fieldname):
-                coltype = fieldobj.column_type
-                if coltype.reversible or not self.reverse:
-                    c = ColumnCategorizer(global_searcher, fieldname,
-                                          self.reverse)
-                else:
-                    c = ReversedColumnCategorizer(global_searcher, fieldname)
+                reversible = fieldobj.column_type.reversible
+
+            # If the facet is reversed and the column isn't reversible, we have
+            # to use a ReversedColumnCategorizer
+            if self.reverse and not reversible:
+                c = ReversedColumnCategorizer(global_searcher, fieldname)
             else:
-                c = PostingCategorizer(global_searcher, fieldname,
-                                            self.reverse)
+                c = ColumnCategorizer(global_searcher, fieldname, self.reverse)
+
         return c
 
 
@@ -255,58 +257,6 @@ class ReversedColumnCategorizer(ColumnCategorizer):
         # Re-reverse the key to get the index into _values
         key = self._values[0 - key]
         return ColumnCategorizer.key_to_name(self, key)
-
-
-class PostingCategorizer(Categorizer):
-    """Categorizer for fields that don't store column values. This is very
-    inefficient. Instead of relying on this categorizer you should plan for
-    which fields you'll want to sort on and set ``sortable=True`` in their
-    field type.
-
-    This object builds an array caching the order of all documents according to
-    the field, then uses the cached order as a numeric key. This is useful when
-    a field cache is not available, and also for reversed fields (since field
-    cache keys for non- numeric fields are arbitrary data, it's not possible to
-    "negate" them to reverse the sort order).
-    """
-
-    def __init__(self, global_searcher, fieldname, reverse):
-        # Cache the relative positions of all docs with the given field
-        # across the entire index
-        reader = global_searcher.reader()
-        dc = reader.doc_count_all()
-        self._fieldobj = global_searcher.schema[fieldname]
-        from_bytes = self._fieldobj.from_bytes
-
-        self.values = []
-        self.array = array("i", [dc + 1] * dc)
-
-        btexts = self._fieldobj.sortable_terms(reader, fieldname)
-        for i, btext in enumerate(btexts):
-            self.values.append(from_bytes(btext))
-            if reverse:
-                i = dc - i
-
-            # Get global docids from global reader
-            postings = reader.postings(fieldname, btext)
-            for docid in postings.all_ids():
-                self.array[docid] = i
-
-        if reverse:
-            self.values.reverse()
-
-    def set_searcher(self, segment_searcher, docoffset):
-        self._searcher = segment_searcher
-        self.docoffset = docoffset
-
-    def key_for(self, matcher, segment_docnum):
-        global_docnum = self.docoffset + segment_docnum
-        return self.array[global_docnum]
-
-    def key_to_name(self, key):
-        if key >= len(self.values):
-            return None
-        return self.values[key]
 
 
 class OverlappingCategorizer(Categorizer):
