@@ -34,8 +34,6 @@ import os.path, re, sys
 from time import time, sleep
 
 from whoosh import __version__
-from whoosh.compat import xrange
-from whoosh.filedb.structfile import ChecksumFile
 from whoosh.legacy import toc_loaders
 from whoosh.compat import pickle, string_type
 from whoosh.fields import ensure_schema
@@ -613,15 +611,24 @@ class TOC(object):
         toc.write(storage, indexname)
 
     @classmethod
-    def _read_preamble(cls, stream):
-        # Check that the number of bytes per data type are the same on this
-        # platform as where the index was created, otherwise it'll be crazy
+    def read(cls, storage, indexname, gen=None, schema=None):
+        if gen is None:
+            gen = cls._latest_generation(storage, indexname)
+            if gen < 0:
+                raise EmptyIndexError("Index %r does not exist in %r"
+                                      % (indexname, storage))
+
+        # Read the content of this index from the .toc file.
+        tocfilename = cls._filename(indexname, gen)
+        stream = storage.open_file(tocfilename)
+
         def check_size(name, target):
             sz = stream.read_varint()
             if sz != target:
                 raise IndexError("Index was created on different architecture:"
                                  " saved %s = %s, this computer = %s"
                                  % (name, sz, target))
+
         check_size("int", _INT_SIZE)
         check_size("long", _LONG_SIZE)
         check_size("float", _FLOAT_SIZE)
@@ -629,16 +636,45 @@ class TOC(object):
         if not stream.read_int() == -12345:
             raise IndexError("Number misread: byte order problem")
 
-        # Index format version
-        toc_version = stream.read_int()
-        # Whoosh release version, e.g. (2, 4, 1)
+        version = stream.read_int()
         release = (stream.read_varint(), stream.read_varint(),
                    stream.read_varint())
 
-        return toc_version, release
+        if version != _CURRENT_TOC_VERSION:
+            if version in toc_loaders:
+                loader = toc_loaders[version]
+                schema, segments = loader(stream, gen, schema, version)
+            else:
+                raise IndexVersionError("Can't read format %s" % version,
+                                        version)
+        else:
+            # If the user supplied a schema object with the constructor, don't
+            # load the pickled schema from the saved index.
+            if schema:
+                stream.skip_string()
+            else:
+                schema = pickle.loads(stream.read_string())
+            schema = ensure_schema(schema)
 
-    @classmethod
-    def _write_preamble(cls, stream):
+            # Generation
+            index_gen = stream.read_int()
+            assert gen == index_gen
+
+            _ = stream.read_int()  # Unused
+            segments = stream.read_pickle()
+
+        stream.close()
+        return cls(schema, segments, gen, version=version, release=release)
+
+    def write(self, storage, indexname):
+        schema = ensure_schema(self.schema)
+        schema.clean()
+
+        # Use a temporary file for atomic write.
+        tocfilename = self._filename(indexname, self.generation)
+        tempfilename = '%s.%s' % (tocfilename, time())
+        stream = storage.create_file(tempfilename)
+
         stream.write_varint(_INT_SIZE)
         stream.write_varint(_LONG_SIZE)
         stream.write_varint(_FLOAT_SIZE)
@@ -648,78 +684,6 @@ class TOC(object):
         for num in __version__[:3]:
             stream.write_varint(num)
 
-    @classmethod
-    def read(cls, storage, indexname, gen=None, schema=None):
-        if gen is None:
-            gen = cls._latest_generation(storage, indexname)
-            if gen < 0:
-                raise EmptyIndexError("Index %r does not exist in %r"
-                                      % (indexname, storage))
-        tocfilename = cls._filename(indexname, gen)
-        stream = storage.open_file(tocfilename)
-        stream = ChecksumFile(stream)
-
-        # Do general sanity checks at the beginning and read the version
-        # numbers
-        toc_version, release = cls._read_preamble(stream)
-
-        if toc_version != _CURRENT_TOC_VERSION:
-            # If there's a backwards-compatible loader function for this
-            # version, use it to load the rest of the TOC
-            if toc_version in toc_loaders:
-                loader = toc_loaders[toc_version]
-                schema, segments = loader(stream, gen, schema, toc_version)
-            else:
-                # Otherwise, raise an error
-                raise IndexVersionError("Can't read format %s" % toc_version,
-                                        toc_version)
-        else:
-            loader = cls._read_info
-            schema, segments = loader(stream, gen, schema, toc_version)
-            file_check = stream.checksum()
-            orig_check = stream.read_uint()
-            if file_check != orig_check:
-                raise Exception("TOC checksum does not match %d != %d"
-                                % (file_check, orig_check))
-
-        stream.close()
-        return cls(schema, segments, gen, version=toc_version, release=release)
-
-    @classmethod
-    def _read_info(cls, stream, gen, schema, version):
-        # Read the schema and segments from the TOC file
-
-        # Read the pickled schema bytes
-        pick = stream.read_string()
-        # If the user passed a schema, use it, otherwise unpickle the schema
-        # we just read
-        if not schema:
-            schema = pickle.loads(pick)
-
-        # Read the list of segments
-        numsegments = stream.read_varint()
-        segments = []
-        for _ in xrange(numsegments):
-            segtype = stream.read_string()  # @UnusedVariable
-            segment = pickle.loads(stream.read_string())
-            segments.append(segment)
-
-        return schema, segments
-
-    def write(self, storage, indexname):
-        schema = ensure_schema(self.schema)
-        schema.clean()
-
-        # Use a temporary file for atomic write
-        tocfilename = self._filename(indexname, self.generation)
-        tempfilename = '%s.%s' % (tocfilename, time())
-        stream = storage.create_file(tempfilename)
-        stream = ChecksumFile(stream)
-
-        # Write the sanity checks and version numbers
-        self._write_preamble(stream)
-
-        # Write pickles as strings to allow them to be skipped
         try:
             stream.write_string(pickle.dumps(schema, -1))
         except pickle.PicklingError:
@@ -729,22 +693,15 @@ class TOC(object):
                     pickle.dumps(field)
                 except pickle.PicklingError:
                     e = sys.exc_info()[1]
-                    raise pickle.PicklingError("%s %s=%r"
-                                               % (e, fieldname, field))
+                    raise pickle.PicklingError("%s %s=%r" % (e, fieldname, field))
             # Otherwise, re-raise the original exception
             raise
 
-        # Write the list of segments
-        stream.write_varint(len(self.segments))
-        for segment in self.segments:
-            # Write the segment's module and class name before the pickle to
-            # possibly allow later versions to load the segment differently
-            # based on the class (for backwards compatibility)
-            segtype = segment.__class__
-            typename = "%s.%s" % (segtype.__module__, segtype.__name__)
-            stream.write_string(typename.encode("latin1"))
-            stream.write_string(pickle.dumps(segment, -1))
-
-        stream.write_uint(stream.checksum())
+        stream.write_int(self.generation)
+        stream.write_int(0)  # Unused
+        stream.write_pickle(self.segments)
         stream.close()
+
+        # Rename temporary file to the proper filename
         storage.rename_file(tempfilename, tocfilename, safe=True)
+
