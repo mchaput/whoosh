@@ -55,7 +55,7 @@ class CombinationMatcher(mcore.Matcher):
 
 
 class PreloadedUnionMatcher(CombinationMatcher):
-    """Instead of Instead of marching the sub-matchers along in parallel, this
+    """Instead of marching the sub-matchers along in parallel, this
     matcher pre-reads the scores for EVERY MATCHING DOCUMENT, trading memory
     for speed.
 
@@ -141,6 +141,10 @@ class PreloadedUnionMatcher(CombinationMatcher):
 
         self._docnum = place + offset
         return skipped
+
+    def supports(self, astype):
+        # This matcher doesn't support any posting values
+        return False
 
     def all_ids(self):
         a = self._a
@@ -231,6 +235,10 @@ class ArrayUnionMatcher(CombinationMatcher):
             self._read_part()
         else:
             self._docnum = docnum
+
+    def supports(self, astype):
+        # This matcher doesn't support any posting values
+        return False
 
     def is_active(self):
         return self._docnum < self._doccount

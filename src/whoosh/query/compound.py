@@ -95,17 +95,23 @@ class CompoundQuery(qcore.Query):
                 return f
 
     def estimate_size(self, ixreader):
-        return sum(q.estimate_size(ixreader) for q in self.subqueries)
+        est = sum(q.estimate_size(ixreader) for q in self.subqueries)
+        return min(est, ixreader.doc_count())
 
     def estimate_min_size(self, ixreader):
         from whoosh.query import Not
 
         subs = self.subqueries
-        for sub in subs:
-            if isinstance(sub, Not):
-                return 0
-
-        return min(q.estimate_min_size(ixreader) for q in subs)
+        qs = [(q, q.estimate_min_size(ixreader)) for q in subs
+              if not isinstance(q, Not)]
+        pos = [minsize for q, minsize in qs if minsize > 0]
+        if pos:
+            neg = [q.estimate_size(ixreader) for q in subs
+                   if isinstance(q, Not)]
+            size = min(pos) - sum(neg)
+            if size > 0:
+                return size
+        return 0
 
     def normalize(self):
         from whoosh.query import Every, TermRange, NumericRange
@@ -213,6 +219,7 @@ class CompoundQuery(qcore.Query):
 
         # Create a matcher from the list of subqueries
         subms = [q.matcher(searcher, context) for q in subs]
+
         if len(subms) == 1:
             m = subms[0]
         elif q_weight_fn is None:
@@ -271,7 +278,14 @@ class Or(CompoundQuery):
     # This is used by the superclass's __unicode__ method.
     JOINT = " OR "
     intersect_merge = False
-    binary_matcher = False
+    TOO_MANY_CLAUSES = 1024
+
+    # For debugging: set the array_type property to control matcher selection
+    AUTO_MATCHER = 0  # Use automatic heuristics to choose matcher
+    DEFAULT_MATCHER = 1  # Use a binary tree of UnionMatchers
+    SPLIT_MATCHER = 2  # Use a different strategy for short and long queries
+    ARRAY_MATCHER = 3  # Use a matcher that pre-loads docnums and scores
+    matcher_type = AUTO_MATCHER
 
     def __init__(self, subqueries, boost=1.0, minmatch=0, scale=None):
         """
@@ -315,46 +329,122 @@ class Or(CompoundQuery):
 
     def _matcher(self, subs, searcher, context):
         needs_current = context.needs_current if context else True
-        scored = context.weighting is not None if context else True
+        weighting = context.weighting if context else None
+        matcher_type = self.matcher_type
 
-        # A binary tree of UnionMatchers is usually slower than
-        # ArrayUnionMatcher, but in certain circumstances the binary tree is
-        # necessary
-        usebin = (self.binary_matcher
-                  or self.scale
-                  or needs_current
-                  or len(subs) <= 2)
-
-        if usebin:
-            # Make a binary tree of UnionMatcher objects
-            r = searcher.reader()
-            q_weight_fn = lambda q: q.estimate_size(r)
-            m = self._tree_matcher(subs, matching.UnionMatcher, searcher,
-                                   context, q_weight_fn)
-        else:
-            # Get submatchers
-            ms = [subq.matcher(searcher, context) for subq in subs]
-            # Remove null matchers
-            ms = [m for m in ms if m.is_active()]
-            if not ms:
-                return matching.NullMatcher()
-
-            doccount = searcher.doc_count_all()
-            # Hackish optimization: if all the sub-matchers are leaf matchers,
-            # preload all scores for speed
-            if all(m.is_leaf() for m in ms):
-                m = matching.PreloadedUnionMatcher(ms, doccount,
-                                                   boost=self.boost,
-                                                   scored=scored)
+        if matcher_type == self.AUTO_MATCHER:
+            dc = searcher.doc_count_all()
+            if (len(subs) < self.TOO_MANY_CLAUSES
+                and (needs_current
+                     or self.scale
+                     or len(subs) == 2
+                     or dc > 5000)):
+                # If the parent matcher needs the current match, or there's just
+                # two sub-matchers, use the standard binary tree of Unions
+                matcher_type = self.DEFAULT_MATCHER
             else:
-                m = matching.ArrayUnionMatcher(ms, doccount, boost=self.boost,
-                                               scored=scored)
+                # For small indexes, or too many clauses, just preload all
+                # matches
+                matcher_type = self.ARRAY_MATCHER
 
-        # If a scaling factor was given, wrap the matcher in a CoordMatcher
-        # to alter scores based on term coordination
+        if matcher_type == self.DEFAULT_MATCHER:
+            # Implementation of Or that creates a binary tree of Union matchers
+            cls = DefaultOr
+        elif matcher_type == self.SPLIT_MATCHER:
+            # Hybrid of pre-loading small queries and a binary tree of union
+            # matchers for big queries
+            cls = SplitOr
+        elif matcher_type == self.ARRAY_MATCHER:
+            # Implementation that pre-loads docnums and scores into an array
+            cls = PreloadedOr
+        else:
+            raise ValueError("Unknown matcher_type %r" % self.matcher_type)
+
+        return cls(subs, boost=self.boost, minmatch=self.minmatch,
+                    scale=self.scale).matcher(searcher, context)
+
+
+class DefaultOr(Or):
+    JOINT = " dOR "
+
+    def _matcher(self, subs, searcher, context):
+        reader = searcher.reader()
+        q_weight_fn = lambda q: q.estimate_size(reader)
+        m = self._tree_matcher(subs, matching.UnionMatcher, searcher, context,
+                               q_weight_fn)
+
+        # If a scaling factor was given, wrap the matcher in a CoordMatcher to
+        # alter scores based on term coordination
         if self.scale and any(m.term_matchers()):
             m = matching.CoordMatcher(m, scale=self.scale)
+
         return m
+
+
+class SplitOr(Or):
+    JOINT = " sOr "
+    SPLIT_DOC_LIMIT = 8000
+
+    def matcher(self, searcher, context=None):
+        from whoosh import collectors
+
+        # Get the subqueries
+        subs = self.subqueries
+        if not subs:
+            return matching.NullMatcher()
+        elif len(subs) == 1:
+            return subs[0].matcher(searcher, context)
+
+        # Sort the subqueries into "small" and "big" queries based on their
+        # estimated size. This works best for term queries.
+        reader = searcher.reader()
+        smallqs = []
+        bigqs = []
+        for q in subs:
+            size = q.estimate_size(reader)
+            if size <= self.SPLIT_DOC_LIMIT:
+                smallqs.append(q)
+            else:
+                bigqs.append(q)
+
+        # Build a pre-scored matcher for the small queries
+        minscore = 0
+        smallmatcher = None
+        if smallqs:
+            smallmatcher = DefaultOr(smallqs).matcher(searcher, context)
+            smallmatcher = matching.ArrayMatcher(smallmatcher, context.limit)
+            minscore = smallmatcher.limit_quality()
+        if bigqs:
+            # Get a matcher for the big queries
+            m = DefaultOr(bigqs).matcher(searcher, context)
+            # Add the prescored matcher for the small queries
+            if smallmatcher:
+                m = matching.UnionMatcher(m, smallmatcher)
+                # Set the minimum score based on the prescored matcher
+                m.set_min_quality(minscore)
+        elif smallmatcher:
+            # If there are no big queries, just return the prescored matcher
+            m = smallmatcher
+        else:
+            m = matching.NullMatcher()
+
+        return m
+
+
+class PreloadedOr(Or):
+    JOINT = " pOR "
+
+    def _matcher(self, subs, searcher, context):
+        if context:
+            scored = context.weighting is not None
+        else:
+            scored = True
+
+        ms = [sub.matcher(searcher, context) for sub in subs]
+        doccount = searcher.doc_count_all()
+        am = matching.ArrayUnionMatcher(ms, doccount, boost=self.boost,
+                                        scored=scored)
+        return am
 
 
 class DisjunctionMax(CompoundQuery):

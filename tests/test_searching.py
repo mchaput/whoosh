@@ -1322,25 +1322,22 @@ def test_pos_scorer():
     assert [hit["id"] for hit in r] == [4, 2, 0, 1, 5, 3]
 
 
-def test_too_many_prefix_positions():
-    from whoosh import matching
-
-    schema = fields.Schema(id=fields.STORED, text=fields.TEXT)
-    ix = RamStorage().create_index(schema)
-    with ix.writer() as w:
-        for i in xrange(200):
-            text = u("a%s" % i)
-            w.add_document(id=i, text=text)
-
-    q = query.Prefix("text", u("a"))
-    q.TOO_MANY_CLAUSES = 100
-
-    with ix.searcher() as s:
-        m = q.matcher(s)
-        assert m.__class__ == matching.ListMatcher
-        assert m.supports("positions")
-        items = list(m.items_as("positions"))
-        assert [(i, [0]) for i in xrange(200)] == items
+# def test_too_many_prefix_positions():
+#     schema = fields.Schema(id=fields.STORED, text=fields.TEXT)
+#     ix = RamStorage().create_index(schema)
+#     with ix.writer() as w:
+#         for i in xrange(200):
+#             text = u("a%s" % i)
+#             w.add_document(id=i, text=text)
+#
+#     q = query.Prefix("text", u("a"))
+#     q.TOO_MANY_CLAUSES = 100
+#
+#     with ix.searcher() as s:
+#         m = q.matcher(s)
+#         assert m.supports("positions")
+#         items = list(m.items_as("positions"))
+#         assert [(i, [0]) for i in xrange(200)] == items
 
 
 def test_collapse():

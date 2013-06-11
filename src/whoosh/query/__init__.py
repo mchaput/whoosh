@@ -27,7 +27,7 @@
 
 from whoosh.query.qcore import *
 from whoosh.query.terms import *
-from whoosh.query.nary import *
+from whoosh.query.compound import *
 from whoosh.query.positional import *
 from whoosh.query.ranges import *
 from whoosh.query.wrappers import *

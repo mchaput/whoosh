@@ -121,7 +121,8 @@ def test_double_barrel_lru():
 
     result = [test(n) for n in (1, 2, 3, 4, 5, 4, 3, 2, 10, 1)]
     assert result == [2, 4, 6, 8, 10, 8, 6, 4, 20, 2]
-    assert test.cache_info() == (4, 6, 5, 6)
+    # hits, misses, maxsize and currsize
+    assert test.cache_info() == (4, 6, 5, 5)
     test.cache_clear()
     assert test.cache_info() == (0, 0, 5, 0)
 
