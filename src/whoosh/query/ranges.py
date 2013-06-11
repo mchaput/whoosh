@@ -28,7 +28,7 @@
 from __future__ import division
 
 from whoosh.compat import b, u
-from whoosh.query import qcore, terms, nary, wrappers
+from whoosh.query import qcore, terms, compound, wrappers
 from whoosh.util.times import datetime_to_long
 
 
@@ -295,7 +295,7 @@ class NumericRange(RangeMixin, qcore.Query):
         if len(subqueries) == 1:
             q = subqueries[0]
         elif subqueries:
-            q = nary.Or(subqueries, boost=self.boost)
+            q = compound.Or(subqueries, boost=self.boost)
         else:
             return qcore.NullQuery
 

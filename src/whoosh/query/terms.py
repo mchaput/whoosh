@@ -26,7 +26,9 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import division
-import copy, fnmatch, re
+import copy
+import fnmatch
+import re
 from collections import defaultdict
 
 from whoosh import matching
@@ -174,7 +176,7 @@ class MultiTerm(qcore.Query):
                    for text in self._btexts(ixreader))
 
     def matcher(self, searcher, context=None):
-        from whoosh.query import Or, PreloadedOr
+        from whoosh.query import Or
         from whoosh.util import now
 
         fieldname = self.fieldname
@@ -188,17 +190,15 @@ class MultiTerm(qcore.Query):
         if len(qs) == 1:
             # If there's only one term, just use it
             m = qs[0].matcher(searcher, context)
-        elif constantscore:
-            # To tell the sub-query that score doesn't matter, set weighting
-            # to None
-            if context:
-                context = context.set(weighting=None)
-            t = now()
-            plo = PreloadedOr(qs, boost=self.boost)
-            print "b=", now() - t
-            m = plo.matcher(searcher, context)
-            print "c=", now() - t
         else:
+            if constantscore:
+                # To tell the sub-query that score doesn't matter, set weighting
+                # to None
+                if context:
+                    context = context.set(weighting=None)
+                else:
+                    from whoosh.searching import SearchContext
+                    context = SearchContext(weighting=None)
             # Or the terms together
             m = Or(qs, boost=self.boost).matcher(searcher, context)
         return m

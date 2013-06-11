@@ -144,6 +144,9 @@ class StructFile(object):
     def write_string2(self, s):
         self.write(pack_ushort(len(s)) + s)
 
+    def write_string4(self, s):
+        self.write(pack_int(len(s)) + s)
+
     def read_string(self):
         """Reads a string from the wrapped file.
         """
@@ -152,6 +155,20 @@ class StructFile(object):
     def read_string2(self):
         l = self.read_ushort()
         return self.read(l)
+
+    def read_string4(self):
+        l = self.read_int()
+        return self.read(l)
+
+    def get_string2(self, pos):
+        l = self.get_ushort(pos)
+        base = pos + _SHORT_SIZE
+        return self.get(base, l), base + l
+
+    def get_string4(self, pos):
+        l = self.get_int(pos)
+        base = pos + _INT_SIZE
+        return self.get(base, l), base + l
 
     def skip_string(self):
         l = self.read_varint()

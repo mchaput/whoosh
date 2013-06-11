@@ -31,10 +31,10 @@ import copy
 from whoosh import matching
 from whoosh.analysis import Token
 from whoosh.compat import u
-from whoosh.query import qcore, terms, nary
+from whoosh.query import qcore, terms, compound
 
 
-class Sequence(nary.CompoundQuery):
+class Sequence(compound.CompoundQuery):
     """Matches documents containing a list of sub-queries in adjacent
     positions.
 
@@ -58,7 +58,7 @@ class Sequence(nary.CompoundQuery):
             this query.
         """
 
-        nary.CompoundQuery.__init__(self, subqueries, boost=boost)
+        compound.CompoundQuery.__init__(self, subqueries, boost=boost)
         self.slop = slop
         self.ordered = ordered
 
@@ -85,8 +85,8 @@ class Sequence(nary.CompoundQuery):
                               self.slop, self.ordered, self.boost)
 
     def _and_query(self):
-        return nary.And([terms.Term(self.fieldname, word)
-                         for word in self.words])
+        return compound.And([terms.Term(self.fieldname, word)
+                             for word in self.words])
 
     def estimate_size(self, ixreader):
         return self._and_query().estimate_size(ixreader)
@@ -201,8 +201,8 @@ class Phrase(qcore.Query):
         return q
 
     def _and_query(self):
-        return nary.And([terms.Term(self.fieldname, word)
-                         for word in self.words])
+        return compound.And([terms.Term(self.fieldname, word)
+                             for word in self.words])
 
     def estimate_size(self, ixreader):
         return self._and_query().estimate_size(ixreader)

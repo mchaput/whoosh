@@ -106,6 +106,7 @@ def lru_cache(maxsize=100):
         def cache_clear():
             data.clear()
             lastused.clear()
+            stats[0] = stats[1] = 0
 
         wrapper.cache_info = cache_info
         wrapper.cache_clear = cache_clear

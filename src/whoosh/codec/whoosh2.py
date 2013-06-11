@@ -52,7 +52,7 @@ from whoosh.system import emptybytes
 from whoosh.system import pack_byte
 from whoosh.system import pack_ushort, unpack_ushort, pack_long, unpack_long
 
-from whoosh.fst import GraphWriter, GraphReader
+from whoosh.automata.fst import GraphWriter, GraphReader
 from whoosh.util.numeric import byte_to_length, length_to_byte
 from whoosh.util.numeric import to_sortable, from_sortable, NaN
 from whoosh.util.numlists import GrowableArray

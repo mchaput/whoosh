@@ -32,7 +32,8 @@ from math import log
 from bisect import bisect_left, bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
 
-from whoosh import columns, fst, scoring
+from whoosh import columns, scoring
+from whoosh.automata import fst
 from whoosh.compat import abstractmethod
 from whoosh.compat import xrange, zip_, next, iteritems
 from whoosh.filedb.filestore import OverlayStorage
