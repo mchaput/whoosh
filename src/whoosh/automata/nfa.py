@@ -290,99 +290,99 @@ def regex_limit(graph, mode, program, address):
             raise Exception("Don't know what to do with %r" % op)
 
 
-if __name__ == "__main__":
-    from whoosh import index, query
-    from whoosh.filedb.filestore import RamStorage
-    from whoosh.automata import fst
-    from whoosh.util.testing import timing
-
-    st = RamStorage()
-    gw = fst.GraphWriter(st.create_file("test"))
-    gw.start_field("test")
-    for key in ["aaaa", "aaab", "aabb", "abbb", "babb", "bbab", "bbba"]:
-        gw.insert(key)
-    gw.close()
-    gr = fst.GraphReader(st.open_file("test"))
-
-    program = one_or_more([Lit("a")])
-    print program
-    program = fixup(program)
-    print program
-    print list(run(gr, program, gr.root("test")))
-
-    ix = index.open_dir("e:/dev/src/houdini/help/index")
-    r = ix.reader()
-    gr = r._get_graph()
-
-#    program = fixup([Any(), Any(), Any(), Any(), Any()])
-#    program = fixup(concat(zero_or_more([Any()]), [Char("/")]))
-#    with timing():
-#        x = list(run(gr, program, gr.root("path")))
-#    print len(x)
-
-    q = query.Regex("path", "^.[abc].*/$")
-    with timing():
-        y = list(q._btexts(r))
-    print len(y)
-    print y[0], y[-1]
-
-    pr = [Any()] + alt([Lit("c")], alt([Lit("b")], [Lit("a")])) + zero_or_more([Any()]) + [Lit("/")]
-    program = fixup(pr)
-#    with timing():
-#        x = list(run(gr, program, gr.root("path")))
-#    print len(x), x
-
-    with timing():
-        print "lo=", regex_limit(gr, LO, program, gr.root("path"))
-        print "hi=", regex_limit(gr, HI, program, gr.root("path"))
-
-
-
-#int
-#backtrackingvm(Inst *prog, char *input)
-#{
-#    enum { MAXTHREAD = 1000 };
-#    Thread ready[MAXTHREAD];
-#    int nready;
-#    Inst *pc;
-#    char *sp;
+# if __name__ == "__main__":
+#     from whoosh import index, query
+#     from whoosh.filedb.filestore import RamStorage
+#     from whoosh.automata import fst
+#     from whoosh.util.testing import timing
 #
-#    /* queue initial thread */
-#    ready[0] = thread(prog, input);
-#    nready = 1;
+#     st = RamStorage()
+#     gw = fst.GraphWriter(st.create_file("test"))
+#     gw.start_field("test")
+#     for key in ["aaaa", "aaab", "aabb", "abbb", "babb", "bbab", "bbba"]:
+#         gw.insert(key)
+#     gw.close()
+#     gr = fst.GraphReader(st.open_file("test"))
 #
-#    /* run threads in stack order */
-#    while(nready > 0){
-#        --nready;  /* pop state for next thread to run */
-#        pc = ready[nready].pc;
-#        sp = ready[nready].sp;
-#        for(;;){
-#            switch(pc->opcode){
-#            case Char:
-#                if(*sp != pc->c)
-#                    goto Dead;
-#                pc++;
-#                sp++;
-#                continue;
-#            case Match:
-#                return 1;
-#            case Jmp:
-#                pc = pc->x;
-#                continue;
-#            case Split:
-#                if(nready >= MAXTHREAD){
-#                    fprintf(stderr, "regexp overflow");
-#                    return -1;
-#                }
-#                /* queue new thread */
-#                ready[nready++] = thread(pc->y, sp);
-#                pc = pc->x;  /* continue current thread */
-#                continue;
-#            }
-#        }
-#    Dead:;
-#    }
-#    return 0;
-#}
-
-
+#     program = one_or_more([Lit("a")])
+#     print program
+#     program = fixup(program)
+#     print program
+#     print list(run(gr, program, gr.root("test")))
+#
+#     ix = index.open_dir("e:/dev/src/houdini/help/index")
+#     r = ix.reader()
+#     gr = r._get_graph()
+#
+# #    program = fixup([Any(), Any(), Any(), Any(), Any()])
+# #    program = fixup(concat(zero_or_more([Any()]), [Char("/")]))
+# #    with timing():
+# #        x = list(run(gr, program, gr.root("path")))
+# #    print len(x)
+#
+#     q = query.Regex("path", "^.[abc].*/$")
+#     with timing():
+#         y = list(q._btexts(r))
+#     print len(y)
+#     print y[0], y[-1]
+#
+#     pr = [Any()] + alt([Lit("c")], alt([Lit("b")], [Lit("a")])) + zero_or_more([Any()]) + [Lit("/")]
+#     program = fixup(pr)
+# #    with timing():
+# #        x = list(run(gr, program, gr.root("path")))
+# #    print len(x), x
+#
+#     with timing():
+#         print "lo=", regex_limit(gr, LO, program, gr.root("path"))
+#         print "hi=", regex_limit(gr, HI, program, gr.root("path"))
+#
+#
+#
+# #int
+# #backtrackingvm(Inst *prog, char *input)
+# #{
+# #    enum { MAXTHREAD = 1000 };
+# #    Thread ready[MAXTHREAD];
+# #    int nready;
+# #    Inst *pc;
+# #    char *sp;
+# #
+# #    /* queue initial thread */
+# #    ready[0] = thread(prog, input);
+# #    nready = 1;
+# #
+# #    /* run threads in stack order */
+# #    while(nready > 0){
+# #        --nready;  /* pop state for next thread to run */
+# #        pc = ready[nready].pc;
+# #        sp = ready[nready].sp;
+# #        for(;;){
+# #            switch(pc->opcode){
+# #            case Char:
+# #                if(*sp != pc->c)
+# #                    goto Dead;
+# #                pc++;
+# #                sp++;
+# #                continue;
+# #            case Match:
+# #                return 1;
+# #            case Jmp:
+# #                pc = pc->x;
+# #                continue;
+# #            case Split:
+# #                if(nready >= MAXTHREAD){
+# #                    fprintf(stderr, "regexp overflow");
+# #                    return -1;
+# #                }
+# #                /* queue new thread */
+# #                ready[nready++] = thread(pc->y, sp);
+# #                pc = pc->x;  /* continue current thread */
+# #                continue;
+# #            }
+# #        }
+# #    Dead:;
+# #    }
+# #    return 0;
+# #}
+#
+#
