@@ -33,7 +33,7 @@ import tempfile
 from contextlib import contextmanager
 
 from whoosh.filedb.filestore import FileStorage
-from whoosh.util import random_name
+from whoosh.util import now, random_name
 
 
 class TempDir(object):
@@ -127,4 +127,4 @@ def timing(name=None):
     t = now()
     yield
     t = now() - t
-    print "%s: %0.06f s" % (name or '', t)
+    print("%s: %0.06f s" % (name or '', t))

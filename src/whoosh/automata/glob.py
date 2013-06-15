@@ -40,6 +40,7 @@ _QUEST = 3
 _RANGE = 4
 _END = 5
 
+
 def parse_glob(pattern, _glob_multi=b("*"), _glob_single=b("?"),
                _glob_range1=b("["), _glob_range2=b("]"),
                _glob_range_not=b("!")):
@@ -244,38 +245,38 @@ def glob_vacuum_limit(mode, pattern):
     return emptybytes.join(output)
 
 
-if __name__ == "__main__":
-    from whoosh import index, query
-    from whoosh.filedb.filestore import RamStorage
-    from whoosh.automata import fst
-    from whoosh.util.testing import timing
-
-    st = RamStorage()
-    gw = fst.GraphWriter(st.create_file("test"))
-    gw.start_field("test")
-    for key in ["aaaa", "aaab", "aabb", "abbb", "babb", "bbab", "bbba"]:
-        gw.insert(key)
-    gw.close()
-    gr = fst.GraphReader(st.open_file("test"))
-
-    print glob_graph_limit(gr, LO, "bbb*", gr._root)
-    print glob_graph_limit(gr, HI, "bbb*", gr._root)
-
-    ix = index.open_dir("e:/dev/src/houdini/help/index")
-    r = ix.reader()
-    gr = r._get_graph()
-    p = "?[abc]*"
-    p = "*/"
-
-    with timing():
-        q = query.Wildcard("path", p)
-        x = list(q._btexts(r))
-
-    with timing():
-        prog = parse_glob(p)
-        lo = glob_graph_limit(gr, LO, prog, address=gr.root("path"))
-        hi = glob_graph_limit(gr, HI, prog, address=gr.root("path"))
-        q = query.TermRange("path", lo, hi)
-        y = list(q._btexts(r))
-
-
+# if __name__ == "__main__":
+#     from whoosh import index, query
+#     from whoosh.filedb.filestore import RamStorage
+#     from whoosh.automata import fst
+#     from whoosh.util.testing import timing
+#
+#     st = RamStorage()
+#     gw = fst.GraphWriter(st.create_file("test"))
+#     gw.start_field("test")
+#     for key in ["aaaa", "aaab", "aabb", "abbb", "babb", "bbab", "bbba"]:
+#         gw.insert(key)
+#     gw.close()
+#     gr = fst.GraphReader(st.open_file("test"))
+#
+#     print glob_graph_limit(gr, LO, "bbb*", gr._root)
+#     print glob_graph_limit(gr, HI, "bbb*", gr._root)
+#
+#     ix = index.open_dir("e:/dev/src/houdini/help/index")
+#     r = ix.reader()
+#     gr = r._get_graph()
+#     p = "?[abc]*"
+#     p = "*/"
+#
+#     with timing():
+#         q = query.Wildcard("path", p)
+#         x = list(q._btexts(r))
+#
+#     with timing():
+#         prog = parse_glob(p)
+#         lo = glob_graph_limit(gr, LO, prog, address=gr.root("path"))
+#         hi = glob_graph_limit(gr, HI, prog, address=gr.root("path"))
+#         q = query.TermRange("path", lo, hi)
+#         y = list(q._btexts(r))
+#
+#
