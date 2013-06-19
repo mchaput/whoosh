@@ -288,7 +288,7 @@ class FieldType(object):
         The default behavior is to call the field analyzer with the keyword
         argument ``no_morph=True``, which should make the analyzer skip any
         morphological transformation filters (e.g. stemming) to preserve the
-        original form of the words. Excotic field types may need to override
+        original form of the words. Exotic field types may need to override
         this behavior.
         """
 
