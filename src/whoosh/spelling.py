@@ -31,7 +31,8 @@
 from collections import defaultdict
 from heapq import heappush, heapreplace
 
-from whoosh import analysis, fields, fst, highlight, query, scoring
+from whoosh import analysis, fields, highlight, query, scoring
+from whoosh.automata import fst
 from whoosh.compat import xrange, string_type
 from whoosh.support.levenshtein import distance
 from whoosh.util.text import utf8encode

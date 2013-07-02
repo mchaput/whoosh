@@ -5,7 +5,7 @@ import pytest
 import random
 from array import array
 
-from whoosh import fst
+from whoosh.automata import fst
 from whoosh.compat import b, u, xrange, array_tobytes
 from whoosh.filedb.filestore import RamStorage
 from whoosh.util.testing import TempStorage
