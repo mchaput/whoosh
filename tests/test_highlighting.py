@@ -247,4 +247,4 @@ def test_issue324():
     result = highlight.highlight(u("Indexed!\n1"), [u("index")], sa,
                                  fragmenter=highlight.ContextFragmenter(),
                                  formatter=highlight.UppercaseFormatter())
-    assert result == "INDEXED!"
+    assert result == "INDEXED!\n1"

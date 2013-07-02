@@ -122,6 +122,8 @@ class Searcher(object):
         self._closereader = closereader
         self._ix = fromindex
         self._doccount = self.ixreader.doc_count_all()
+        # Cache for PostingCategorizer objects (supports fields without columns)
+        self._field_caches = {}
 
         if parent:
             self.parent = weakref.ref(parent)

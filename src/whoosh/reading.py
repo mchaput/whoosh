@@ -601,7 +601,6 @@ class SegmentReader(IndexReader):
             self._storage = OverlayStorage(files, storage)
         else:
             self._storage = storage
-        self._column_cache = {}
 
         # Get subreaders from codec
         self._codec = codec if codec else segment.codec()
@@ -822,22 +821,16 @@ class SegmentReader(IndexReader):
 
     def column_reader(self, fieldname, column=None, translate=True):
         fieldobj = self.schema[fieldname]
-        if self.has_column(fieldname):
-            ctype = column or fieldobj.column_type
-            creader = self._perdoc.column_reader(fieldname, ctype)
-            if translate:
-                # Wrap the column in a Translator to give the caller
-                # nice values instead of sortable representations
-                fcv = fieldobj.from_column_value
-                creader = columns.TranslatingColumnReader(creader, fcv)
-        else:
-            # If the field wasn't indexed with a column, create one from
-            # postings and cache it
-            if fieldname in self._column_cache:
-                creader = self._column_cache[fieldname]
-            else:
-                creader = columns.PostingColumnReader(self, fieldname)
-                self._column_cache[fieldname] = creader
+        if not self.has_column(fieldname):
+            raise Exception("No column for field %r" % fieldname)
+
+        ctype = column or fieldobj.column_type
+        creader = self._perdoc.column_reader(fieldname, ctype)
+        if translate:
+            # Wrap the column in a Translator to give the caller
+            # nice values instead of sortable representations
+            fcv = fieldobj.from_column_value
+            creader = columns.TranslatingColumnReader(creader, fcv)
 
         return creader
 
@@ -1172,7 +1165,7 @@ class MultiReader(IndexReader):
         return any(r.has_word_graph(fieldname) for r in self.readers)
 
     def word_graph(self, fieldname):
-        from whoosh.fst import UnionNode
+        from whoosh.automata.fst import UnionNode
         from whoosh.util import make_binary_tree
 
         if not self.has_word_graph(fieldname):
@@ -1198,17 +1191,18 @@ class MultiReader(IndexReader):
     def has_column(self, fieldname):
         return any(r.has_column(fieldname) for r in self.readers)
 
-    def column_reader(self, fieldname):
+    def column_reader(self, fieldname, translate=True):
         column = self.schema[fieldname].column_type
         if not column:
             raise Exception("Field %r has no column type" % (fieldname,))
+
         default = column.default_value()
         doccount = self.doc_count_all()
 
         creaders = []
         for r in self.readers:
             if r.has_column(fieldname):
-                creaders.append(r.column_reader(fieldname))
+                creaders.append(r.column_reader(fieldname, translate=translate))
             else:
                 creaders.append(columns.EmptyColumnReader(default, doccount))
 

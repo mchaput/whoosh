@@ -307,7 +307,12 @@ def test_missing_numeric_facet():
 
 
 def test_date_facet():
+    from whoosh import columns
+
     schema = fields.Schema(id=fields.STORED, date=fields.DATETIME)
+    dc = schema["date"].default_column()
+    assert isinstance(dc, columns.NumericColumn)
+
     ix = RamStorage().create_index(schema)
     w = ix.writer()
     d1 = datetime(2011, 7, 13)
@@ -721,9 +726,6 @@ def test_nocachefield_segments():
         q = query.TermRange("a", u("bravo"), u("k"))
         facet = sorting.FieldFacet("a", reverse=True)
 
-        cat = facet.categorizer(s)
-        assert cat.__class__ == sorting.PostingCategorizer
-
         r = s.search(q, sortedby=facet)
         assert [hit["a"] for hit in r] == ["juliet", "india", "foxtrot", "delta", "charlie", "bravo"]
 
@@ -805,13 +807,14 @@ def test_sort_text_field():
             facet.add_field("title", reverse=True)
 
             r = s.search(query.Every(), sortedby=facet)
-            assert [hit["title"] for hit in r] == ["Visual and Statistical Thinking",
-                                                   "Cognitive Style of Powerpoint",
-                                                   "Beautiful Evidence",
-                                                   "Visual Explanations",
-                                                   "Visual Display of Quantitative Information, The",
-                                                   "Envisioning Information",
-                                                   ]
+            target = ["Visual and Statistical Thinking",
+                      "Cognitive Style of Powerpoint",
+                      "Beautiful Evidence",
+                      "Visual Explanations",
+                      "Visual Display of Quantitative Information, The",
+                      "Envisioning Information",
+                      ]
+            assert [hit["title"] for hit in r] == target
 
     # Single segment
     ix = RamStorage().create_index(schema)
