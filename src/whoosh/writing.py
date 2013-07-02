@@ -1035,7 +1035,7 @@ def add_spelling(ix, fieldnames, commit=True):
         useful for debugging.
     """
 
-    from whoosh import fst
+    from whoosh.automata import fst
     from whoosh.reading import SegmentReader
 
     writer = ix.writer()
