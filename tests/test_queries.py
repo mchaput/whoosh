@@ -455,3 +455,25 @@ def test_or_nots3():
             r = " ".join([hit["title"] for hit in s.search(q)])
             assert r == "a1 a2 b1"
 
+
+def test_ornot_andnot():
+    schema = fields.Schema(id=fields.NUMERIC(stored=True), a=fields.KEYWORD())
+    st = RamStorage()
+    ix = st.create_index(schema)
+
+    with ix.writer() as w:
+        w.add_document(id=0, a=u("word1 word1"))
+        w.add_document(id=1, a=u("word1 word2"))
+        w.add_document(id=2, a=u("word1 foo"))
+        w.add_document(id=3, a=u("foo word2"))
+        w.add_document(id=4, a=u("foo bar"))
+
+    with ix.searcher() as s:
+        qp = qparser.QueryParser("a", ix.schema)
+        q1 = qp.parse(u("NOT word1 NOT word2"))
+        q2 = qp.parse(u("NOT (word1 OR word2)"))
+
+        r1 = [hit["id"] for hit in s.search(q1, sortedby="id")]
+        r2 = [hit["id"] for hit in s.search(q2, sortedby="id")]
+
+        assert r1 == r2 == [4]

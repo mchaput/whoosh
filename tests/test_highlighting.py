@@ -240,3 +240,11 @@ def test_highlight_ngrams():
         r.formatter = highlight.UppercaseFormatter()
         snippet = r[0].highlights("text")
         assert snippet == "MULTIPLICATIon and subtracTION are good"
+
+
+def test_issue324():
+    sa = analysis.StemmingAnalyzer()
+    result = highlight.highlight(u("Indexed!\n1"), [u("index")], sa,
+                                 fragmenter=highlight.ContextFragmenter(),
+                                 formatter=highlight.UppercaseFormatter())
+    assert result == "INDEXED!"

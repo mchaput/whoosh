@@ -25,6 +25,27 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+"""
+The API and implementation of columns may change in the next version of Whoosh!
+
+This module contains "Column" objects which you can use as the argument to a
+Field object's ``sortable=`` keyword argument. Each field defines a default
+column type for when the user specifies ``sortable=True`` (the object returned
+by the field's ``default_column()`` method).
+
+The default column type for most fields is ``VarBytesColumn``,
+although numeric and date fields use ``NumericColumn``. Expert users may use
+other field types that may be faster or more storage efficient based on the
+field contents. For example, if a field always contains one of a limited number
+of possible values, a ``RefBytesColumn`` will save space by only storing the
+values once. If a field's values are always a fixed length, the
+``FixedBytesColumn`` saves space by not storing the length of each value.
+
+A ``Column`` object basically exists to store configuration information and
+provides two important methods: ``writer()`` to return a ``ColumnWriter`` object
+and ``reader()`` to return a ``ColumnReader`` object.
+"""
+
 from __future__ import division, with_statement
 import struct, warnings
 from array import array

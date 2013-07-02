@@ -2,6 +2,51 @@
 Whoosh 2.x release notes
 ========================
 
+
+Whoosh 2.5
+==========
+
+* Whoosh 2.5 will read existing indexes, but segments created by 2.5 will not
+  be readable by older versions of Whoosh.
+
+* You should now specify ``sortable=True`` on fields that you plan on using to
+  sort search results.
+  Note that you can still sort on fields without specifying ``sortable=True``,
+  however the first sort will be slow as Whoosh caches a column in memory.
+
+  Instead of using field caches to speed up sorting, Whoosh now supports adding
+  a ``sortable=True`` keyword argument to fields. This makes Whoosh store a
+  sortable representation of the field's values in a "column" format
+  (associating a "key" value with each document). This is more robust,
+  efficient, and customizable than the old behavior.
+
+  Fields that use ``sortable=True`` can avoid specifying ``stored=True`` and the
+  field's value will still be available on ``Hit`` objects (the value will be
+  retrieved from the column instead of from the stored fields). This may
+  actually be faster for certain types of values.
+
+* Whoosh will now detect common types of OR queries and use optimized read-ahead
+  matchers to speed them up by several times.
+
+* Whoosh now includes pure-python implementations of the Snowball stemmers and
+  stop word lists for various languages adapted from NLTK. These are available
+  through the :class:`whoosh.analysis.LanguageAnalyzer` analyzer or through the
+  ``lang=`` keyword argument to the
+  :class:`~whoosh.fields.TEXT` field.
+
+* You can now use the
+  :meth:`whoosh.filedb.filestore.Storage.create()` and
+  :meth:`whoosh.filedb.filestore.Storage.destory()`
+  methods as a consistent API to set up and tear down different types of
+  storage.
+
+* Many bug fixes and speed improvements.
+
+* Switched unit tests to use ``py.test`` instead of ``nose``.
+
+* Removed obsolete ``SpellChecker`` class.
+
+
 Whoosh 2.4
 ==========
 
