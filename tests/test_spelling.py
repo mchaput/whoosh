@@ -1,7 +1,8 @@
 from __future__ import with_statement
 import gzip
 
-from whoosh import analysis, fields, fst, highlight, spelling
+from whoosh import analysis, fields, highlight, spelling
+from whoosh.automata import fst
 from whoosh.compat import b, u, permutations
 from whoosh.filedb.filestore import RamStorage
 from whoosh.qparser import QueryParser
