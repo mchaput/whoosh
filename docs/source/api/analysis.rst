@@ -16,6 +16,7 @@ Analyzers
 .. autoclass:: FancyAnalyzer
 .. autoclass:: NgramAnalyzer
 .. autoclass:: NgramWordAnalyzer
+.. autoclass:: LanguageAnalyzer
 
 
 Tokenizers
