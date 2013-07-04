@@ -41,8 +41,6 @@ Technical columns
 
 .. autoclass:: PickleColumn
 
-.. autoclass:: TranslatingColumn
-
 
 Experimental columns
 ====================
