@@ -16,17 +16,24 @@ Functions
 .. autofunction:: version
 
 
-Index class
-===========
+Base class
+==========
 
 .. autoclass:: Index
     :members:
 
 
+Implementation
+==============
+
+.. autoclass:: FileIndex
+
+
 Exceptions
 ==========
 
-.. autoexception:: EmptyIndexError
+.. autoexception:: LockError
+.. autoexception:: IndexError
 .. autoexception:: IndexVersionError
 .. autoexception:: OutOfDateError
-.. autoexception:: IndexError
+.. autoexception:: EmptyIndexError
