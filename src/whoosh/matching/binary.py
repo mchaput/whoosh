@@ -523,7 +523,7 @@ class IntersectionMatcher(AdditiveBiMatcher):
                 # quality when added to B
                 sk = a.skip_to_quality(minquality - bq)
                 skipped += sk
-                if not sk:
+                if not sk and a.is_active():
                     # The matcher couldn't skip ahead for some reason, so just
                     # advance and try again
                     a.next()
@@ -531,7 +531,7 @@ class IntersectionMatcher(AdditiveBiMatcher):
                 # And vice-versa
                 sk = b.skip_to_quality(minquality - aq)
                 skipped += sk
-                if not sk:
+                if not sk and b.is_active():
                     b.next()
 
             if not a.is_active() or not b.is_active():
