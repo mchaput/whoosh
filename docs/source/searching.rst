@@ -6,7 +6,7 @@ Once you've created an index and added documents to it, you can search for those
 documents.
 
 The ``Searcher`` object
-===================
+=======================
 
 To get a :class:`whoosh.searching.Searcher` object, call ``searcher()`` on your
 ``Index`` object::

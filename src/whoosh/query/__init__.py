@@ -33,3 +33,4 @@ from whoosh.query.ranges import *
 from whoosh.query.wrappers import *
 from whoosh.query.nested import *
 from whoosh.query.qcolumns import *
+from whoosh.query.spans import *
