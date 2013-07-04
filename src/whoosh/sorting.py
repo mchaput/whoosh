@@ -307,7 +307,7 @@ class OverlappingCategorizer(Categorizer):
         elif self._use_column:
             return self._creader[docid]
         else:
-            return self._lists[docid] or None
+            return self._lists[docid] or [None]
 
     def key_for(self, matcher, docid):
         if self._use_vectors:

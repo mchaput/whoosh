@@ -306,6 +306,25 @@ def test_missing_numeric_facet():
         assert r.groups("tag") == {None: [2, 4], 0: [3], 1: [0, 1]}
 
 
+def test_missing_overlap():
+    schema = fields.Schema(a=fields.NUMERIC(stored=True),
+                           b=fields.KEYWORD(stored=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(a=0, b=u("one two"))
+        w.add_document(a=1)
+        w.add_document(a=2, b=u("two three"))
+        w.add_document(a=3)
+        w.add_document(a=4, b=u("three four"))
+
+    with ix.searcher() as s:
+        facet = sorting.FieldFacet("b", allow_overlap=True)
+        r = s.search(query.Every(), groupedby=facet)
+        target = {"one": [0], "two": [0, 2], "three": [2, 4],"four": [4],
+                  None: [1, 3]}
+        assert r.groups() == target
+
+
 def test_date_facet():
     from whoosh import columns
 
