@@ -105,6 +105,14 @@ def OPTIMIZE(writer, segments):
     return []
 
 
+def CLEAR(writer, segments):
+    """This policy DELETES all existing segments and only writes the new
+    segment.
+    """
+
+    return []
+
+
 # Customized sorting pool for postings
 
 class PostingPool(SortingPool):
@@ -523,6 +531,7 @@ class SegmentWriter(IndexWriter):
 
         self.merge = True
         self.optimize = False
+        self.mergetype = None
 
     def __repr__(self):
         return "<%s %r>" % (self.__class__.__name__, self.newsegment)
@@ -785,6 +794,12 @@ class SegmentWriter(IndexWriter):
     # pieces to allow MpWriter to call them individually
 
     def _merge_segments(self, mergetype, optimize, merge):
+        # The writer supports two ways of setting mergetype/optimize/merge:
+        # as attributes or as keyword arguments to commit(). Originally there
+        # were just the keyword arguments, but then I added the ability to use
+        # the writer as a context manager using "with", so the user no longer
+        # explicitly called commit(), hence the attributes
+        mergetype = mergetype if mergetype is not None else self.mergetype
         optimize = optimize if optimize is not None else self.optimize
         merge = merge if merge is not None else self.merge
 

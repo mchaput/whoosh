@@ -4,7 +4,7 @@ import random, time, threading
 import pytest
 
 from whoosh import analysis, fields, query, writing
-from whoosh.compat import u, xrange, text_type
+from whoosh.compat import b, u, xrange, text_type
 from whoosh.filedb.filestore import RamStorage
 from whoosh.util.testing import TempIndex
 
@@ -355,7 +355,7 @@ def test_add_reader():
                                                   "kilo", "lima"]
 
 
-class test_add_reader_spelling():
+def test_add_reader_spelling():
     # Test whether add_spell_word() items get copied over in a merge
 
     # Because b is stemming and spelled, it will use add_spell_word()
@@ -387,3 +387,28 @@ class test_add_reader_spelling():
                                                       "modeling opening polling pressing quitting "
                                                       "rendering ripping rolling timing tying undoing "
                                                       "writing yelling")
+
+def test_clear():
+    schema = fields.Schema(a=fields.KEYWORD)
+    ix = RamStorage().create_index(schema)
+
+    # Add some segments
+    with ix.writer() as w:
+        w.add_document(a=u("one two three"))
+        w.merge = False
+    with ix.writer() as w:
+        w.add_document(a=u("two three four"))
+        w.merge = False
+    with ix.writer() as w:
+        w.add_document(a=u("three four five"))
+        w.merge = False
+
+    # Clear
+    with ix.writer() as w:
+        w.add_document(a=u("foo bar baz"))
+        w.mergetype = writing.CLEAR
+
+    with ix.searcher() as s:
+        assert s.doc_count_all() == 1
+        assert list(s.reader().lexicon("a")) == [b("bar"), b("baz"), b("foo")]
+
