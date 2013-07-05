@@ -410,3 +410,31 @@ The ``incremental_index`` function:
   * If a path is in the set of paths to re-index, we need to index it.
 
   * Otherwise, we can skip indexing the file.
+
+
+Clearing the index
+==================
+
+In some cases you may want to re-index from scratch. To clear the index without
+disrupting any existing readers::
+
+    from whoosh import writing
+
+    with myindex.writer() as mywriter:
+        # You can optionally add documents to the writer here
+        # e.g. mywriter.add_document(...)
+
+        # Using mergetype=CLEAR clears all existing segments so the index will
+        # only have any documents you've added to this writer
+        mywriter.mergetype = writing.CLEAR
+
+Or, if you don't use the writer as a context manager and call ``commit()``
+directly, do it like this::
+
+    mywriter = myindex.writer()
+    # ...
+    mywriter.commit(mergetype=writing.CLEAR)
+
+.. note::
+    If you don't need to worry about existing readers, a more efficient method
+    is to simply delete the contents of the index directory and start over.
