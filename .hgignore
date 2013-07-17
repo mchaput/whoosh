@@ -3,6 +3,7 @@ syntax: glob
 *~
 *.DS_Store
 
+.idea
 .settings
 .coverage
 .tox
