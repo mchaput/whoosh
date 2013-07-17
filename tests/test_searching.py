@@ -1694,7 +1694,74 @@ def test_terms_with_filter():
         assert [hit.docnum for hit in r] == [2, 3]
 
 
+def test_terms_to_bytes():
+    schema = fields.Schema(a=fields.TEXT, b=fields.NUMERIC, id=fields.STORED)
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(id=0, a=u("alfa bravo"), b=100)
+        w.add_document(id=1, a=u("bravo charlie"), b=200)
+        w.add_document(id=2, a=u("charlie delta"), b=100)
+        w.add_document(id=3, a=u("delta echo"), b=200)
 
+    with ix.searcher() as s:
+        t1 = query.Term("b", 200)
+        t2 = query.Term("a", "bravo")
+        q = query.And([t1, t2])
+        r = s.search(q)
+        assert [hit["id"] for hit in r] == [1]
+
+
+def test_issue_334():
+    schema = fields.Schema(
+        kind=fields.ID(stored=True),
+        name=fields.ID(stored=True),
+        returns=fields.ID(stored=True),
+    )
+    ix = RamStorage().create_index(schema)
+
+    with ix.writer() as w:
+
+        with w.group():
+            w.add_document(kind=u('class'), name=u('Index'))
+            w.add_document(kind=u('method'), name=u('add document'),
+                           returns=u('void'))
+            w.add_document(kind=u('method'), name=u('add reader'),
+                           returns=u('void'))
+            w.add_document(kind=u('method'), name=u('close'),
+                           returns=u('void'))
+        with w.group():
+            w.add_document(kind=u('class'), name=u('Accumulator'))
+            w.add_document(kind=u('method'), name=u('add'),
+                           returns=u('void'))
+            w.add_document(kind=u('method'), name=u('get result'),
+                           returns=u('number'))
+        with w.group():
+            w.add_document(kind=u('class'), name=u('Calculator'))
+            w.add_document(kind=u('method'), name=u('add'),
+                           returns=u('number'))
+            w.add_document(kind=u('method'), name=u('add all'),
+                           returns=u('number'))
+            w.add_document(kind=u('method'), name=u('add some'),
+                           returns=u('number'))
+            w.add_document(kind=u('method'), name=u('multiply'),
+                           returns=u('number'))
+            w.add_document(kind=u('method'), name=u('close'),
+                           returns=u('void'))
+        with w.group():
+            w.add_document(kind=u('class'), name=u('Deleter'))
+            w.add_document(kind=u('method'), name=u('add'),
+                           returns=u('void'))
+            w.add_document(kind=u('method'), name=u('delete'),
+                           returns=u('void'))
+
+    with ix.searcher() as s:
+        pq = query.Term('kind', 'class')
+        cq = query.Term('name', 'Calculator')
+
+        q = query.NestedChildren(pq, cq) & query.Term('returns', 'void')
+        r = s.search(q)
+        assert len(r) == 1
+        assert r[0]["name"] == u("close")
 
 
 
