@@ -171,8 +171,11 @@ class ConstantScoreQuery(WrappingQuery):
         return self.__class__(child, self.score)
 
     def matcher(self, searcher, context=None):
+        from whoosh.searching import SearchContext
+
+        context = context or SearchContext()
         m = self.child.matcher(searcher, context)
-        if isinstance(m, matching.NullMatcherClass):
+        if context.needs_current or isinstance(m, matching.NullMatcherClass):
             return m
         else:
             ids = array("I", m.all_ids())
