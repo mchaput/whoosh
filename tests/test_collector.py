@@ -1,7 +1,7 @@
 from __future__ import with_statement
 
-from whoosh import fields, query
-from whoosh.compat import u
+from whoosh import fields, qparser, query
+from whoosh.compat import b, u
 from whoosh.filedb.filestore import RamStorage
 
 
@@ -35,3 +35,33 @@ def test_filter_that_matches_no_document():
             filter=query.Term("text", u("echo")))
         assert [hit["id"] for hit in r] == []
         assert len(r) == 0
+
+
+def test_daterange_matched_terms():
+    from whoosh.qparser import GtLtPlugin
+    from datetime import datetime
+
+    schema = fields.Schema(id=fields.KEYWORD(stored=True),
+                           body=fields.TEXT,
+                           num=fields.NUMERIC(stored=True,unique=True),
+                           created=fields.DATETIME(stored=True))
+    ix = RamStorage().create_index(schema)
+
+    with ix.writer() as w:
+        w.add_document(id=u"one", body=u"this and this", num='5',
+                       created=datetime.now())
+        w.add_document(id=u"three", body=u"that and that", num='7',
+                       created=datetime.now())
+        w.add_document(id=u"two", body=u"this and that", num='6',
+                       created=datetime.now())
+
+    with ix.searcher() as s:
+        parser = qparser.QueryParser("body", ix.schema)
+        parser.add_plugin(GtLtPlugin())
+        q = parser.parse(u"created:>='2013-07-01'")
+        r = s.search(q, terms=True)
+
+        assert r.has_matched_terms()
+        assert (r[0].matched_terms()
+                == [("created", b("(\x00\x00\x00\x00\x00\x80\xe1\xa2"))])
+
