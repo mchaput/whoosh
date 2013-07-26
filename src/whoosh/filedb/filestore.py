@@ -38,7 +38,11 @@ from whoosh.util.filelock import FileLock
 
 # Exceptions
 
-class ReadOnlyError(Exception):
+class StorageError(Exception):
+    pass
+
+
+class ReadOnlyError(StorageError):
     pass
 
 
