@@ -789,8 +789,14 @@ class BOOLEAN(FieldType):
         self.format = formats.Existence(field_boost=field_boost)
 
     def _obj_to_bool(self, x):
-        if isinstance(x, string_type):
-            x = x.lower() in self.trues
+        # We special case strings such as "true", "false", "yes", "no", but
+        # otherwise call bool() on the query value. This lets you pass objects
+        # as query values and do the right thing.
+
+        if isinstance(x, string_type) and x.lower() in self.trues:
+            x = True
+        elif isinstance(x, string_type) and x.lower() in self.falses:
+            x = False
         else:
             x = bool(x)
         return x
