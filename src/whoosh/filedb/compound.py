@@ -36,7 +36,7 @@ except ImportError:
 
 from whoosh.compat import BytesIO, memoryview_
 from whoosh.filedb.structfile import BufferFile, StructFile
-from whoosh.filedb.filestore import FileStorage
+from whoosh.filedb.filestore import FileStorage, StorageError
 from whoosh.system import emptybytes
 from whoosh.util import random_name
 
@@ -47,6 +47,7 @@ class CompoundStorage(FileStorage):
     def __init__(self, dbfile, use_mmap=True, basepos=0):
         self._file = dbfile
         self._file.seek(basepos)
+        self.is_closed = False
 
         self._diroffset = self._file.read_long()
         self._dirlength = self._file.read_int()
@@ -79,6 +80,10 @@ class CompoundStorage(FileStorage):
         return "<%s (%s)>" % (self.__class__.__name__, self._name)
 
     def close(self):
+        if self.is_closed:
+            raise Exception("Already closed")
+        self.is_closed = True
+
         if self._source:
             try:
                 self._source.close()
@@ -92,9 +97,12 @@ class CompoundStorage(FileStorage):
             fileinfo = self._dir[name]
         except KeyError:
             raise NameError("Unknown file %r" % (name,))
-        return (fileinfo["offset"], fileinfo["length"])
+        return fileinfo["offset"], fileinfo["length"]
 
     def open_file(self, name, *args, **kwargs):
+        if self.is_closed:
+            raise StorageError("Storage was closed")
+
         offset, length = self.range(name)
         if self._source:
             # Create a memoryview/buffer from the mmap
