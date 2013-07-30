@@ -275,11 +275,12 @@ class ArrayUnionMatcher(CombinationMatcher):
 
     def skip_to_quality(self, minquality):
         skipped = 0
-        while self.block_quality() <= minquality:
+        while self.is_active() and self.block_quality() <= minquality:
             skipped += 1
             self._docnum = self._limit
             self._read_part()
-        self._find_next()
+        if self.is_active():
+            self._find_next()
         return skipped
 
     def id(self):
