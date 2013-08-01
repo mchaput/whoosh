@@ -429,6 +429,8 @@ class NUMERIC(FieldType):
             either ``int``, ``float``. If you use ``Decimal``,
             use the ``decimal_places`` argument to control how many decimal
             places the field will store.
+        :param bits: When ``numtype`` is ``int``, the number of bits to use to
+            store the number: 8, 16, 32, or 64.
         :param stored: Whether the value of this field is stored with the
             document.
         :param unique: Whether the value of this field is unique per-document.
@@ -462,14 +464,15 @@ class NUMERIC(FieldType):
             raise Exception("A float type and decimal_places argument %r are "
                             "incompatible" % decimal_places)
 
+        intsizes = [8, 16, 32, 64]
+        intcodes = ["B", "H", "I", "Q"]
         # Set up field configuration based on type and size
         if numtype is float:
             bits = 64  # Floats are converted to 64 bit ints
-        intsizes = [8, 16, 32, 64]
-        intcodes = ["B", "H", "I", "Q"]
-        if bits not in intsizes:
-            raise Exception("Invalid bits %r, use 8, 16, 32, or 64"
-                            % bits)
+        else:
+            if bits not in intsizes:
+                raise Exception("Invalid bits %r, use 8, 16, 32, or 64"
+                                % bits)
         # Type code for the *sortable* representation
         self.sortable_typecode = intcodes[intsizes.index(bits)]
         self._struct = struct.Struct(">" + self.sortable_typecode)
@@ -483,6 +486,10 @@ class NUMERIC(FieldType):
         self.signed = signed
         self.analyzer = analysis.IDAnalyzer()
         self.format = formats.Existence(field_boost=field_boost)
+
+        # Calculate the minimum and maximum possible values for error checking
+        self.min_value = from_sortable(numtype, bits, signed, 0)
+        self.max_value = from_sortable(numtype, bits, signed, 2 ** bits - 1)
 
         # Column configuration
         if default is None:
@@ -543,6 +550,10 @@ class NUMERIC(FieldType):
         if dc and isinstance(x, (string_type, Decimal)):
             x = Decimal(x) * (10 ** dc)
         x = self.numtype(x)
+
+        if x < self.min_value or x > self.max_value:
+            raise ValueError("Numeric field value %s out of range [%s, %s]"
+                             % (x, self.min_value, self.max_value))
         return x
 
     def unprepare_number(self, x):
