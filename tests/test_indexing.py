@@ -659,6 +659,30 @@ def test_doc_boost():
         assert [hit["id"] for hit in r] == [1, 0, 3, 2]
 
 
+def test_globfield_length_merge():
+    # Issue 343
 
+    schema = fields.Schema(title=fields.TEXT(stored=True),
+                           path=fields.ID(stored=True))
+    schema.add("*_text", fields.TEXT, glob=True)
+
+    with TempIndex(schema, "globlenmerge") as ix:
+        with ix.writer() as w:
+            w.add_document(title=u"First document", path=u"/a",
+                           content_text=u"This is the first document we've added!")
+
+        with ix.writer() as w:
+            w.add_document(title=u"Second document", path=u"/b",
+                           content_text=u"The second document is even more interesting!")
+
+        with ix.searcher() as s:
+            docnum = s.document_number(path="/a")
+            assert s.doc_field_length(docnum, "content_text") is not None
+
+            qp = qparser.QueryParser("content", schema)
+            q = qp.parse("content_text:document")
+            r = s.search(q)
+            paths = sorted(hit["path"] for hit in r)
+            assert paths == ["/a", "/b"]
 
 

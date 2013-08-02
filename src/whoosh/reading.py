@@ -204,6 +204,15 @@ class IndexReader(object):
         return None
 
     @abstractmethod
+    def indexed_field_names(self):
+        """Returns an iterable of strings representing the names of the indexed
+        fields. This may include additional names not explicitly listed in the
+        Schema if you use "glob" fields.
+        """
+
+        raise NotImplementedError
+
+    @abstractmethod
     def all_terms(self):
         """Yields (fieldname, text) tuples for every term in the index.
         """
@@ -742,6 +751,9 @@ class SegmentReader(IndexReader):
         if self.schema[fieldname].format is None:
             raise TermNotFound("Field %r is not indexed" % fieldname)
 
+    def indexed_field_names(self):
+        return self._terms.indexed_field_names()
+
     def all_terms(self):
         if self.is_closed:
             raise ReaderClosed
@@ -904,6 +916,9 @@ class EmptyReader(IndexReader):
 
     def __iter__(self):
         return iter([])
+
+    def indexed_field_names(self):
+        return []
 
     def all_terms(self):
         return iter([])
@@ -1087,6 +1102,12 @@ class MultiReader(IndexReader):
 
             # Yield the term
             yield term
+
+    def indexed_field_names(self):
+        names = set()
+        for r in self.reader():
+            names.update(r.indexed_field_names())
+        return iter(names)
 
     def all_terms(self):
         return self._merge_terms([r.all_terms() for r in self.readers])

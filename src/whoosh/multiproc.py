@@ -47,11 +47,13 @@ def finish_subsegment(writer, k=64):
 
     # The filename of the single remaining run
     runname = writer.pool.runs[0]
+    # The indexed field names
+    fieldnames = writer.pool.fieldnames
     # The segment object (parent can use this to re-open the files created
     # by the sub-writer)
     segment = writer._partial_segment()
 
-    return runname, segment
+    return runname, fieldnames, segment
 
 
 # Multiprocessing Writer
@@ -117,16 +119,17 @@ class SubWriterTask(Process):
             if multisegment:
                 # Actually finish the segment and return it with no run
                 runname = None
+                fieldnames = writer.pool.fieldnames
                 segment = writer._finalize_segment()
             else:
                 # Merge all runs in the writer's pool into one run, close the
                 # segment, and return the run name and the segment
                 k = self.kwargs.get("k", 64)
-                runname, segment = finish_subsegment(writer, k)
+                runname, fieldnames, segment = finish_subsegment(writer, k)
 
             # Put the results (the run filename and the segment object) on the
             # result queue
-            resultqueue.put((runname, segment), timeout=5)
+            resultqueue.put((runname, fieldnames, segment), timeout=5)
 
     def _process_file(self, filename, doc_count):
         # This method processes a "job file" written out by the parent task. A
@@ -267,14 +270,17 @@ class MpWriter(SegmentWriter):
         for task in self.tasks:
             task.join()
 
-        # Pull a (run_file_name, segment) tuple off the result queue for
-        # each sub-task, representing the final results of the task
+        # Pull a (run_file_name, fieldnames, segment) tuple off the result
+        # queue for each sub-task, representing the final results of the task
         results = []
         for task in self.tasks:
             results.append(self.resultqueue.get(timeout=5))
 
         if self.multisegment:
-            finalsegments += [s for _, s in results]
+            # If we're not merging the segments, we don't care about the runname
+            # and fieldnames in the results... just pull out the segments and
+            # add them to the list of final segments
+            finalsegments += [s for _, _, s in results]
             if self._added:
                 finalsegments.append(self._finalize_segment())
             else:
@@ -293,6 +299,8 @@ class MpWriter(SegmentWriter):
         self._finish()
 
     def _merge_subsegments(self, results, mergetype):
+        schema = self.schema
+        schemanames = set(schema.names())
         storage = self.storage
         codec = self.codec
         sources = []
@@ -303,11 +311,12 @@ class MpWriter(SegmentWriter):
             sources.append(self.pool.iter_postings())
 
         pdrs = []
-        for runname, segment in results:
+        for runname, fieldnames, segment in results:
+            fieldnames = set(fieldnames) | schemanames
             pdr = codec.per_document_reader(storage, segment)
             pdrs.append(pdr)
             basedoc = self.docnum
-            docmap = self.write_per_doc(pdr)
+            docmap = self.write_per_doc(fieldnames, pdr)
             assert docmap is None
 
             items = self._read_and_renumber_run(runname, basedoc)
@@ -321,7 +330,7 @@ class MpWriter(SegmentWriter):
 
         try:
             # Merge the iterators into the field writer
-            self.fieldwriter.add_postings(self.schema, mpdr, imerge(sources))
+            self.fieldwriter.add_postings(schema, mpdr, imerge(sources))
         finally:
             mpdr.close()
         self._added = True

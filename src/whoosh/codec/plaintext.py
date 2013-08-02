@@ -382,6 +382,9 @@ class PlainTermsReader(base.TermsReader, LineReader):
         fieldname, btext = term
         return self._find_term(fieldname, btext)
 
+    def indexed_field_names(self):
+        return self._iter_fields()
+
     def terms(self):
         for fieldname in self._iter_fields():
             for btext in self._iter_btexts():
