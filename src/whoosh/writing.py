@@ -127,6 +127,7 @@ class PostingPool(SortingPool):
         self.segment = segment
         self.limit = limitmb * 1024 * 1024
         self.currentsize = 0
+        self.fieldnames = set()
 
     def _new_run(self):
         path = "%s.run" % random_name()
@@ -144,6 +145,7 @@ class PostingPool(SortingPool):
         assert isinstance(item[1], bytes_type), "tbytes=%r" % item[1]
         if item[4] is not None:
             assert isinstance(item[4], bytes_type), "vbytes=%r" % item[4]
+        self.fieldnames.add(item[0])
         size = (28 + 4 * 5  # tuple = 28 + 4 * length
                 + 21 + len(item[0])  # fieldname = str = 21 + length
                 + 26 + len(item[1]) * 2  # text = unicode = 26 + 2 * length
@@ -647,19 +649,23 @@ class SegmentWriter(IndexWriter):
         items = self._process_posts(items, startdoc, docmap)
         self.fieldwriter.add_postings(self.schema, lengths, items)
 
-    def write_per_doc(self, reader):
-        schema = self.schema
+    def write_per_doc(self, fieldnames, reader):
+        # Very bad hack: reader should be an IndexReader, but may be a
+        # PerDocumentReader if this is called from multiproc, where the code
+        # tries to be efficient by merging per-doc and terms separately.
+        # TODO: fix this!
 
+        schema = self.schema
         if reader.has_deletions():
             docmap = {}
         else:
             docmap = None
 
         pdw = self.perdocwriter
-
         # Open all column readers
         cols = {}
-        for fieldname, fieldobj in schema.items():
+        for fieldname in fieldnames:
+            fieldobj = schema[fieldname]
             coltype = fieldobj.column_type
             if coltype and reader.has_column(fieldname):
                 creader = reader.column_reader(fieldname, coltype)
@@ -672,7 +678,8 @@ class SegmentWriter(IndexWriter):
                 docmap[docnum] = self.docnum
 
             pdw.start_doc(self.docnum)
-            for fieldname, fieldobj in schema.items():
+            for fieldname in fieldnames:
+                fieldobj = schema[fieldname]
                 length = reader.doc_field_length(docnum, fieldname)
                 pdw.add_field(fieldname, fieldobj,
                               stored.get(fieldname), length)
@@ -693,7 +700,11 @@ class SegmentWriter(IndexWriter):
     def add_reader(self, reader):
         self._check_state()
         basedoc = self.docnum
-        docmap = self.write_per_doc(reader)
+        ndxnames = set(fname for fname in reader.indexed_field_names()
+                       if fname in self.schema)
+        fieldnames = set(self.schema.names()) | ndxnames
+
+        docmap = self.write_per_doc(fieldnames, reader)
         self.add_postings_to_pool(reader, basedoc, docmap)
         self._added = True
 

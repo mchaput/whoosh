@@ -1058,6 +1058,9 @@ class PostingIndexBase(HashReader):
 class W2TermsReader(PostingIndexBase):
     # Implements whoosh.codec.base.TermsReader
 
+    def indexed_field_names(self):
+        return self.fieldmap.keys()
+
     def terms(self):
         return self.keys()
 

@@ -288,6 +288,9 @@ class MemTermsReader(base.TermsReader):
         ids, weights, values = zip(*items)
         return ListMatcher(ids, weights, values, format_, scorer=scorer)
 
+    def indexed_field_names(self):
+        return self._invindex.keys()
+
     def close(self):
         pass
 

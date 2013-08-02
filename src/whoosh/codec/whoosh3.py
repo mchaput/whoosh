@@ -519,6 +519,9 @@ class W3TermsReader(base.TermsReader):
     def __contains__(self, term):
         return self._keycoder(*term) in self._tindex
 
+    def indexed_field_names(self):
+        return self._fieldmap.keys()
+
     def terms(self):
         keydecoder = self._keydecoder
         return (keydecoder(keybytes) for keybytes in self._tindex.keys())
