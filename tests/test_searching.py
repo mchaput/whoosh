@@ -555,7 +555,7 @@ def test_posting_phrase():
         q = query.Phrase("value", [u("little"), u("miss"), u("muffet"),
                                    u("sat"), u("tuffet")])
         m = q.matcher(s)
-        assert m.__class__.__name__ == "SpanNearMatcher"
+        assert m.__class__.__name__ == "SpanNear2Matcher"
 
         r = s.search(q)
         assert names(r) == ["A"]
@@ -1762,7 +1762,5 @@ def test_issue_334():
         r = s.search(q)
         assert len(r) == 1
         assert r[0]["name"] == u("close")
-
-
 
 
