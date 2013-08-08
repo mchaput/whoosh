@@ -61,6 +61,7 @@ Span queries
 .. autoclass:: SpanQuery
 .. autoclass:: SpanFirst
 .. autoclass:: SpanNear
+.. autoclass:: SpanNear2
 .. autoclass:: SpanNot
 .. autoclass:: SpanOr
 .. autoclass:: SpanContains

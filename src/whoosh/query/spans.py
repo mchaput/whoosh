@@ -166,6 +166,18 @@ class Span(object):
             return self.start - span.end
 
 
+def bisect_spans(spans, start):
+    lo = 0
+    hi = len(spans)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if spans[mid].start < start:
+            lo = mid + 1
+        else:
+            hi = mid
+    return lo
+
+
 # Base matchers
 
 class SpanWrappingMatcher(wrappers.WrappingMatcher):
@@ -229,6 +241,9 @@ class SpanWrappingMatcher(wrappers.WrappingMatcher):
 class SpanBiMatcher(SpanWrappingMatcher):
     def copy(self):
         return self.__class__(self.a.copy(), self.b.copy())
+
+    def depth(self):
+        return 1 + max(self.a.depth(), self.b.depth())
 
     def replace(self, minquality=0):
         # TODO: fix this
@@ -317,7 +332,12 @@ class SpanFirst(SpanQuery):
 
 
 class SpanNear(SpanQuery):
-    """Matches queries that occur near each other. By default, only matches
+    """
+    Note: for new code, use :class:`SpanNear2` instead of this class. SpanNear2
+    takes a list of sub-queries instead of requiring you to create a binary
+    tree of query objects.
+
+    Matches queries that occur near each other. By default, only matches
     queries that occur right next to each other (slop=1) and in order
     (ordered=True).
 
@@ -456,10 +476,155 @@ class SpanNear(SpanQuery):
 
                     # Check the distance between the spans
                     dist = aspan.distance_to(bspan)
-                    if dist >= mindist and dist <= slop:
+                    if mindist <= dist <= slop:
                         spans.add(aspan.to(bspan))
 
             return sorted(spans)
+
+
+class SpanNear2(SpanQuery):
+    """
+    Matches queries that occur near each other. By default, only matches
+    queries that occur right next to each other (slop=1) and in order
+    (ordered=True).
+
+    New code should use this query type instead of :class:`SpanNear`.
+
+    (Unlike :class:`SpanNear`, this query takes a list of subqueries instead of
+    requiring you to build a binary tree of query objects. This query should
+    also be slightly faster due to less overhead.)
+
+    For example, to find documents where "whoosh" occurs next to "library"
+    in the "text" field::
+
+        from whoosh import query, spans
+        t1 = query.Term("text", "whoosh")
+        t2 = query.Term("text", "library")
+        q = spans.SpanNear2([t1, t2])
+
+    To find documents where "whoosh" occurs at most 5 positions before
+    "library"::
+
+        q = spans.SpanNear2([t1, t2], slop=5)
+
+    To find documents where "whoosh" occurs at most 5 positions before or after
+    "library"::
+
+        q = spans.SpanNear2(t1, t2, slop=5, ordered=False)
+    """
+
+    def __init__(self, qs, slop=1, ordered=True, mindist=1):
+        """
+        :param qs: a sequence of sub-queries to match.
+        :param slop: the number of positions within which the queries must
+            occur. Default is 1, meaning the queries must occur right next
+            to each other.
+        :param ordered: whether a must occur before b. Default is True.
+        :pram mindist: the minimum distance allowed between the queries.
+        """
+
+        self.qs = qs
+        self.slop = slop
+        self.ordered = ordered
+        self.mindist = mindist
+
+    def __repr__(self):
+        return ("%s(%r, slop=%d, ordered=%s, mindist=%d)"
+                % (self.__class__.__name__, self.qs, self.slop, self.ordered,
+                   self.mindist))
+
+    def __eq__(self, other):
+        return (other and self.__class__ == other.__class__
+                and self.qs == other.qs and self.slop == other.slop
+                and self.ordered == other.ordered
+                and self.mindist == other.mindist)
+
+    def __hash__(self):
+        h = hash(self.slop) ^ hash(self.ordered) ^ hash(self.mindist)
+        for q in self.qs:
+            h ^= hash(q)
+        return h
+
+    def is_leaf(self):
+        return False
+
+    def children(self):
+        return self.qs
+
+    def apply(self, fn):
+        return self.__class__([fn(q) for q in self.qs], slop=self.slop,
+                              ordered=self.ordered, mindist=self.mindist)
+
+    def matcher(self, searcher, context=None):
+        ms = [q.matcher(searcher, context) for q in self.qs]
+        return self.SpanNear2Matcher(ms, slop=self.slop, ordered=self.ordered,
+                                     mindist=self.mindist)
+
+    class SpanNear2Matcher(SpanWrappingMatcher):
+        def __init__(self, ms, slop=1, ordered=True, mindist=1):
+            self.ms = ms
+            self.slop = slop
+            self.ordered = ordered
+            self.mindist = mindist
+            isect = make_binary_tree(binary.IntersectionMatcher, ms)
+            super(SpanNear2.SpanNear2Matcher, self).__init__(isect)
+
+        def copy(self):
+            return self.__class__([m.copy() for m in self.ms], slop=self.slop,
+                                  ordered=self.ordered, mindist=self.mindist)
+
+        def replace(self, minquality=0):
+            # TODO: fix this
+            if not self.is_active():
+                return mcore.NullMatcher()
+            return self
+
+        def _get_spans(self):
+            slop = self.slop
+            mindist = self.mindist
+            ordered = self.ordered
+            ms = self.ms
+
+            aspans = ms[0].spans()
+            i = 1
+            while i < len(ms) and aspans:
+                bspans = ms[i].spans()
+                spans = set()
+                for aspan in aspans:
+                    # Use a binary search to find the first position we should
+                    # start looking for possible matches
+                    if ordered:
+                        start = aspan.start
+                    else:
+                        start = max(0, aspan.start - slop)
+                    j = bisect_spans(bspans, start)
+
+                    while j < len(bspans):
+                        bspan = bspans[j]
+                        j += 1
+
+                        if (bspan.end < aspan.start - slop
+                            or (ordered and aspan.start > bspan.start)):
+                            # B is too far in front of A, or B is in front of A
+                            # *at all* when ordered is True
+                            continue
+                        if bspan.start > aspan.end + slop:
+                            # B is too far from A. Since spans are listed in
+                            # start position order, we know that all spans after
+                            # this one will also be too far.
+                            break
+
+                        # Check the distance between the spans
+                        dist = aspan.distance_to(bspan)
+                        if mindist <= dist <= slop:
+                            spans.add(aspan.to(bspan))
+                aspans = sorted(spans)
+                i += 1
+
+            if i == len(ms):
+                return aspans
+            else:
+                return []
 
 
 class SpanOr(SpanQuery):
@@ -692,3 +857,8 @@ class SpanCondition(SpanBiQuery):
 
         def _get_spans(self):
             return self.a.spans()
+
+
+
+
+
