@@ -44,6 +44,14 @@ from whoosh.system import emptybytes
 
 # Exceptions
 
+class ReaderClosed(Exception):
+    """Exception raised when you try to do some operation on a closed searcher
+    (or a Results object derived from a searcher that has since been closed).
+    """
+
+    message = "Operation on a closed reader"
+
+
 class TermNotFound(Exception):
     pass
 
@@ -194,6 +202,15 @@ class IndexReader(object):
         """
 
         return None
+
+    @abstractmethod
+    def indexed_field_names(self):
+        """Returns an iterable of strings representing the names of the indexed
+        fields. This may include additional names not explicitly listed in the
+        Schema if you use "glob" fields.
+        """
+
+        raise NotImplementedError
 
     @abstractmethod
     def all_terms(self):
@@ -623,15 +640,23 @@ class SegmentReader(IndexReader):
         return self._storage
 
     def has_deletions(self):
+        if self.is_closed:
+            raise ReaderClosed
         return self._perdoc.has_deletions()
 
     def doc_count(self):
+        if self.is_closed:
+            raise ReaderClosed
         return self._perdoc.doc_count()
 
     def doc_count_all(self):
+        if self.is_closed:
+            raise ReaderClosed
         return self._perdoc.doc_count_all()
 
     def is_deleted(self, docnum):
+        if self.is_closed:
+            raise ReaderClosed
         return self._perdoc.is_deleted(docnum)
 
     def generation(self):
@@ -642,6 +667,8 @@ class SegmentReader(IndexReader):
                                self._segment)
 
     def __contains__(self, term):
+        if self.is_closed:
+            raise ReaderClosed
         fieldname, text = term
         if fieldname not in self.schema:
             return False
@@ -649,6 +676,8 @@ class SegmentReader(IndexReader):
         return (fieldname, text) in self._terms
 
     def close(self):
+        if self.is_closed:
+            raise ReaderClosed("Reader already closed")
         self._terms.close()
         self._perdoc.close()
         if self._graph:
@@ -662,6 +691,8 @@ class SegmentReader(IndexReader):
         self.is_closed = True
 
     def stored_fields(self, docnum):
+        if self.is_closed:
+            raise ReaderClosed
         assert docnum >= 0
         schema = self.schema
         sfs = self._perdoc.stored_fields(docnum)
@@ -671,38 +702,61 @@ class SegmentReader(IndexReader):
     # Delegate doc methods to the per-doc reader
 
     def all_doc_ids(self):
+        if self.is_closed:
+            raise ReaderClosed
         return self._perdoc.all_doc_ids()
 
     def iter_docs(self):
+        if self.is_closed:
+            raise ReaderClosed
         return self._perdoc.iter_docs()
 
     def all_stored_fields(self):
+        if self.is_closed:
+            raise ReaderClosed
         return self._perdoc.all_stored_fields()
 
     def field_length(self, fieldname):
+        if self.is_closed:
+            raise ReaderClosed
         return self._perdoc.field_length(fieldname)
 
     def min_field_length(self, fieldname):
+        if self.is_closed:
+            raise ReaderClosed
         return self._perdoc.min_field_length(fieldname)
 
     def max_field_length(self, fieldname):
+        if self.is_closed:
+            raise ReaderClosed
         return self._perdoc.max_field_length(fieldname)
 
     def doc_field_length(self, docnum, fieldname, default=0):
+        if self.is_closed:
+            raise ReaderClosed
         return self._perdoc.doc_field_length(docnum, fieldname, default)
 
     def has_vector(self, docnum, fieldname):
+        if self.is_closed:
+            raise ReaderClosed
         return self._perdoc.has_vector(docnum, fieldname)
 
     #
 
     def _test_field(self, fieldname):
+        if self.is_closed:
+            raise ReaderClosed
         if fieldname not in self.schema:
             raise TermNotFound("No field %r" % fieldname)
         if self.schema[fieldname].format is None:
             raise TermNotFound("Field %r is not indexed" % fieldname)
 
+    def indexed_field_names(self):
+        return self._terms.indexed_field_names()
+
     def all_terms(self):
+        if self.is_closed:
+            raise ReaderClosed
         schema = self.schema
         return ((fieldname, text) for fieldname, text in self._terms.terms()
                 if fieldname in schema)
@@ -733,13 +787,15 @@ class SegmentReader(IndexReader):
         return IndexReader.lexicon(self, fieldname)
 
     def __iter__(self):
+        if self.is_closed:
+            raise ReaderClosed
         schema = self.schema
         return ((term, terminfo) for term, terminfo in self._terms.items()
                 if term[0] in schema)
 
     def iter_from(self, fieldname, text):
-        schema = self.schema
         self._test_field(fieldname)
+        schema = self.schema
         text = self._text_to_bytes(fieldname, text)
         for term, terminfo in self._terms.items_from(fieldname, text):
             if term[0] not in schema:
@@ -765,6 +821,8 @@ class SegmentReader(IndexReader):
     def postings(self, fieldname, text, scorer=None):
         from whoosh.matching.wrappers import FilterMatcher
 
+        if self.is_closed:
+            raise ReaderClosed
         if fieldname not in self.schema:
             raise TermNotFound("No  field %r" % fieldname)
         text = self._text_to_bytes(fieldname, text)
@@ -776,6 +834,8 @@ class SegmentReader(IndexReader):
         return matcher
 
     def vector(self, docnum, fieldname, format_=None):
+        if self.is_closed:
+            raise ReaderClosed
         if fieldname not in self.schema:
             raise TermNotFound("No  field %r" % fieldname)
         vformat = format_ or self.schema[fieldname].vector
@@ -786,6 +846,8 @@ class SegmentReader(IndexReader):
     # Graph methods
 
     def has_word_graph(self, fieldname):
+        if self.is_closed:
+            raise ReaderClosed
         if fieldname not in self.schema:
             return False
         if not self.schema[fieldname].spelling:
@@ -799,12 +861,16 @@ class SegmentReader(IndexReader):
         return gr.has_root(fieldname)
 
     def word_graph(self, fieldname):
+        if self.is_closed:
+            raise ReaderClosed
         if not self.has_word_graph(fieldname):
             raise KeyError("No word graph for field %r" % fieldname)
         gr = self._get_graph()
         return fst.Node(gr, gr.root(fieldname))
 
     def terms_within(self, fieldname, text, maxdist, prefix=0):
+        if self.is_closed:
+            raise ReaderClosed
         if not self.has_word_graph(fieldname):
             # This reader doesn't have a graph stored, use the slow method
             return IndexReader.terms_within(self, fieldname, text, maxdist,
@@ -816,10 +882,14 @@ class SegmentReader(IndexReader):
     # Column methods
 
     def has_column(self, fieldname):
+        if self.is_closed:
+            raise ReaderClosed
         coltype = self.schema[fieldname].column_type
         return coltype and self._perdoc.has_column(fieldname)
 
     def column_reader(self, fieldname, column=None, translate=True):
+        if self.is_closed:
+            raise ReaderClosed
         fieldobj = self.schema[fieldname]
         if not self.has_column(fieldname):
             raise Exception("No column for field %r" % fieldname)
@@ -846,6 +916,9 @@ class EmptyReader(IndexReader):
 
     def __iter__(self):
         return iter([])
+
+    def indexed_field_names(self):
+        return []
 
     def all_terms(self):
         return iter([])
@@ -1029,6 +1102,12 @@ class MultiReader(IndexReader):
 
             # Yield the term
             yield term
+
+    def indexed_field_names(self):
+        names = set()
+        for r in self.reader():
+            names.update(r.indexed_field_names())
+        return iter(names)
 
     def all_terms(self):
         return self._merge_terms([r.all_terms() for r in self.readers])

@@ -367,10 +367,18 @@ class NestedChildren(WrappingQuery):
                 self._find_next_children()
 
         def skip_to(self, docid):
-            m = self.child
+            if docid <= self._nextchild:
+                return
 
-            m.skip_to(docid)
-            if m.is_active():
+            m = self.child
+            if not m.is_active() or docid < m.id():
+                # We've already read-ahead past the desired doc, so iterate
+                while self.is_active() and self._nextchild < docid:
+                    self.next()
+            elif m.is_active():
+                # The child is active and hasn't read-ahead to the desired doc
+                # yet, so skip to it and re-find
+                m.skip_to(docid)
                 self._find_next_children()
             else:
                 # Go inactive

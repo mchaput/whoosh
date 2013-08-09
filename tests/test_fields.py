@@ -313,6 +313,16 @@ def test_decimal_ranges():
         check("{10.2 to 80.8}", "10.4", "80.6")
 
 
+def test_numeric_errors():
+    f = fields.NUMERIC(int, bits=16, signed=True)
+    schema = fields.Schema(f=f)
+
+    with pytest.raises(ValueError):
+        list(f.index(-32769))
+    with pytest.raises(ValueError):
+        list(f.index(32768))
+
+
 def test_nontext_document():
     schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC,
                            date=fields.DATETIME, even=fields.BOOLEAN)
@@ -546,6 +556,26 @@ def test_boolean_find_deleted():
         assert not any(reader.is_deleted(hit.docnum) for hit in r)
 
 
+def test_boolean_multifield():
+    schema = fields.Schema(name=fields.TEXT(stored=True),
+                           bit=fields.BOOLEAN(stored=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(name=u('audi'), bit=True)
+        w.add_document(name=u('vw'), bit=False)
+        w.add_document(name=u('porsche'), bit=False)
+        w.add_document(name=u('ferrari'), bit=True)
+        w.add_document(name=u('citroen'), bit=False)
+
+    with ix.searcher() as s:
+        qp = qparser.MultifieldParser(["name", "bit"], schema)
+        q = qp.parse(u("boop"))
+
+        r = s.search(q)
+        assert sorted(hit["name"] for hit in r) == ["audi", "ferrari"]
+        assert len(r) == 2
+
+
 def test_missing_field():
     schema = fields.Schema()
     ix = RamStorage().create_index(schema)
@@ -564,3 +594,4 @@ def test_token_boost():
                        (b('FF'), 1, 0.5, b('\x00\x00\x00\x01')),
                        (b('SPRS'), 1, 1.0, b('\x00\x00\x00\x01')),
                        ]
+

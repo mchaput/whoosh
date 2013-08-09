@@ -329,6 +329,10 @@ class TermsReader(object):
     def matcher(self, fieldname, text, format_, scorer=None):
         raise NotImplementedError
 
+    @abstractmethod
+    def indexed_field_names(self):
+        raise NotImplementedError
+
     def close(self):
         pass
 

@@ -6,6 +6,7 @@ from whoosh import analysis, fields, formats, highlight, qparser, query
 from whoosh.codec.whoosh3 import W3Codec
 from whoosh.compat import u, xrange, text_type, permutations
 from whoosh.filedb.filestore import RamStorage
+from whoosh.util.testing import TempStorage
 
 
 def test_score_retrieval():
@@ -515,3 +516,41 @@ def test_hit_column():
         assert len(r) == 1
         hit = r[0]
         assert hit["text"] == u("alfa bravo charlie")
+
+
+def test_closed_searcher():
+    from whoosh.reading import ReaderClosed
+
+    schema = fields.Schema(key=fields.KEYWORD(stored=True, sortable=True,
+                                              spelling=True))
+
+    with TempStorage() as st:
+        ix = st.create_index(schema)
+        with ix.writer() as w:
+            w.add_document(key=u("alfa"))
+            w.add_document(key=u("bravo"))
+            w.add_document(key=u("charlie"))
+            w.add_document(key=u("delta"))
+            w.add_document(key=u("echo"))
+
+        s = ix.searcher()
+        r = s.search(query.TermRange("key", "b", "d"))
+        s.close()
+        assert s.is_closed
+        with pytest.raises(ReaderClosed):
+            assert r[0]["key"] == "bravo"
+        with pytest.raises(ReaderClosed):
+            s.reader().column_reader("key")
+        with pytest.raises(ReaderClosed):
+            s.reader().has_word_graph("key")
+        with pytest.raises(ReaderClosed):
+            s.suggest("key", "brovo")
+
+        s = ix.searcher()
+        r = s.search(query.TermRange("key", "b", "d"))
+        assert r[0]
+        assert r[0]["key"] == "bravo"
+        c = s.reader().column_reader("key")
+        assert c[1] == "bravo"
+        assert s.reader().has_word_graph("key")
+        assert s.suggest("key", "brovo") == ["bravo"]
