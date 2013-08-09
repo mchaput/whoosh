@@ -43,7 +43,7 @@ def test_daterange_matched_terms():
 
     schema = fields.Schema(id=fields.KEYWORD(stored=True),
                            body=fields.TEXT,
-                           num=fields.NUMERIC(stored=True,unique=True),
+                           num=fields.NUMERIC(stored=True, unique=True),
                            created=fields.DATETIME(stored=True))
     ix = RamStorage().create_index(schema)
 
@@ -62,6 +62,9 @@ def test_daterange_matched_terms():
         r = s.search(q, terms=True)
 
         assert r.has_matched_terms()
-        assert (r[0].matched_terms()
-                == [("created", b("(\x00\x00\x00\x00\x00\x80\xe1\xa2"))])
+        termlist = r[0].matched_terms()
+        assert len(termlist) == 1
+        pair = termlist[0]
+        assert pair[0] == "created"
+        assert pair[1] == b("(\x00\x00\x00\x00\x00\x80\xe1\xa3")
 
