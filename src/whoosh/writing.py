@@ -310,9 +310,8 @@ class IndexWriter(object):
         try:
             count = 0
             for docnum in s.docs_for_query(q, for_deletion=True):
-                if not self.is_deleted(docnum):
-                    self.delete_document(docnum)
-                    count += 1
+                self.delete_document(docnum)
+                count += 1
         finally:
             if not searcher:
                 s.close()
