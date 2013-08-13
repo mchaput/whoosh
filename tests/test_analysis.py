@@ -447,3 +447,43 @@ def test_charset_pickeability():
     _ = dumps(ana, -1)
 
 
+def test_shingle_stopwords():
+    # Note that the stop list is None here
+    ana = (analysis.RegexTokenizer()
+           | analysis.StopFilter(stoplist=None, minsize=3)
+           | analysis.ShingleFilter(size=3))
+
+    texts = [t.text for t
+             in ana(u"some other stuff and then some things To Check     ")]
+    assert texts == ["some-other-stuff", "other-stuff-and", "stuff-and-then",
+                     "and-then-some", "then-some-things", "some-things-Check"]
+
+    # Use a stop list here
+    ana = (analysis.RegexTokenizer()
+           | analysis.LowercaseFilter()
+           | analysis.StopFilter()
+           | analysis.ShingleFilter(size=3))
+
+    texts = [t.text for t
+             in ana(u"some other stuff and then some things To Check     ")]
+    assert texts == ["some-other-stuff", "other-stuff-then", "stuff-then-some",
+                     "then-some-things", "some-things-check"]
+
+
+def test_biword_stopwords():
+    # Note that the stop list is None here
+    ana = (analysis.RegexTokenizer()
+           | analysis.StopFilter(stoplist=None, minsize=3)
+           | analysis.BiWordFilter())
+
+    texts = [t.text for t in ana(u"stuff and then some")]
+    assert texts == ["stuff-and", "and-then", "then-some"]
+
+    # Use a stop list here
+    ana = (analysis.RegexTokenizer()
+           | analysis.LowercaseFilter()
+           | analysis.StopFilter()
+           | analysis.BiWordFilter())
+
+    texts = [t.text for t in ana(u"stuff and then some")]
+    assert texts == ["stuff-then", "then-some"]
