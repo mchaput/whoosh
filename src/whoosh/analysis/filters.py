@@ -258,9 +258,6 @@ class StopFilter(Filter):
             larger than this will be stopped. Use None to allow any length.
         :param renumber: Change the 'pos' attribute of unstopped tokens
             to reflect their position with the stopped words removed.
-        :param remove: Whether to remove the stopped words from the stream
-            entirely. This is not normally necessary, since the indexing
-            code will ignore tokens it receives with stopped=True.
         """
 
         if stoplist is None:
