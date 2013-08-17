@@ -487,3 +487,13 @@ def test_biword_stopwords():
 
     texts = [t.text for t in ana(u"stuff and then some")]
     assert texts == ["stuff-then", "then-some"]
+
+
+def test_stop_lang():
+    stopper = analysis.RegexTokenizer() | analysis.StopFilter()
+    ls = [token.text for token in stopper(u"this is a test")]
+    assert ls == [u"test"]
+
+    es_stopper = analysis.RegexTokenizer() | analysis.StopFilter(lang="es")
+    ls = [token.text for token in es_stopper(u"el lapiz es en la mesa")]
+    assert ls == ["lapiz", "mesa"]
