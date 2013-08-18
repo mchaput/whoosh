@@ -27,6 +27,21 @@ def test_path_tokenizer():
                                            "/alfa/bravo/charlie",
                                            "/alfa/bravo/charlie/delta"]
 
+def test_path_tokenizer2():
+    path_field = fields.TEXT(analyzer=analysis.PathTokenizer())
+    st = RamStorage()
+    schema = fields.Schema(path=path_field)
+    index = st.create_index(schema)
+
+    with index.writer() as writer:
+        writer.add_document(path=u'/alfa/brvo/charlie/delta/')
+        writer.add_document(path=u'/home/user/file.txt')
+    assert not index.is_empty()
+
+    with index.reader() as reader:
+        items = list(reader.all_terms())
+    assert 'path' in [field for field, value in items]
+    assert '/alfa' in [value for field, value in items]
 
 def test_composition1():
     ca = analysis.RegexTokenizer() | analysis.LowercaseFilter()

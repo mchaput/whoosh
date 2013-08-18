@@ -325,9 +325,14 @@ class PathTokenizer(Tokenizer):
     def __init__(self, expression="[^/]+"):
         self.expr = rcompile(expression)
 
-    def __call__(self, value, **kwargs):
-        assert isinstance(value, text_type), "%r is not unicode" % value
-        token = Token(**kwargs)
-        for match in self.expr.finditer(value):
-            token.text = value[:match.end()]
-            yield token
+    def __call__(self, value, positions=False, start_pos=0, **kwargs):
+         assert isinstance(value, text_type), "%r is not unicode" % value
+         token = Token(positions, **kwargs)
+         pos = start_pos
+         for match in self.expr.finditer(value):
+             token.text = value[:match.end()]
+             if positions:
+                 token.pos = pos
+                 pos += 1
+             yield token
+
