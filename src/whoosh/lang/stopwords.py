@@ -1,5 +1,7 @@
 # coding=utf-8
 
+from __future__ import unicode_literals
+
 # Stopwords Corpus
 #
 # This module contains lists of stop words for several languages.  These
@@ -28,7 +30,7 @@
 
 
 stoplists = {
-    "da": frozenset(u"""
+    "da": frozenset("""
     og i jeg det at en den til er som på de med han af for ikke der var mig
     sig men et har om vi min havde ham hun nu over da fra du ud sin dem os
     op man hans hvor eller hvad skal selv her alle vil blev kunne ind når
@@ -37,7 +39,7 @@ stoplists = {
     hvis din nogle hos blive mange ad bliver hendes været thi jer sådan
     """.split()),
 
-    "nl": frozenset(u"""
+    "nl": frozenset("""
     de en van ik te dat die in een hij het niet zijn is was op aan met als
     voor had er maar om hem dan zou of wat mijn men dit zo door over ze zich
     bij ook tot je mij uit der daar haar naar heb hoe heeft hebben deze u
@@ -47,7 +49,7 @@ stoplists = {
     iemand geweest andere
     """.split()),
 
-    "en": frozenset(u"""
+    "en": frozenset("""
     i me my myself we our ours ourselves you your yours yourself yourselves
     he him his himself she her hers herself it its itself they them their
     theirs themselves what which who whom this that these those am is are
@@ -59,7 +61,7 @@ stoplists = {
     same so than too very s t can will just don should now
     """.split()),
 
-    "fi": frozenset(u"""
+    "fi": frozenset("""
     olla olen olet on olemme olette ovat ole oli olisi olisit olisin
     olisimme olisitte olisivat olit olin olimme olitte olivat ollut olleet
     en et ei emme ette eivät minä minun minut minua minussa minusta minuun
@@ -85,7 +87,7 @@ stoplists = {
     noin poikki yli kun niin nyt itse
     """.split()),
 
-    "fr": frozenset(u"""
+    "fr": frozenset("""
     au aux avec ce ces dans de des du elle en et eux il je la le leur lui ma
     mais me même mes moi mon ne nos notre nous on ou par pas pour qu que
     qui sa se ses son sur ta te tes toi ton tu un une vos votre vous c d j l
@@ -100,7 +102,7 @@ stoplists = {
     eusses eût eussions eussiez eussent
     """.split()),
 
-    "de": frozenset(u"""
+    "de": frozenset("""
     aber alle allem allen aller alles als also am an ander andere anderem
     anderen anderer anderes anderm andern anderr anders auch auf aus bei bin
     bis bist da damit dann der den des dem die das daß derselbe derselben
@@ -122,7 +124,7 @@ stoplists = {
     wir wird wirst wo wollen wollte würde würden zu zum zur zwar zwischen
     """.split()),
 
-    "hu": frozenset(u"""
+    "hu": frozenset("""
     a ahogy ahol aki akik akkor alatt által általában amely amelyek
     amelyekben amelyeket amelyet amelynek ami amit amolyan amíg amikor át
     abban ahhoz annak arra arról az azok azon azt azzal azért aztán
@@ -143,7 +145,7 @@ stoplists = {
     voltunk vissza vele viszont volna
     """.split()),
 
-    "it": frozenset(u"""
+    "it": frozenset("""
     ad al allo ai agli all agl alla alle con col coi da dal dallo dai dagli
     dall dagl dalla dalle di del dello dei degli dell degl della delle in
     nel nello nei negli nell negl nella nelle su sul sullo sui sugli sull
@@ -170,7 +172,7 @@ stoplists = {
     stesse stessimo stessero stando
     """.split()),
 
-    "no": frozenset(u"""
+    "no": frozenset("""
     og i jeg det at en et den til er som på de med han av ikke ikkje der
     så var meg seg men ett har om vi min mitt ha hadde hun nå over da ved
     fra du ut sin dem oss opp man kan hans hvor eller hva skal selv sjøl
@@ -185,7 +187,7 @@ stoplists = {
     sia sidan so somt somme um upp vere vore verte vort varte vart
     """.split()),
 
-    "pt": frozenset(u"""
+    "pt": frozenset("""
     de a o que e do da em um para com não uma os no se na por mais as dos
     como mas ao ele das à seu sua ou quando muito nos já eu também só
     pelo pela até isso ela entre depois sem mesmo aos seus quem nas me esse
@@ -207,7 +209,7 @@ stoplists = {
     teria teríamos teriam
     """.split()),
 
-    "ru": frozenset(u"""
+    "ru": frozenset("""
     и в во не что он на я с со как а то все она
     так его но да ты к у же вы за бы по только
     ее мне было вот от меня еще нет о из ему
@@ -228,7 +230,7 @@ stoplists = {
     всегда конечно всю между
     """.split()),
 
-    "es": frozenset(u"""
+    "es": frozenset("""
     de la que el en y a los del se las por un para con no una su al lo como
     más pero sus le ya o este sí porque esta entre cuando muy sin sobre
     también me hasta hay donde quien desde todo nos durante todos uno les
@@ -263,7 +265,7 @@ stoplists = {
     tenidas tened
     """.split()),
 
-    "sv": frozenset(u"""
+    "sv": frozenset("""
     och det att i en jag hon som han på den med var sig för så till är
     men ett om hade de av icke mig du henne då sin nu har inte hans honom
     skulle hennes där min man ej vid kunde något från ut när efter upp
@@ -274,7 +276,7 @@ stoplists = {
     vilket sitta sådana vart dina vars vårt våra ert era vilkas
     """.split()),
 
-    "tr": frozenset(u"""
+    "tr": frozenset("""
     acaba ama aslında az bazı belki biri birkaç birşey biz bu çok
     çünkü da daha de defa diye eğer en gibi hem hep hepsi her hiç için
     ile ise kez ki kim mı mu mü nasıl ne neden nerde nerede nereye niçin

@@ -668,12 +668,12 @@ def test_globfield_length_merge():
 
     with TempIndex(schema, "globlenmerge") as ix:
         with ix.writer() as w:
-            w.add_document(title=u"First document", path=u"/a",
-                           content_text=u"This is the first document we've added!")
+            w.add_document(title=u("First document"), path=u("/a"),
+                           content_text=u("This is the first document we've added!"))
 
         with ix.writer() as w:
-            w.add_document(title=u"Second document", path=u"/b",
-                           content_text=u"The second document is even more interesting!")
+            w.add_document(title=u("Second document"), path=u("/b"),
+                           content_text=u("The second document is even more interesting!"))
 
         with ix.searcher() as s:
             docnum = s.document_number(path="/a")
