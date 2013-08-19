@@ -5,7 +5,7 @@ from __future__ import with_statement
 import pytest
 
 from whoosh import analysis, fields, qparser
-from whoosh.compat import u, unichr
+from whoosh.compat import b, u, unichr
 from whoosh.compat import dumps
 from whoosh.filedb.filestore import RamStorage
 
@@ -27,6 +27,7 @@ def test_path_tokenizer():
                                            "/alfa/bravo/charlie",
                                            "/alfa/bravo/charlie/delta"]
 
+
 def test_path_tokenizer2():
     path_field = fields.TEXT(analyzer=analysis.PathTokenizer())
     st = RamStorage()
@@ -41,7 +42,8 @@ def test_path_tokenizer2():
     with index.reader() as reader:
         items = list(reader.all_terms())
     assert 'path' in [field for field, value in items]
-    assert '/alfa' in [value for field, value in items]
+    assert b('/alfa') in [value for field, value in items]
+
 
 def test_composition1():
     ca = analysis.RegexTokenizer() | analysis.LowercaseFilter()
