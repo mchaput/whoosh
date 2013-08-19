@@ -141,7 +141,7 @@ class Fragment(object):
         ec = self.endchar
         fsc = fragment.startchar
         fec = fragment.endchar
-        return (fsc > sc and fsc < ec) or (fec > sc and fec < ec)
+        return (sc < fsc < ec) or (sc < fec < ec)
 
     def overlapped_length(self, fragment):
         sc = self.startchar
@@ -493,7 +493,7 @@ class BasicFragmentScorer(FragmentScorer):
 
 def SCORE(fragment):
     "Sorts higher scored passages first."
-    return None
+    return 1
 
 
 def FIRST(fragment):
