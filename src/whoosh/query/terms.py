@@ -138,7 +138,7 @@ class MultiTerm(qcore.Query):
     def _btexts(self, ixreader):
         raise NotImplementedError(self.__class__.__name__)
 
-    def expanded_terms(self, ixreader):
+    def expanded_terms(self, ixreader, phrases=False):
         fieldname = self.field()
         if fieldname:
             for btext in self._btexts(ixreader):

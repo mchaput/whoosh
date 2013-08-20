@@ -266,7 +266,7 @@ class VarBytesColumn(Column):
 
             self._read_lengths()
             # Create an array of offsets into the strings using the lengths
-            offsets = array("i", (0,))
+            offsets = array("L", (0,))
             for length in self._lengths:
                 offsets.append(offsets[-1] + length)
             self._offsets = offsets

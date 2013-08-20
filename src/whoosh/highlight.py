@@ -141,7 +141,7 @@ class Fragment(object):
         ec = self.endchar
         fsc = fragment.startchar
         fec = fragment.endchar
-        return (fsc > sc and fsc < ec) or (fec > sc and fec < ec)
+        return (sc < fsc < ec) or (sc < fec < ec)
 
     def overlapped_length(self, fragment):
         sc = self.startchar
@@ -205,6 +205,24 @@ class WholeFragmenter(Fragmenter):
     """Doesn't fragment the token stream. This object just returns the entire
     entire stream as one "fragment". This is useful if you want to highlight
     the entire text.
+
+    Note that even if you use the `WholeFragmenter`, the highlight code will
+    return no fragment if no terms matched in the given field. To return the
+    whole fragment even in that case, call `highlights()` with `minscore=0`::
+
+        # Query where no terms match in the "text" field
+        q = query.Term("tag", "new")
+
+        r = mysearcher.search(q)
+        r.fragmenter = highlight.WholeFragmenter()
+        r.formatter = highlight.UppercaseFormatter()
+        # Since no terms in the "text" field matched, we get no fragments back
+        assert r[0].highlights("text") == ""
+
+        # If we lower the minimum score to 0, we get a fragment even though it
+        # has no matching terms
+        assert r[0].highlights("text", minscore=0) == "This is the text field."
+
     """
 
     def __init__(self, charlimit=DEFAULT_CHARLIMIT):
@@ -493,7 +511,7 @@ class BasicFragmentScorer(FragmentScorer):
 
 def SCORE(fragment):
     "Sorts higher scored passages first."
-    return None
+    return 1
 
 
 def FIRST(fragment):
@@ -760,7 +778,7 @@ class GenshiFormatter(Formatter):
 def top_fragments(fragments, count, scorer, order, minscore=1):
     scored_fragments = ((scorer(f), f) for f in fragments)
     scored_fragments = nlargest(count, scored_fragments)
-    best_fragments = [sf for score, sf in scored_fragments if score > minscore]
+    best_fragments = [sf for score, sf in scored_fragments if score >= minscore]
     best_fragments.sort(key=order)
     return best_fragments
 
@@ -837,7 +855,7 @@ class Highlighter(object):
                     assert m.id() == docnum
                     cache[docnum][text] = m.value_as("characters")
 
-    def highlight_hit(self, hitobj, fieldname, text=None, top=3):
+    def highlight_hit(self, hitobj, fieldname, text=None, top=3, minscore=1):
         results = hitobj.results
         schema = results.searcher.schema
         field = schema[fieldname]
@@ -858,9 +876,9 @@ class Highlighter(object):
         # Convert bytes to unicode
         words = frozenset(from_bytes(term[1]) for term in bterms)
 
-        if not words:
-            # No terms matches in this field
-            return self.formatter.format([])
+        # if not words:
+        #     # No terms matches in this field
+        #     return self.formatter.format([])
 
         # If we can do "pinpoint" highlighting...
         if self.can_load_chars(results, fieldname):
@@ -885,12 +903,13 @@ class Highlighter(object):
         else:
             # Retokenize the text
             analyzer = results.searcher.schema[fieldname].analyzer
-            tokens = analyzer(text, chars=True, mode="query",
+            tokens = analyzer(text, positions=True, chars=True, mode="query",
                               removestops=False)
             # Set Token.matched attribute for tokens that match a query term
             tokens = set_matched_filter(tokens, words)
             fragments = self.fragmenter.fragment_tokens(text, tokens)
 
-        fragments = top_fragments(fragments, top, self.scorer, self.order)
+        fragments = top_fragments(fragments, top, self.scorer, self.order,
+                                  minscore=minscore)
         output = self.formatter.format(fragments)
         return output

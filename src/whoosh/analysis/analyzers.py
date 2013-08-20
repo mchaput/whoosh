@@ -252,6 +252,11 @@ def LanguageAnalyzer(lang, expression=default_pattern, gaps=False,
     >>> [token.text for token in ana("Por el mar corren las liebres")]
     ['mar', 'corr', 'liebr']
 
+    The list of available languages is in `whoosh.lang.languages`.
+    You can use :func:`whoosh.lang.has_stemmer` and
+    :func:`whoosh.lang.has_stopwords` to check if a given language has a
+    stemming function and/or stop word list available.
+
     :param expression: The regular expression pattern to use to extract tokens.
     :param gaps: If True, the tokenizer *splits* on the expression, rather
         than matching on the expression.
@@ -261,7 +266,6 @@ def LanguageAnalyzer(lang, expression=default_pattern, gaps=False,
     """
 
     from whoosh.lang import NoStemmer, NoStopWords
-    from whoosh.lang import stopwords_for_language
 
     # Make the start of the chain
     chain = (RegexTokenizer(expression=expression, gaps=gaps)
@@ -269,8 +273,7 @@ def LanguageAnalyzer(lang, expression=default_pattern, gaps=False,
 
     # Add a stop word filter
     try:
-        stoplist = stopwords_for_language(lang)
-        chain = chain | StopFilter(stoplist=stoplist)
+        chain = chain | StopFilter(lang=lang)
     except NoStopWords:
         pass
 

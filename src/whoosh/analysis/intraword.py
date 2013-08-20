@@ -206,16 +206,17 @@ class ShingleFilter(Filter):
             return tk
 
         for token in tokens:
-            buf.append(token.copy())
-            if len(buf) == size:
-                atleastone = True
-                yield make_token()
-                buf.popleft()
+            if not token.stopped:
+                buf.append(token.copy())
+                if len(buf) == size:
+                    atleastone = True
+                    yield make_token()
+                    buf.popleft()
 
         # If no shingles were emitted, that is, the token stream had fewer than
         # 'size' tokens, then emit a single token with whatever tokens there
         # were
-        if not atleastone:
+        if not atleastone and buf:
             yield make_token()
 
 
