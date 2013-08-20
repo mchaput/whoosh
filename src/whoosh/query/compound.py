@@ -42,7 +42,7 @@ class CompoundQuery(qcore.Query):
     def __init__(self, subqueries, boost=1.0):
         for subq in subqueries:
             if not isinstance(subq, qcore.Query):
-                raise qcore.QueryError("%r is not a query")
+                raise qcore.QueryError("%r is not a query" % subq)
         self.subqueries = subqueries
         self.boost = boost
 
