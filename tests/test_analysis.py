@@ -35,8 +35,8 @@ def test_path_tokenizer2():
     index = st.create_index(schema)
 
     with index.writer() as writer:
-        writer.add_document(path=u'/alfa/brvo/charlie/delta/')
-        writer.add_document(path=u'/home/user/file.txt')
+        writer.add_document(path=u('/alfa/brvo/charlie/delta/'))
+        writer.add_document(path=u('/home/user/file.txt'))
     assert not index.is_empty()
 
     with index.reader() as reader:

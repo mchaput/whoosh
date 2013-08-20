@@ -587,7 +587,7 @@ def test_plaintext_codec():
         assert (" ".join(s.field_terms("a"))
                 == "alfa bravo charlie delta echo foxtrot india")
 
-        assert reader.doc_field_length(2, "a"), 3
+        assert reader.doc_field_length(2, "a") == 3
 
         cfield = schema["c"]
         assert type(cfield), fields.NUMERIC
