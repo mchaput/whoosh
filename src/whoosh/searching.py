@@ -693,7 +693,7 @@ class Searcher(object):
             # Wrap it with a TimeLimitedCollector with a time limit of
             # 10.5 seconds
             from whoosh.collectors import TimeLimitedCollector
-            c = TimeLimitedCollector(c, 10.5)
+            c = TimeLimitCollector(c, 10.5)
 
             # Search using the custom collector
             results = mysearcher.search_with_collector(myquery, c)
