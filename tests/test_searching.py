@@ -1130,54 +1130,6 @@ def test_filter():
         r = s.search(query.Term("text", "bravo"), filter=fq)
         assert [d["id"] for d in r] == [1, 2, 5, 7, ]
 
-def test_timelimit():
-    schema = fields.Schema(text=fields.TEXT)
-    ix = RamStorage().create_index(schema)
-    w = ix.writer()
-    for _ in xrange(50):
-        w.add_document(text=u("alfa"))
-    w.commit()
-
-    import time
-    from whoosh import collectors, matching
-
-    class SlowMatcher(matching.WrappingMatcher):
-        def next(self):
-            time.sleep(0.02)
-            self.child.next()
-
-    class SlowQuery(query.WrappingQuery):
-        def matcher(self, searcher, context=None):
-            return SlowMatcher(self.child.matcher(searcher, context))
-
-    with ix.searcher() as s:
-        oq = query.Term("text", u("alfa"))
-        sq = SlowQuery(oq)
-
-        col = collectors.TimeLimitCollector(s.collector(limit=None),
-                                            timelimit=0.1)
-        with pytest.raises(searching.TimeLimit):
-            s.search_with_collector(sq, col)
-
-        col = collectors.TimeLimitCollector(s.collector(limit=40),
-                                            timelimit=0.1)
-        with pytest.raises(collectors.TimeLimit):
-            s.search_with_collector(sq, col)
-
-        col = collectors.TimeLimitCollector(s.collector(limit=None),
-                                            timelimit=0.25)
-        try:
-            s.search_with_collector(sq, col)
-            assert False  # Shouldn't get here
-        except collectors.TimeLimit:
-            r = col.results()
-            assert r.scored_length() > 0
-
-        col = collectors.TimeLimitCollector(s.collector(limit=None),
-                                            timelimit=0.5)
-        s.search_with_collector(oq, col)
-        assert col.results().runtime < 0.5
-
 
 def test_fieldboost():
     schema = fields.Schema(id=fields.STORED, a=fields.TEXT, b=fields.TEXT)
