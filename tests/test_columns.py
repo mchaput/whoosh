@@ -65,13 +65,13 @@ def test_random_multistream():
     domain = {}
     for _ in xrange(100):
         name = randstring(random.randint(5, 10))
-        value = randstring(10000)
+        value = randstring(2500)
         domain[name] = value
 
     outfiles = dict((name, BytesIO(value)) for name, value in domain.items())
 
     with TempStorage() as st:
-        msw = compound.CompoundWriter(st, buffersize=4096)
+        msw = compound.CompoundWriter(st, buffersize=1024)
         mfiles = {}
         for name in domain:
             mfiles[name] = msw.create_file(name)
@@ -250,7 +250,7 @@ def test_ref_switch():
         f = st.create_file("test")
         cw = col.writer(f)
         for i in xrange(size):
-            cw.add(i, str(i).encode("latin1"))
+            cw.add(i, hex(i).encode("latin1"))
         cw.finish(size)
         length = f.tell()
         f.close()
@@ -261,7 +261,7 @@ def test_ref_switch():
             v = cr[i]
             # Column ignores additional unique values after 65535
             if i <= 65535 - 1:
-                assert v == str(i).encode("latin1")
+                assert v == hex(i).encode("latin1")
             else:
                 assert v == b('')
         f.close()
