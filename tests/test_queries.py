@@ -214,7 +214,7 @@ def test_normalize_compound():
         else:
             return Or([nq(level - 1), nq(level - 1), nq(level - 1)])
 
-    q = nq(7)
+    q = nq(5)
     q = q.normalize()
     assert q == Or([Term("a", u("a")), Term("a", u("b"))])
 

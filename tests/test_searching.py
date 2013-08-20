@@ -100,7 +100,7 @@ def test_or():
 
 
 def test_ors():
-    domain = u("alfa bravo charlie delta echo foxtrot").split()
+    domain = u("alfa bravo charlie delta").split()
     s = fields.Schema(num=fields.STORED, text=fields.TEXT)
     st = RamStorage()
     ix = st.create_index(s)
@@ -339,7 +339,7 @@ def test_open_ranges():
 
 
 def test_open_numeric_ranges():
-    domain = range(0, 10000, 7)
+    domain = range(0, 1000, 7)
 
     schema = fields.Schema(num=fields.NUMERIC(stored=True))
     ix = RamStorage().create_index(schema)
@@ -354,9 +354,9 @@ def test_open_numeric_ranges():
         r = [hit["num"] for hit in s.search(q, limit=None)]
         assert r == [n for n in domain if n >= 100]
 
-        q = qp.parse("[to 5000]")
+        q = qp.parse("[to 500]")
         r = [hit["num"] for hit in s.search(q, limit=None)]
-        assert r == [n for n in domain if n <= 5000]
+        assert r == [n for n in domain if n <= 500]
 
 
 def test_open_date_ranges():
@@ -1129,7 +1129,6 @@ def test_filter():
 
         r = s.search(query.Term("text", "bravo"), filter=fq)
         assert [d["id"] for d in r] == [1, 2, 5, 7, ]
-
 
 def test_timelimit():
     schema = fields.Schema(text=fields.TEXT)

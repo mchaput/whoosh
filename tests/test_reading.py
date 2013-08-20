@@ -255,7 +255,7 @@ class RecoverReader(threading.Thread):
         self.ix = ix
 
     def run(self):
-        for _ in xrange(200):
+        for _ in xrange(50):
             r = self.ix.reader()
             r.close()
 
@@ -269,11 +269,11 @@ class RecoverWriter(threading.Thread):
         self.ix = ix
 
     def run(self):
-        for _ in xrange(20):
+        for _ in xrange(10):
             w = self.ix.writer()
             w.add_document(text=random.sample(self.domain, 4))
             w.commit()
-            time.sleep(0.05)
+            time.sleep(0.01)
 
 
 def test_delete_recovery():
