@@ -47,6 +47,15 @@ class StemFilter(Filter):
 
     >>> stemfilter = StemFilter(stem_function)
 
+    You can also use one of the Snowball stemming functions by passing the
+    `lang` keyword argument.
+
+    >>> stemfilter = StemFilter(lang="ru")
+
+    The list of available languages is in `whoosh.lang.languages`.
+    You can use :func:`whoosh.lang.has_stemmer` to check if a given language has
+    a stemming function available.
+
     By default, this class wraps an LRU cache around the stemming function. The
     ``cachesize`` keyword argument sets the size of the cache. To make the
     cache unbounded (the class caches every input), use ``cachesize=-1``. To

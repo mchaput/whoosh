@@ -1,6 +1,8 @@
 from __future__ import with_statement
 import copy
 
+import pytest
+
 from whoosh import fields, qparser, query
 from whoosh.compat import b, u
 from whoosh.filedb.filestore import RamStorage
@@ -477,3 +479,9 @@ def test_ornot_andnot():
         r2 = [hit["id"] for hit in s.search(q2, sortedby="id")]
 
         assert r1 == r2 == [4]
+
+
+def test_none_in_compounds():
+    with pytest.raises(query.QueryError):
+        _ = query.And([query.Term("a", "b"), None, query.Term("c", "d")])
+

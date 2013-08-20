@@ -326,8 +326,8 @@ class Query(object):
 
         return iter(())
 
-    def expanded_terms(self, ixreader):
-        return self.terms()
+    def expanded_terms(self, ixreader, phrases=True):
+        return self.terms(phrases=phrases)
 
     def existing_terms(self, ixreader, phrases=True, expand=False, fieldname=None):
         """Returns a set of all byteterms in this query tree that exist in
@@ -348,9 +348,9 @@ class Query(object):
                 continue
 
             if expand:
-                terms = q.expanded_terms(ixreader)
+                terms = q.expanded_terms(ixreader, phrases=phrases)
             else:
-                terms = q.terms(phrases)
+                terms = q.terms(phrases=phrases)
 
             for fieldname, text in terms:
                 if (fieldname, text) in termset:

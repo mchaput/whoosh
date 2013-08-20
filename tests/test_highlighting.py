@@ -248,3 +248,30 @@ def test_issue324():
                                  fragmenter=highlight.ContextFragmenter(),
                                  formatter=highlight.UppercaseFormatter())
     assert result == "INDEXED!\n1"
+
+
+def test_whole_noterms():
+    schema = fields.Schema(text=fields.TEXT(stored=True), tag=fields.KEYWORD)
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(text=u("alfa bravo charlie delta echo foxtrot golf"),
+                       tag=u("foo"))
+
+    with ix.searcher() as s:
+        r = s.search(query.Term("text", u("delta")))
+        assert len(r) == 1
+
+        r.fragmenter = highlight.WholeFragmenter()
+        r.formatter = highlight.UppercaseFormatter()
+        hi = r[0].highlights("text")
+        assert hi == u("alfa bravo charlie DELTA echo foxtrot golf")
+
+        r = s.search(query.Term("tag", u("foo")))
+        assert len(r) == 1
+        r.fragmenter = highlight.WholeFragmenter()
+        r.formatter = highlight.UppercaseFormatter()
+        hi = r[0].highlights("text")
+        assert hi == u("")
+
+        hi = r[0].highlights("text", minscore=0)
+        assert hi == u("alfa bravo charlie delta echo foxtrot golf")
