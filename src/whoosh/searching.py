@@ -1580,6 +1580,12 @@ class ResultsPage(object):
     >>> for i, fields in enumerate(page):
     ...   print("%s. %r" % (page.offset + i + 1, fields))
     >>> mysearcher.close()
+
+    To set highlighter attributes (for example ``formatter``), access the
+    underlying :class:`Results` object::
+
+        page.results.formatter = highlight.UppercaseFormatter()
+
     """
 
     def __init__(self, results, pagenum, pagelen=10):
