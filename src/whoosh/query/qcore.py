@@ -355,9 +355,15 @@ class Query(object):
             for fieldname, text in terms:
                 if (fieldname, text) in termset:
                     continue
+
                 if fieldname in schema:
                     field = schema[fieldname]
-                    btext = field.to_bytes(text)
+
+                    try:
+                        btext = field.to_bytes(text)
+                    except ValueError:
+                        continue
+
                     if (fieldname, btext) in ixreader:
                         termset.add((fieldname, btext))
         return termset

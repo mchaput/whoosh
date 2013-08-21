@@ -192,11 +192,18 @@ class TermRange(RangeMixin, terms.MultiTerm):
         if self.start is None:
             start = b("")
         else:
-            start = field.to_bytes(self.start)
+            try:
+                start = field.to_bytes(self.start)
+            except ValueError:
+                return
+
         if self.end is None:
             end = b("\xFF\xFF\xFF\xFF")
         else:
-            end = field.to_bytes(self.end)
+            try:
+                end = field.to_bytes(self.end)
+            except ValueError:
+                return
 
         for fname, t in ixreader.terms_from(fieldname, start):
             if fname != fieldname:

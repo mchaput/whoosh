@@ -226,7 +226,11 @@ class Phrase(qcore.Query):
         # Build a list of Term queries from the words in the phrase
         reader = searcher.reader()
         for word in self.words:
-            word = field.to_bytes(word)
+            try:
+                word = field.to_bytes(word)
+            except ValueError:
+                return matching.NullMatcher()
+
             if (fieldname, word) not in reader:
                 # Shortcut the query if one of the words doesn't exist.
                 return matching.NullMatcher()
