@@ -559,7 +559,12 @@ class NUMERIC(FieldType):
         dc = self.decimal_places
         if dc and isinstance(x, (string_type, Decimal)):
             x = Decimal(x) * (10 ** dc)
-        x = self.numtype(x)
+
+        try:
+            x = self.numtype(x)
+        except OverflowError:
+            raise ValueError("Value %r overflowed number type %r"
+                             % (x, self.numtype))
 
         if x < self.min_value or x > self.max_value:
             raise ValueError("Numeric field value %s out of range [%s, %s]"

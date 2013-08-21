@@ -123,10 +123,12 @@ def test_timelimit_alarm():
     with ix.searcher() as s:
         q = SlowQuery()
 
+        t = time.time()
         c = s.collector()
         c = collectors.TimeLimitCollector(c, 0.2)
         with pytest.raises(searching.TimeLimit):
             _ = s.search_with_collector(q, c)
+        assert time.time() - t < 0.5
 
 
 
