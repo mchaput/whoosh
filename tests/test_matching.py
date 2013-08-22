@@ -495,3 +495,16 @@ def test_arrayunion():
     assert aum.id() == 50
     aum.skip_to(550)
     assert aum.id() == 600
+
+
+def test_arrayunion2():
+    l1 = matching.ListMatcher([1, 2])
+    l2 = matching.ListMatcher([1, 2, 10, 20])
+    l3 = matching.ListMatcher([1, 5, 10, 50])
+    aum = matching.ArrayUnionMatcher([l1, l2, l3], 51, partsize=2)
+
+    assert aum.id() == 1
+    assert not l1.is_active()
+    aum.skip_to(50)
+    assert aum.id() == 50
+

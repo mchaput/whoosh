@@ -448,6 +448,15 @@ class ListMatcher(Matcher):
     def reset(self):
         self._i = 0
 
+    def skip_to(self, id):
+        if not self.is_active():
+            raise ReadTooFar
+        if id < self.id():
+            return
+
+        while self._i < len(self._ids) and self._ids[self._i] < id:
+            self._i += 1
+
     def term(self):
         return self._term
 
