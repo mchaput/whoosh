@@ -1176,6 +1176,7 @@ class BufferedWriter(IndexWriter):
         # Start timer
         if self.period:
             self.timer = threading.Timer(self.period, self.commit)
+            self.timer.start()
 
     def _make_ram_index(self):
         from whoosh.codec.memory import MemoryCodec
@@ -1230,6 +1231,7 @@ class BufferedWriter(IndexWriter):
             self.writer = self.index.writer(**self.writerargs)
             if self.period:
                 self.timer = threading.Timer(self.period, self.commit)
+                self.timer.start()
 
     def add_reader(self, reader):
         # Pass through to the underlying on-disk index
