@@ -1240,7 +1240,7 @@ class Results(object):
 
     def key_terms(self, fieldname, docs=10, numterms=5,
                   model=classify.Bo1Model, normalize=True):
-        """Returns the 'numterms' most important terms from the top 'numdocs'
+        """Returns the 'numterms' most important terms from the top 'docs'
         documents in these results. "Most important" is generally defined as
         terms that occur frequently in the top hits but relatively infrequently
         in the collection as a whole.
@@ -1248,7 +1248,7 @@ class Results(object):
         :param fieldname: Look at the terms in this field. This field must
             store vectors.
         :param docs: Look at this many of the top documents of the results.
-        :param terms: Return this number of important terms.
+        :param numterms: Return this number of important terms.
         :param model: The classify.ExpansionModel to use. See the classify
             module.
         :returns: list of unicode strings.
