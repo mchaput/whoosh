@@ -492,7 +492,7 @@ class TopCollector(ScoredCollector):
                 items.pop(i)
                 # Restore the heap invariant
                 heapify(items)
-                self.minscore = items[0][0]
+                self.minscore = items[0][0] if items else 0
                 return
 
         # The document wasn't on the list... somebody's confused!
