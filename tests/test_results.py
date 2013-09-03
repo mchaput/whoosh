@@ -575,3 +575,21 @@ def test_paged_highlights():
         page.results.formatter = highlight.UppercaseFormatter()
         hi = page[0].highlights("text")
         assert hi == u("ALFA bravo charlie delta echo foxtrot")
+
+
+def test_phrase_keywords():
+    schema = fields.Schema(text=fields.TEXT(stored=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(text=u("alfa bravo charlie delta"))
+        w.add_document(text=u("bravo charlie delta echo"))
+        w.add_document(text=u("charlie delta echo foxtrot"))
+        w.add_document(text=u("delta echo foxtrot alfa"))
+        w.add_document(text=u("echo foxtrot alfa bravo"))
+
+    with ix.searcher() as s:
+        q = query.Phrase("text", u("alfa bravo").split())
+        r = s.search(q)
+        assert len(r) == 2
+        kts = " ".join(t for t, score in r.key_terms("text"))
+        assert kts == "alfa bravo charlie foxtrot delta"
