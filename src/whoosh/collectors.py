@@ -486,7 +486,8 @@ class TopCollector(ScoredCollector):
         negated = 0 - global_docnum
         items = self.items
 
-        # Search through the results for the document and remove it
+        # Remove the document if it's on the list (it may not be since
+        # TopCollector forgets documents that don't make the top N list)
         for i in xrange(len(items)):
             if items[i][1] == negated:
                 items.pop(i)
@@ -494,9 +495,6 @@ class TopCollector(ScoredCollector):
                 heapify(items)
                 self.minscore = items[0][0] if items else 0
                 return
-
-        # The document wasn't on the list... somebody's confused!
-        raise KeyError(global_docnum)
 
     def results(self):
         # The items are stored (postive score, negative docnum) so the heap
