@@ -503,7 +503,8 @@ class NUMERIC(FieldType):
 
     def __getstate__(self):
         d = self.__dict__.copy()
-        del d["_struct"]
+        if "_struct" in d:
+            del d["_struct"]
         return d
 
     def __setstate__(self, d):
