@@ -91,18 +91,18 @@ def test_updates():
 def test_buffered():
     schema = fields.Schema(id=fields.ID, text=fields.TEXT)
     with TempIndex(schema, "buffered") as ix:
-        domain = (u("alfa"), u("bravo"), u("charlie"), u("delta"), u("echo"),
-                  u("foxtrot"), u("golf"), u("hotel"), u("india"))
+        domain = u("alfa bravo charlie delta echo foxtrot golf hotel india")
+        domain = domain.split()
 
         w = writing.BufferedWriter(ix, period=None, limit=10,
                                    commitargs={"merge": False})
-        for i in xrange(100):
+        for i in xrange(20):
             w.add_document(id=text_type(i),
                            text=u(" ").join(random.sample(domain, 5)))
-        time.sleep(0.5)
+        time.sleep(0.1)
         w.close()
 
-        assert len(ix._segments()) == 10
+        assert len(ix._segments()) == 2
 
 
 def test_buffered_search():
@@ -157,12 +157,12 @@ def test_buffered_threads():
     with TempIndex(schema, "buffthreads") as ix:
         class SimWriter(threading.Thread):
             def run(self):
-                for _ in xrange(10):
+                for _ in xrange(5):
                     w.update_document(name=random.choice(domain))
                     time.sleep(random.uniform(0.01, 0.1))
 
         w = writing.BufferedWriter(ix, limit=10)
-        threads = [SimWriter() for _ in xrange(10)]
+        threads = [SimWriter() for _ in xrange(5)]
         for thread in threads:
             thread.start()
         for thread in threads:

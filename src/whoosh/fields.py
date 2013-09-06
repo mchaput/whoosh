@@ -486,10 +486,7 @@ class NUMERIC(FieldType):
         self.signed = signed
         self.analyzer = analysis.IDAnalyzer()
         self.format = formats.Existence(field_boost=field_boost)
-
-        # Calculate the minimum and maximum possible values for error checking
-        self.min_value = from_sortable(numtype, bits, signed, 0)
-        self.max_value = from_sortable(numtype, bits, signed, 2 ** bits - 1)
+        self.min_value, self.max_value = self._min_max()
 
         # Column configuration
         if default is None:
@@ -506,12 +503,26 @@ class NUMERIC(FieldType):
 
     def __getstate__(self):
         d = self.__dict__.copy()
-        del d["_struct"]
+        if "_struct" in d:
+            del d["_struct"]
         return d
 
     def __setstate__(self, d):
         self.__dict__.update(d)
         self._struct = struct.Struct(">" + self.sortable_typecode)
+        if "min_value" not in d:
+            d["min_value"], d["max_value"] = self._min_max()
+
+    def _min_max(self):
+        numtype = self.numtype
+        bits = self.bits
+        signed = self.signed
+
+        # Calculate the minimum and maximum possible values for error checking
+        min_value = from_sortable(numtype, bits, signed, 0)
+        max_value = from_sortable(numtype, bits, signed, 2 ** bits - 1)
+
+        return min_value, max_value
 
     def default_column(self):
         return columns.NumericColumn(self.sortable_typecode,
@@ -549,7 +560,12 @@ class NUMERIC(FieldType):
         dc = self.decimal_places
         if dc and isinstance(x, (string_type, Decimal)):
             x = Decimal(x) * (10 ** dc)
-        x = self.numtype(x)
+
+        try:
+            x = self.numtype(x)
+        except OverflowError:
+            raise ValueError("Value %r overflowed number type %r"
+                             % (x, self.numtype))
 
         if x < self.min_value or x > self.max_value:
             raise ValueError("Numeric field value %s out of range [%s, %s]"

@@ -96,6 +96,20 @@ def two_letter_code(name):
 
 # Getter functions
 
+def has_stemmer(lang):
+    try:
+        return bool(stemmer_for_language(lang))
+    except NoStemmer:
+        return False
+
+
+def has_stopwords(lang):
+    try:
+        return bool(stopwords_for_language(lang))
+    except NoStopWords:
+        return False
+
+
 def stemmer_for_language(lang):
     if lang == "en_porter":
         # Original porter stemming algorithm is several times faster than the
@@ -113,7 +127,7 @@ def stemmer_for_language(lang):
     if tlc in snowball_classes:
         return snowball_classes[tlc]().stem
 
-    raise Exception("No stemmer available for %r" % lang)
+    raise NoStemmer("No stemmer available for %r" % lang)
 
 
 def stopwords_for_language(lang):
@@ -123,4 +137,4 @@ def stopwords_for_language(lang):
     if tlc in stoplists:
         return stoplists[tlc]
 
-    raise Exception("No stop-word list available for %r" % lang)
+    raise NoStopWords("No stop-word list available for %r" % lang)

@@ -28,6 +28,12 @@
 from whoosh.compat import iteritems
 
 
+# Exceptions
+
+class CompositionError(Exception):
+    pass
+
+
 # Utility functions
 
 def unstopped(tokenstream):

@@ -5,7 +5,7 @@ from __future__ import with_statement
 import pytest
 
 from whoosh import analysis, fields, qparser
-from whoosh.compat import u, unichr
+from whoosh.compat import b, u, unichr
 from whoosh.compat import dumps
 from whoosh.filedb.filestore import RamStorage
 
@@ -26,6 +26,23 @@ def test_path_tokenizer():
     assert [t.text for t in pt(value)] == ["/alfa", "/alfa/bravo",
                                            "/alfa/bravo/charlie",
                                            "/alfa/bravo/charlie/delta"]
+
+
+def test_path_tokenizer2():
+    path_field = fields.TEXT(analyzer=analysis.PathTokenizer())
+    st = RamStorage()
+    schema = fields.Schema(path=path_field)
+    index = st.create_index(schema)
+
+    with index.writer() as writer:
+        writer.add_document(path=u('/alfa/brvo/charlie/delta/'))
+        writer.add_document(path=u('/home/user/file.txt'))
+    assert not index.is_empty()
+
+    with index.reader() as reader:
+        items = list(reader.all_terms())
+    assert 'path' in [field for field, value in items]
+    assert b('/alfa') in [value for field, value in items]
 
 
 def test_composition1():
@@ -412,6 +429,7 @@ def test_ngrams():
                       ("lm", 14, 16)]
 
 
+@pytest.mark.skipif("sys.version_info < (2,6)")
 def test_language_analyzer():
     domain = [("da", u("Jeg gik mig over s\xf8 og land"),
                [u('gik'), u('s\xf8'), u('land')]),
@@ -432,6 +450,7 @@ def test_language_analyzer():
         assert words == target
 
 
+@pytest.mark.skipif("sys.version_info < (2,6)")
 def test_la_pickleability():
     ana = analysis.LanguageAnalyzer("en")
     _ = dumps(ana, -1)
@@ -447,3 +466,60 @@ def test_charset_pickeability():
     _ = dumps(ana, -1)
 
 
+def test_shingle_stopwords():
+    # Note that the stop list is None here
+    ana = (analysis.RegexTokenizer()
+           | analysis.StopFilter(stoplist=None, minsize=3)
+           | analysis.ShingleFilter(size=3))
+
+    texts = [t.text for t
+             in ana(u("some other stuff and then some things To Check     "))]
+    assert texts == ["some-other-stuff", "other-stuff-and", "stuff-and-then",
+                     "and-then-some", "then-some-things", "some-things-Check"]
+
+    # Use a stop list here
+    ana = (analysis.RegexTokenizer()
+           | analysis.LowercaseFilter()
+           | analysis.StopFilter()
+           | analysis.ShingleFilter(size=3))
+
+    texts = [t.text for t
+             in ana(u("some other stuff and then some things To Check     "))]
+    assert texts == ["some-other-stuff", "other-stuff-then", "stuff-then-some",
+                     "then-some-things", "some-things-check"]
+
+
+def test_biword_stopwords():
+    # Note that the stop list is None here
+    ana = (analysis.RegexTokenizer()
+           | analysis.StopFilter(stoplist=None, minsize=3)
+           | analysis.BiWordFilter())
+
+    texts = [t.text for t in ana(u("stuff and then some"))]
+    assert texts == ["stuff-and", "and-then", "then-some"]
+
+    # Use a stop list here
+    ana = (analysis.RegexTokenizer()
+           | analysis.LowercaseFilter()
+           | analysis.StopFilter()
+           | analysis.BiWordFilter())
+
+    texts = [t.text for t in ana(u("stuff and then some"))]
+    assert texts == ["stuff-then", "then-some"]
+
+
+@pytest.mark.skipif("sys.version_info < (2,6)")
+def test_stop_lang():
+    stopper = analysis.RegexTokenizer() | analysis.StopFilter()
+    ls = [token.text for token in stopper(u("this is a test"))]
+    assert ls == [u("test")]
+
+    es_stopper = analysis.RegexTokenizer() | analysis.StopFilter(lang="es")
+    ls = [token.text for token in es_stopper(u("el lapiz es en la mesa"))]
+    assert ls == ["lapiz", "mesa"]
+
+
+def test_issue358():
+    t = analysis.RegexTokenizer("\w+")
+    with pytest.raises(analysis.CompositionError):
+        _ = t | analysis.StandardAnalyzer()

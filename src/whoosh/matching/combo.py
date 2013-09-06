@@ -259,14 +259,14 @@ class ArrayUnionMatcher(CombinationMatcher):
             self._find_next()
             return
 
-        # Advance all submatchers
+        # Advance all active submatchers
         submatchers = self._submatchers
         active = False
         for subm in submatchers:
-            subm.skip_to(docnum)
-            active = active or subm.is_active()
+            if subm.is_active():
+                subm.skip_to(docnum)
 
-        if active:
+        if any(subm.is_active() for subm in submatchers):
             # Rebuffer
             self._docnum = self._min_id()
             self._read_part()

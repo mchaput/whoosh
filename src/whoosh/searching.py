@@ -693,7 +693,7 @@ class Searcher(object):
             # Wrap it with a TimeLimitedCollector with a time limit of
             # 10.5 seconds
             from whoosh.collectors import TimeLimitedCollector
-            c = TimeLimitedCollector(c, 10.5)
+            c = TimeLimitCollector(c, 10.5)
 
             # Search using the custom collector
             results = mysearcher.search_with_collector(myquery, c)
@@ -1240,7 +1240,7 @@ class Results(object):
 
     def key_terms(self, fieldname, docs=10, numterms=5,
                   model=classify.Bo1Model, normalize=True):
-        """Returns the 'numterms' most important terms from the top 'numdocs'
+        """Returns the 'numterms' most important terms from the top 'docs'
         documents in these results. "Most important" is generally defined as
         terms that occur frequently in the top hits but relatively infrequently
         in the collection as a whole.
@@ -1248,7 +1248,7 @@ class Results(object):
         :param fieldname: Look at the terms in this field. This field must
             store vectors.
         :param docs: Look at this many of the top documents of the results.
-        :param terms: Return this number of important terms.
+        :param numterms: Return this number of important terms.
         :param model: The classify.ExpansionModel to use. See the classify
             module.
         :returns: list of unicode strings.
@@ -1407,7 +1407,7 @@ class Hit(object):
             raise NoTermsException
         return self.results.docterms[self.docnum]
 
-    def highlights(self, fieldname, text=None, top=3):
+    def highlights(self, fieldname, text=None, top=3, minscore=1):
         """Returns highlighted snippets from the given field::
 
             r = searcher.search(myquery)
@@ -1437,10 +1437,13 @@ class Hit(object):
             access to the text another way (for example, loading from a file or
             a database), you can supply it using the ``text`` parameter.
         :param top: the maximum number of fragments to return.
+        :param minscore: the minimum score for fragments to appear in the
+            highlights.
         """
 
         hliter = self.results.highlighter
-        return hliter.highlight_hit(self, fieldname, text=text, top=top)
+        return hliter.highlight_hit(self, fieldname, text=text, top=top,
+                                    minscore=minscore)
 
     def more_like_this(self, fieldname, text=None, top=10, numterms=5,
                        model=classify.Bo1Model, normalize=True, filter=None):
@@ -1577,6 +1580,12 @@ class ResultsPage(object):
     >>> for i, fields in enumerate(page):
     ...   print("%s. %r" % (page.offset + i + 1, fields))
     >>> mysearcher.close()
+
+    To set highlighter attributes (for example ``formatter``), access the
+    underlying :class:`Results` object::
+
+        page.results.formatter = highlight.UppercaseFormatter()
+
     """
 
     def __init__(self, results, pagenum, pagelen=10):

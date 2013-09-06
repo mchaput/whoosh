@@ -99,8 +99,13 @@ class Term(qcore.Query):
         fieldname = self.fieldname
         if fieldname not in ixreader.schema:
             return 0
+
         field = ixreader.schema[fieldname]
-        text = field.to_bytes(self.text)
+        try:
+            text = field.to_bytes(self.text)
+        except ValueError:
+            return 0
+
         return ixreader.doc_frequency(fieldname, text)
 
     def matcher(self, searcher, context=None):
@@ -110,7 +115,10 @@ class Term(qcore.Query):
             return matching.NullMatcher()
 
         field = searcher.schema[fieldname]
-        text = field.to_bytes(text)
+        try:
+            text = field.to_bytes(text)
+        except ValueError:
+            return matching.NullMatcher()
 
         if (self.fieldname, text) in searcher.reader():
             if context is None:
@@ -138,7 +146,7 @@ class MultiTerm(qcore.Query):
     def _btexts(self, ixreader):
         raise NotImplementedError(self.__class__.__name__)
 
-    def expanded_terms(self, ixreader):
+    def expanded_terms(self, ixreader, phrases=False):
         fieldname = self.field()
         if fieldname:
             for btext in self._btexts(ixreader):
@@ -483,7 +491,11 @@ class Variations(ExpandingTerm):
         fieldname = self.fieldname
         to_bytes = ixreader.schema[fieldname].to_bytes
         for word in variations(self.text):
-            btext = to_bytes(word)
+            try:
+                btext = to_bytes(word)
+            except ValueError:
+                continue
+
             if (fieldname, btext) in ixreader:
                 yield btext
 

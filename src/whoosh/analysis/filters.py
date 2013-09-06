@@ -236,37 +236,45 @@ class StopFilter(Filter):
     """Marks "stop" words (words too common to index) in the stream (and by
     default removes them).
 
-    >>> rext = RegexTokenizer()
-    >>> stream = rext("this is a test")
-    >>> stopper = StopFilter()
-    >>> [token.text for token in stopper(stream)]
-    ["this", "test"]
+    Make sure you precede this filter with a :class:`LowercaseFilter`.
+
+    >>> stopper = RegexTokenizer() | StopFilter()
+    >>> [token.text for token in stopper(u"this is a test")]
+    ["test"]
+    >>> es_stopper = RegexTokenizer() | StopFilter(lang="es")
+    >>> [token.text for token in es_stopper(u"el lapiz es en la mesa")]
+    ["lapiz", "mesa"]
+
+    The list of available languages is in `whoosh.lang.languages`.
+    You can use :func:`whoosh.lang.has_stopwords` to check if a given language
+    has a stop word list available.
     """
 
-    __inittypes__ = dict(stoplist=list, minsize=int, maxsize=int,
-                         renumber=bool)
-
     def __init__(self, stoplist=STOP_WORDS, minsize=2, maxsize=None,
-                 renumber=True):
+                 renumber=True, lang=None):
         """
         :param stoplist: A collection of words to remove from the stream.
             This is converted to a frozenset. The default is a list of
             common English stop words.
         :param minsize: The minimum length of token texts. Tokens with
-            text smaller than this will be stopped.
+            text smaller than this will be stopped. The default is 2.
         :param maxsize: The maximum length of token texts. Tokens with text
             larger than this will be stopped. Use None to allow any length.
         :param renumber: Change the 'pos' attribute of unstopped tokens
             to reflect their position with the stopped words removed.
-        :param remove: Whether to remove the stopped words from the stream
-            entirely. This is not normally necessary, since the indexing
-            code will ignore tokens it receives with stopped=True.
+        :param lang: Automatically get a list of stop words for the given
+            language
         """
 
-        if stoplist is None:
-            self.stops = frozenset()
-        else:
-            self.stops = frozenset(stoplist)
+        stops = set()
+        if stoplist:
+            stops.update(stoplist)
+        if lang:
+            from whoosh.lang import stopwords_for_language
+
+            stops.update(stopwords_for_language(lang))
+
+        self.stops = frozenset(stops)
         self.min = minsize
         self.max = maxsize
         self.renumber = renumber

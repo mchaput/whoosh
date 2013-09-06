@@ -72,15 +72,16 @@ def try_sort(sortedby, key, q=None, limit=None, reverse=False):
         q = query.Term("ev", u("a"))
 
     correct = [d["id"] for d in sorted(docs, key=key, reverse=reverse)][:limit]
+    schema = get_schema()
 
     for fn in (make_single_index, make_multi_index):
-        with TempIndex(get_schema()) as ix:
-            fn(ix)
-            with ix.searcher() as s:
-                r = s.search(q, sortedby=sortedby, limit=limit,
-                             reverse=reverse)
-                rids = [d["id"] for d in r]
-                assert rids == correct
+        ix = RamStorage().create_index(schema)
+        fn(ix)
+        with ix.searcher() as s:
+            r = s.search(q, sortedby=sortedby, limit=limit,
+                         reverse=reverse)
+            rids = [d["id"] for d in r]
+            assert rids == correct
 
 
 def test_sortedby():

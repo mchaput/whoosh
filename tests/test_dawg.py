@@ -238,10 +238,10 @@ def test_words():
 
 def test_random():
     def randstring():
-        length = random.randint(1, 10)
+        length = random.randint(1, 5)
         a = array("B", (random.randint(0, 255) for _ in xrange(length)))
         return array_tobytes(a)
-    keys = sorted(randstring() for _ in xrange(1000))
+    keys = sorted(randstring() for _ in xrange(100))
 
     with TempStorage() as st:
         gwrite(keys, st)

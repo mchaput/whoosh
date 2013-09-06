@@ -448,6 +448,15 @@ class ListMatcher(Matcher):
     def reset(self):
         self._i = 0
 
+    def skip_to(self, id):
+        if not self.is_active():
+            raise ReadTooFar
+        if id < self.id():
+            return
+
+        while self._i < len(self._ids) and self._ids[self._i] < id:
+            self._i += 1
+
     def term(self):
         return self._term
 
@@ -457,8 +466,9 @@ class ListMatcher(Matcher):
                               self._all_weights)
 
     def replace(self, minquality=0):
-        if not self.is_active() or (minquality
-                                    and self.max_quality() < minquality):
+        if not self.is_active():
+            return NullMatcher()
+        elif minquality and self.max_quality() < minquality:
             return NullMatcher()
         else:
             return self
@@ -470,7 +480,10 @@ class ListMatcher(Matcher):
     def max_quality(self):
         # This matcher treats all postings in the list as one "block", so the
         # block quality is the same as the quality of the entire list
-        return self._scorer.block_quality(self)
+        if self._scorer:
+            return self._scorer.block_quality(self)
+        else:
+            return self.block_max_weight()
 
     def block_quality(self):
         return self._scorer.block_quality(self)

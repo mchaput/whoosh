@@ -1,6 +1,8 @@
 from __future__ import with_statement
 import copy
 
+import pytest
+
 from whoosh import fields, qparser, query
 from whoosh.compat import b, u
 from whoosh.filedb.filestore import RamStorage
@@ -212,7 +214,7 @@ def test_normalize_compound():
         else:
             return Or([nq(level - 1), nq(level - 1), nq(level - 1)])
 
-    q = nq(7)
+    q = nq(5)
     q = q.normalize()
     assert q == Or([Term("a", u("a")), Term("a", u("b"))])
 
@@ -477,3 +479,33 @@ def test_ornot_andnot():
         r2 = [hit["id"] for hit in s.search(q2, sortedby="id")]
 
         assert r1 == r2 == [4]
+
+
+def test_none_in_compounds():
+    with pytest.raises(query.QueryError):
+        _ = query.And([query.Term("a", "b"), None, query.Term("c", "d")])
+
+
+def test_issue_355():
+    schema = fields.Schema(seats=fields.NUMERIC(bits=8, stored=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(seats=0)
+        w.add_document(seats=10)
+        w.add_document(seats=20)
+
+    with ix.searcher() as s:
+        # Passing a bytestring for a numeric field
+        q = Term("seats", b("maker"))
+        r1 = [hit["seats"] for hit in s.search(q, limit=5)]
+
+        # Passing a unicode string for a numeric field
+        q = Term("seats", u("maker"))
+        r2 = [hit["seats"] for hit in s.search(q, limit=5)]
+
+        # Passing a value too large for the numeric field
+        q = Term("seats", 260)
+        r3 = [hit["seats"] for hit in s.search(q, limit=5)]
+
+        assert r1 == r2 == r3 == []
+

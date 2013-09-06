@@ -40,6 +40,9 @@ class CompoundQuery(qcore.Query):
     """
 
     def __init__(self, subqueries, boost=1.0):
+        for subq in subqueries:
+            if not isinstance(subq, qcore.Query):
+                raise qcore.QueryError("%r is not a query" % subq)
         self.subqueries = subqueries
         self.boost = boost
 
@@ -52,16 +55,17 @@ class CompoundQuery(qcore.Query):
 
     def __unicode__(self):
         r = u("(")
-        r += (self.JOINT).join([text_type(s) for s in self.subqueries])
+        r += self.JOINT.join([text_type(s) for s in self.subqueries])
         r += u(")")
         return r
 
     __str__ = __unicode__
 
     def __eq__(self, other):
-        return other and self.__class__ is other.__class__ and\
-        self.subqueries == other.subqueries and\
-        self.boost == other.boost
+        return (other
+                and self.__class__ is other.__class__
+                and self.subqueries == other.subqueries
+                and self.boost == other.boost)
 
     def __getitem__(self, i):
         return self.subqueries.__getitem__(i)
@@ -162,7 +166,7 @@ class CompoundQuery(qcore.Query):
         subqs = []
         seenqs = set()
         for s in subqueries:
-            if (not isinstance(s, Every) and s.field() in everyfields):
+            if not isinstance(s, Every) and s.field() in everyfields:
                 continue
             if s in seenqs:
                 continue
@@ -361,7 +365,7 @@ class Or(CompoundQuery):
             raise ValueError("Unknown matcher_type %r" % self.matcher_type)
 
         return cls(subs, boost=self.boost, minmatch=self.minmatch,
-                    scale=self.scale).matcher(searcher, context)
+                   scale=self.scale).matcher(searcher, context)
 
 
 class DefaultOr(Or):

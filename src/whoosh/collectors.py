@@ -75,6 +75,8 @@ NOTE: collectors are not designed to be reentrant or thread-safe. It is
 generally a good idea to create a new collector for each search.
 """
 
+import os
+import signal
 import threading
 from array import array
 from bisect import insort
@@ -484,17 +486,15 @@ class TopCollector(ScoredCollector):
         negated = 0 - global_docnum
         items = self.items
 
-        # Search through the results for the document and remove it
+        # Remove the document if it's on the list (it may not be since
+        # TopCollector forgets documents that don't make the top N list)
         for i in xrange(len(items)):
             if items[i][1] == negated:
                 items.pop(i)
                 # Restore the heap invariant
                 heapify(items)
-                self.minscore = items[0][0]
+                self.minscore = items[0][0] if items else 0
                 return
-
-        # The document wasn't on the list... somebody's confused!
-        raise KeyError(global_docnum)
 
     def results(self):
         # The items are stored (postive score, negative docnum) so the heap
@@ -1008,6 +1008,12 @@ class TimeLimitCollector(WrappingCollector):
 
         # We can still get partial results from the collector
         print(tlc.results())
+
+    IMPORTANT: On Unix systems (systems where signal.SIGALRM is defined), the
+    code uses signals to stop searching immediately when the time limit is
+    reached. On Windows, the OS does not support this functionality, so the
+    search only checks the time between each found document, so if a matcher
+    is slow the search could exceed the time limit.
     """
 
     def __init__(self, child, timelimit, greedy=False):
@@ -1022,20 +1028,31 @@ class TimeLimitCollector(WrappingCollector):
         self.child = child
         self.timelimit = timelimit
         self.greedy = greedy
+        self.use_alarm = hasattr(signal, "SIGALRM")
 
     def prepare(self, top_searcher, q, context):
         self.child.prepare(top_searcher, q, context)
 
+        self.timedout = False
+        if self.use_alarm:
+            signal.signal(signal.SIGALRM, self._was_signaled)
+
         # Start a timer thread. If the timer fires, it will call this object's
         # _timestop() method
-        self.timedout = False
         self.timer = threading.Timer(self.timelimit, self._timestop)
         self.timer.start()
 
     def _timestop(self):
+        # Called when the timer expires
         self.timer = None
         # Set an attribute that will be noticed in the collect_matches() loop
         self.timedout = True
+
+        if self.use_alarm:
+            os.kill(os.getpid(), signal.SIGALRM)
+
+    def _was_signaled(self, signum, frame):
+        raise TimeLimit
 
     def collect_matches(self):
         child = self.child

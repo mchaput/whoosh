@@ -25,7 +25,8 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from whoosh.analysis.acore import Composable
+from whoosh.analysis.acore import Composable, CompositionError
+from whoosh.analysis.tokenizers import Tokenizer
 from whoosh.analysis.filters import LowercaseFilter
 from whoosh.analysis.filters import StopFilter, STOP_WORDS
 from whoosh.analysis.morph import StemFilter
@@ -62,11 +63,20 @@ class Analyzer(Composable):
 class CompositeAnalyzer(Analyzer):
     def __init__(self, *composables):
         self.items = []
+
         for comp in composables:
             if isinstance(comp, CompositeAnalyzer):
                 self.items.extend(comp.items)
             else:
                 self.items.append(comp)
+
+        # Tokenizers must start a chain, and then only filters after that
+        # (because analyzers take a string and return a generator of tokens,
+        # and filters take and return generators of tokens)
+        for item in self.items[1:]:
+            if isinstance(item, Tokenizer):
+                raise CompositionError("Only one tokenizer allowed at the start"
+                                       " of the analyzer: %r" % self.items)
 
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__,
@@ -252,6 +262,11 @@ def LanguageAnalyzer(lang, expression=default_pattern, gaps=False,
     >>> [token.text for token in ana("Por el mar corren las liebres")]
     ['mar', 'corr', 'liebr']
 
+    The list of available languages is in `whoosh.lang.languages`.
+    You can use :func:`whoosh.lang.has_stemmer` and
+    :func:`whoosh.lang.has_stopwords` to check if a given language has a
+    stemming function and/or stop word list available.
+
     :param expression: The regular expression pattern to use to extract tokens.
     :param gaps: If True, the tokenizer *splits* on the expression, rather
         than matching on the expression.
@@ -261,7 +276,6 @@ def LanguageAnalyzer(lang, expression=default_pattern, gaps=False,
     """
 
     from whoosh.lang import NoStemmer, NoStopWords
-    from whoosh.lang import stopwords_for_language
 
     # Make the start of the chain
     chain = (RegexTokenizer(expression=expression, gaps=gaps)
@@ -269,8 +283,7 @@ def LanguageAnalyzer(lang, expression=default_pattern, gaps=False,
 
     # Add a stop word filter
     try:
-        stoplist = stopwords_for_language(lang)
-        chain = chain | StopFilter(stoplist=stoplist)
+        chain = chain | StopFilter(lang=lang)
     except NoStopWords:
         pass
 

@@ -70,20 +70,19 @@ def test_version_in():
         assert not ix.is_empty()
 
 
-def _check_writer(name, writer_fn):
+def test_simple_indexing():
     schema = fields.Schema(text=fields.TEXT, id=fields.STORED)
     domain = (u("alfa"), u("bravo"), u("charlie"), u("delta"), u("echo"),
               u("foxtrot"), u("golf"), u("hotel"), u("india"), u("juliet"),
               u("kilo"), u("lima"), u("mike"), u("november"))
     docs = defaultdict(list)
-    with TempIndex(schema, name) as ix:
-        w = writer_fn(ix)
-        for i in xrange(1000):
-            smp = random.sample(domain, 5)
-            for word in smp:
-                docs[word].append(i)
-            w.add_document(text=u(" ").join(smp), id=i)
-        w.commit()
+    with TempIndex(schema, "simple") as ix:
+        with ix.writer() as w:
+            for i in xrange(100):
+                smp = random.sample(domain, 5)
+                for word in smp:
+                    docs[word].append(i)
+                w.add_document(text=u(" ").join(smp), id=i)
 
         with ix.searcher() as s:
             for word in domain:
@@ -91,10 +90,6 @@ def _check_writer(name, writer_fn):
                                in s.search(query.Term("text", word),
                                            limit=None)])
                 assert rset == docs[word]
-
-
-def test_simple_indexing():
-    _check_writer("simplew", lambda ix: ix.writer())
 
 
 def test_integrity():
@@ -383,7 +378,7 @@ def test_update_numeric():
     schema = fields.Schema(num=fields.NUMERIC(unique=True, stored=True),
                            text=fields.ID(stored=True))
     with TempIndex(schema, "updatenum") as ix:
-        nums = list(range(10)) * 3
+        nums = list(range(5)) * 3
         random.shuffle(nums)
         for num in nums:
             with ix.writer() as w:
@@ -392,7 +387,7 @@ def test_update_numeric():
         with ix.searcher() as s:
             results = [d["text"] for _, d in s.iter_docs()]
             results = " ".join(sorted(results))
-            assert results == "0 1 2 3 4 5 6 7 8 9"
+            assert results == "0 1 2 3 4"
 
 
 def test_reindex():
@@ -668,12 +663,12 @@ def test_globfield_length_merge():
 
     with TempIndex(schema, "globlenmerge") as ix:
         with ix.writer() as w:
-            w.add_document(title=u"First document", path=u"/a",
-                           content_text=u"This is the first document we've added!")
+            w.add_document(title=u("First document"), path=u("/a"),
+                           content_text=u("This is the first document we've added!"))
 
         with ix.writer() as w:
-            w.add_document(title=u"Second document", path=u"/b",
-                           content_text=u"The second document is even more interesting!")
+            w.add_document(title=u("Second document"), path=u("/b"),
+                           content_text=u("The second document is even more interesting!"))
 
         with ix.searcher() as s:
             docnum = s.document_number(path="/a")

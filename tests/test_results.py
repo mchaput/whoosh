@@ -554,3 +554,42 @@ def test_closed_searcher():
         assert c[1] == "bravo"
         assert s.reader().has_word_graph("key")
         assert s.suggest("key", "brovo") == ["bravo"]
+
+
+def test_paged_highlights():
+    schema = fields.Schema(text=fields.TEXT(stored=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(text=u("alfa bravo charlie delta echo foxtrot"))
+        w.add_document(text=u("bravo charlie delta echo foxtrot golf"))
+        w.add_document(text=u("charlie delta echo foxtrot golf hotel"))
+        w.add_document(text=u("delta echo foxtrot golf hotel india"))
+        w.add_document(text=u("echo foxtrot golf hotel india juliet"))
+        w.add_document(text=u("foxtrot golf hotel india juliet kilo"))
+
+    with ix.searcher() as s:
+        q = query.Term("text", u("alfa"))
+        page = s.search_page(q, 1, pagelen=3)
+
+        page.results.fragmenter = highlight.WholeFragmenter()
+        page.results.formatter = highlight.UppercaseFormatter()
+        hi = page[0].highlights("text")
+        assert hi == u("ALFA bravo charlie delta echo foxtrot")
+
+
+def test_phrase_keywords():
+    schema = fields.Schema(text=fields.TEXT(stored=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(text=u("alfa bravo charlie delta"))
+        w.add_document(text=u("bravo charlie delta echo"))
+        w.add_document(text=u("charlie delta echo foxtrot"))
+        w.add_document(text=u("delta echo foxtrot alfa"))
+        w.add_document(text=u("echo foxtrot alfa bravo"))
+
+    with ix.searcher() as s:
+        q = query.Phrase("text", u("alfa bravo").split())
+        r = s.search(q)
+        assert len(r) == 2
+        kts = " ".join(t for t, score in r.key_terms("text"))
+        assert kts == "alfa bravo charlie foxtrot delta"
