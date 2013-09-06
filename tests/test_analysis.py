@@ -517,3 +517,9 @@ def test_stop_lang():
     es_stopper = analysis.RegexTokenizer() | analysis.StopFilter(lang="es")
     ls = [token.text for token in es_stopper(u("el lapiz es en la mesa"))]
     assert ls == ["lapiz", "mesa"]
+
+
+def test_issue358():
+    t = analysis.RegexTokenizer("\w+")
+    with pytest.raises(analysis.CompositionError):
+        _ = t | analysis.StandardAnalyzer()
