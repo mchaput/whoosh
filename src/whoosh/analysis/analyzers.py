@@ -25,7 +25,8 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from whoosh.analysis.acore import Composable
+from whoosh.analysis.acore import Composable, CompositionError
+from whoosh.analysis.tokenizers import Tokenizer
 from whoosh.analysis.filters import LowercaseFilter
 from whoosh.analysis.filters import StopFilter, STOP_WORDS
 from whoosh.analysis.morph import StemFilter
@@ -62,11 +63,20 @@ class Analyzer(Composable):
 class CompositeAnalyzer(Analyzer):
     def __init__(self, *composables):
         self.items = []
+
         for comp in composables:
             if isinstance(comp, CompositeAnalyzer):
                 self.items.extend(comp.items)
             else:
                 self.items.append(comp)
+
+        # Tokenizers must start a chain, and then only filters after that
+        # (because analyzers take a string and return a generator of tokens,
+        # and filters take and return generators of tokens)
+        for item in self.items[1:]:
+            if isinstance(item, Tokenizer):
+                raise CompositionError("Only one tokenizer allowed at the start"
+                                       " of the analyzer: %r" % self.items)
 
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__,
