@@ -512,7 +512,7 @@ class FuzzyTermPlugin(TaggingPlugin):
             self.prefix = prefix
 
         def r(self):
-            return "%s ~%d" % (self.text, self.maxdist)
+            return "%r ~%d" % (self.text, self.maxdist)
 
         def query(self, parser):
             # Use the superclass's query() method to create a FuzzyTerm query
