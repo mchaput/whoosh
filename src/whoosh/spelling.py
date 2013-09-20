@@ -196,7 +196,7 @@ class Correction(object):
     ``tokens``
         A list of token objects representing the corrected words.
 
-    You can also use the :meth:`Correction.format_string` to reformat the
+    You can also use the :meth:`Correction.format_string` method to reformat the
     corrected query string using a :class:`whoosh.highlight.Formatter` class.
     For example, to display the corrected query string as HTML with the
     changed words emphasized::
@@ -215,18 +215,26 @@ class Correction(object):
         self.original_string = qstring
         self.tokens = tokens
 
-        if self.original_string and self.tokens:
+        if self.original_string:
             self.string = self.format_string(highlight.NullFormatter())
         else:
-            self.string = None
+            self.string = ''
 
     def __repr__(self):
         return "%s(%r, %r)" % (self.__class__.__name__, self.query,
                                self.string)
 
     def format_string(self, formatter):
-        if not (self.original_string and self.tokens):
-            raise Exception("The original query isn't available")
+        """
+        Highlights the corrected words in the original query string using the
+        given :class:`~whoosh.highlight.Formatter`.
+
+        :param formatter: A :class:`whoosh.highlight.Formatter` instance.
+        :return: the output of the formatter (usually a string).
+        """
+
+        if not self.original_string:
+            return ''
         if isinstance(formatter, type):
             formatter = formatter()
 
@@ -290,17 +298,36 @@ class SimpleQueryCorrector(QueryCorrector):
         prefix = self.prefix
         maxdist = self.maxdist
 
+        # A list of tokens that were changed by a corrector
         corrected_tokens = []
+
+        # The corrected query tree. We don't need to deepcopy the original
+        # because we use Query.replace() to find-and-replace the corrected
+        # words and it returns a copy of the query tree.
         corrected_q = q
+
+        # For every word in the original query...
+        # Note we can't put these in a set, because we must preserve WHERE
+        # in the query each token occured so we can format them later
         for token in q.all_tokens():
             fname = token.fieldname
+
+            # If this is one of the words we're supposed to correct...
             if (fname, token.text) in termset:
                 sugs = correctors[fname].suggest(token.text, prefix=prefix,
                                                  maxdist=maxdist)
                 if sugs:
+                    # This is a "simple" corrector, so we just pick the first
+                    # suggestion :/
                     sug = sugs[0]
+
+                    # Return a new copy of the original query with this word
+                    # replaced by the correction
                     corrected_q = corrected_q.replace(token.fieldname,
                                                       token.text, sug)
+                    # Add the token to the list of corrected tokens (for the
+                    # formatter to use later)
+                    token.original = token.text
                     token.text = sug
                     corrected_tokens.append(token)
 
