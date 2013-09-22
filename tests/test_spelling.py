@@ -403,5 +403,26 @@ def test_missing_suggestion():
         assert c.suggest("cell") == ["cells"]
 
 
+def test_correct_correct():
+    from whoosh import qparser
+
+    schema = fields.Schema(a=fields.TEXT(spelling=True))
+    ix = RamStorage().create_index(schema)
+    ix_writer = ix.writer()
+
+    ix_writer.add_document(a=u('dworska'))
+    ix_writer.add_document(a=u('swojska'))
+
+    ix_writer.commit()
+
+    s = ix.searcher()
+    qtext = u('dworska')
+
+    qp = qparser.QueryParser('a', ix.schema)
+    q = qp.parse(qtext, ix.schema)
+    c = s.correct_query(q, qtext)
+
+    assert c.string == "dworska"
+    assert c.format_string(highlight.UppercaseFormatter()) == "dworska"
 
 

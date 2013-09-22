@@ -894,6 +894,8 @@ class Searcher(object):
         :rtype: :class:`whoosh.spelling.Correction`
         """
 
+        reader = self.reader()
+
         # Dictionary of custom per-field correctors
         if correctors is None:
             correctors = {}
@@ -910,11 +912,13 @@ class Searcher(object):
             if fieldname not in correctors:
                 correctors[fieldname] = self.reader().corrector(fieldname)
 
-        # Get any terms in the query in the fields we're correcting
+        # Get any missing terms in the query in the fields we're correcting
         if terms is None:
             terms = []
             for token in q.all_tokens():
-                if token.fieldname in correctors:
+                fieldname = token.fieldname
+                text = token.text
+                if fieldname in correctors and (fieldname, text) not in reader:
                     terms.append((token.fieldname, token.text))
 
         # Make q query corrector
