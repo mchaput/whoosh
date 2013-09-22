@@ -67,7 +67,14 @@ class Term(qcore.Query):
         return r
 
     def __unicode__(self):
-        t = u("%s:%s") % (self.fieldname, self.text)
+        text = self.text
+        if isinstance(text, bytes_type):
+            try:
+                text = text.decode("ascii")
+            except UnicodeDecodeError:
+                text = repr(text)
+
+        t = u("%s:%s") % (self.fieldname, text)
         if self.boost != 1:
             t += u("^") + text_type(self.boost)
         return t
@@ -152,20 +159,29 @@ class MultiTerm(qcore.Query):
             for btext in self._btexts(ixreader):
                 yield (fieldname, btext)
 
-    def tokens(self, boost=1.0):
-        yield Token(fieldname=self.fieldname, text=self.text,
-                    boost=boost * self.boost, startchar=self.startchar,
-                    endchar=self.endchar, chars=True)
+    def tokens(self, boost=1.0, exreader=None):
+        fieldname = self.field()
+        if exreader is None:
+            btexts = [self.text]
+        else:
+            btexts = self._btexts(exreader)
+
+        for btext in btexts:
+            yield Token(fieldname=fieldname, text=btext,
+                        boost=boost * self.boost, startchar=self.startchar,
+                        endchar=self.endchar, chars=True)
 
     def simplify(self, ixreader):
-        if self.fieldname not in ixreader.schema:
+        fieldname = self.field()
+
+        if fieldname not in ixreader.schema:
             return qcore.NullQuery()
-        field = ixreader.schema[self.fieldname]
+        field = ixreader.schema[fieldname]
 
         existing = []
         for btext in sorted(set(self._btexts(ixreader))):
             text = field.from_bytes(btext)
-            existing.append(Term(self.fieldname, text, boost=self.boost))
+            existing.append(Term(fieldname, text, boost=self.boost))
 
         if len(existing) == 1:
             return existing[0]
@@ -176,18 +192,19 @@ class MultiTerm(qcore.Query):
             return qcore.NullQuery
 
     def estimate_size(self, ixreader):
-        return sum(ixreader.doc_frequency(self.fieldname, btext)
+        fieldname = self.field()
+        return sum(ixreader.doc_frequency(fieldname, btext)
                    for btext in self._btexts(ixreader))
 
     def estimate_min_size(self, ixreader):
-        return min(ixreader.doc_frequency(self.fieldname, text)
+        fieldname = self.field()
+        return min(ixreader.doc_frequency(fieldname, text)
                    for text in self._btexts(ixreader))
 
     def matcher(self, searcher, context=None):
         from whoosh.query import Or
-        from whoosh.util import now
 
-        fieldname = self.fieldname
+        fieldname = self.field()
         constantscore = self.constantscore
 
         reader = searcher.reader()

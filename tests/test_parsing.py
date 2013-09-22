@@ -1,3 +1,5 @@
+import pytest
+
 from whoosh import analysis, fields, query
 from whoosh.compat import u, text_type
 from whoosh.qparser import default
@@ -946,3 +948,11 @@ def test_spacespace_and():
     assert len(q) == 2
     assert q[0] == query.Term("f", "A")
     assert q[1] == query.Term("f", "B")
+
+
+def test_unicode_num():
+    schema = fields.Schema(num=fields.NUMERIC)
+    parser = default.QueryParser(u"num", schema=schema)
+    q = parser.parse(u"num:1")
+
+    _ = text_type(q)
