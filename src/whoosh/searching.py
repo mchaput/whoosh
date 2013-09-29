@@ -1207,7 +1207,6 @@ class Results(object):
 
         if not self.has_matched_terms():
             raise NoTermsException
-
         return set(self.termdocs.keys())
 
     def _get_fragmenter(self):
@@ -1409,7 +1408,7 @@ class Hit(object):
 
         if not self.results.has_matched_terms():
             raise NoTermsException
-        return self.results.docterms[self.docnum]
+        return self.results.docterms.get(self.docnum, [])
 
     def highlights(self, fieldname, text=None, top=3, minscore=1):
         """Returns highlighted snippets from the given field::
