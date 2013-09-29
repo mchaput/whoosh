@@ -876,10 +876,6 @@ class Highlighter(object):
         # Convert bytes to unicode
         words = frozenset(from_bytes(term[1]) for term in bterms)
 
-        # if not words:
-        #     # No terms matches in this field
-        #     return self.formatter.format([])
-
         # If we can do "pinpoint" highlighting...
         if self.can_load_chars(results, fieldname):
             # Build the docnum->[(startchar, endchar),] map

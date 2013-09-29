@@ -593,3 +593,21 @@ def test_phrase_keywords():
         assert len(r) == 2
         kts = " ".join(t for t, score in r.key_terms("text"))
         assert kts == "alfa bravo charlie foxtrot delta"
+
+
+def test_every_keywords():
+    schema = fields.Schema(title=fields.TEXT, content=fields.TEXT(stored=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(title=u("alfa"), content=u("bravo"))
+        w.add_document(title=u("charlie"), content=u("delta"))
+
+    with ix.searcher() as s:
+        q = qparser.QueryParser("content", ix.schema).parse("*")
+        assert isinstance(q, query.Every)
+
+        r = s.search(q, terms=True)
+        assert len(r) == 2
+        hit = r[0]
+        assert hit["content"] == "bravo"
+        assert hit.highlights("content") == ""
