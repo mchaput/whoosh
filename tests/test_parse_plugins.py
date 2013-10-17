@@ -453,6 +453,48 @@ def test_fuzzy_plugin():
     assert q.text == "bob~"
 
 
+def test_fuzzy_prefix():
+    from whoosh import scoring
+
+    schema = fields.Schema(title=fields.TEXT(stored=True),
+                           content=fields.TEXT(spelling=True))
+
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        # Match -> first
+        w.add_document(title=u("First"),
+                       content=u"This is the first document we've added!")
+        # No match
+        w.add_document(title=u("Second"),
+                       content=u("The second one is even more interesting! filst"))
+        # Match -> first
+        w.add_document(title=u("Third"),
+                       content=u("The world first line we've added!"))
+        # Match -> zeroth
+        w.add_document(title=u("Fourth"),
+                       content=u("The second one is alaways comes after zeroth!"))
+        # Match -> fire is within 2 edits (transpose + delete) of first
+        w.add_document(title=u("Fifth"),
+                       content=u("The fire is beautiful"))
+
+    from whoosh.qparser import QueryParser, FuzzyTermPlugin #, BoundedFuzzyTermPlugin
+    parser = QueryParser("content", ix.schema)
+    parser.add_plugin(FuzzyTermPlugin())
+    q = parser.parse("first~2/3 OR zeroth", debug=False)
+
+    assert isinstance(q, query.Or)
+    ft = q[0]
+    assert isinstance(ft, query.FuzzyTerm)
+    assert ft.maxdist == 2
+    assert ft.prefixlength == 3
+
+    with ix.searcher(weighting=scoring.TF_IDF()) as searcher:
+        results = searcher.search(q)
+        print(len(results))
+        assert len(results) == 4
+        assert " ".join(hit["title"] for hit in results) == "Fourth First Third Fifth"
+
+
 def test_function_plugin():
     class FakeQuery(query.Query):
         def __init__(self, children, *args, **kwargs):
