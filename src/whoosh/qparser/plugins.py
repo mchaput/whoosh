@@ -491,28 +491,28 @@ class FuzzyTermPlugin(TaggingPlugin):
     """, verbose=True)
 
     class FuzzinessNode(syntax.SyntaxNode):
-        def __init__(self, maxdist, prefix, original):
+        def __init__(self, maxdist, prefixlength, original):
             self.maxdist = maxdist
-            self.prefix = prefix
+            self.prefixlength = prefixlength
             self.original = original
 
         def __repr__(self):
-            return "<~%d>" % (self.maxdist,)
+            return "<~%d/%d>" % (self.maxdist, self.prefixlength)
 
     class FuzzyTermNode(syntax.TextNode):
         qclass = query.FuzzyTerm
 
-        def __init__(self, wordnode, maxdist, prefix):
+        def __init__(self, wordnode, maxdist, prefixlength):
             self.fieldname = wordnode.fieldname
             self.text = wordnode.text
             self.boost = wordnode.boost
             self.startchar = wordnode.startchar
             self.endchar = wordnode.endchar
             self.maxdist = maxdist
-            self.prefix = prefix
+            self.prefixlength = prefixlength
 
         def r(self):
-            return "%r ~%d" % (self.text, self.maxdist)
+            return "%r ~%d/%d" % (self.text, self.maxdist, self.prefixlength)
 
         def query(self, parser):
             # Use the superclass's query() method to create a FuzzyTerm query
@@ -521,7 +521,7 @@ class FuzzyTermPlugin(TaggingPlugin):
             q = syntax.TextNode.query(self, parser)
             # Set FuzzyTerm-specific attributes
             q.maxdist = self.maxdist
-            q.prefix = self.prefix
+            q.prefixlength = self.prefixlength
             return q
 
     def create(self, parser, match):
@@ -529,9 +529,9 @@ class FuzzyTermPlugin(TaggingPlugin):
         maxdist = int(mdstr) if mdstr else 1
 
         pstr = match.group("prefix")
-        prefix = int(pstr) if pstr else 0
+        prefixlength = int(pstr) if pstr else 0
 
-        return self.FuzzinessNode(maxdist, prefix, match.group(0))
+        return self.FuzzinessNode(maxdist, prefixlength, match.group(0))
 
     def filters(self, parser):
         return [(self.do_fuzzyterms, 0)]
@@ -545,7 +545,7 @@ class FuzzyTermPlugin(TaggingPlugin):
                 nextnode = group[i + 1]
                 if isinstance(nextnode, self.FuzzinessNode):
                     node = self.FuzzyTermNode(node, nextnode.maxdist,
-                                              nextnode.prefix)
+                                              nextnode.prefixlength)
                     i += 1
             if isinstance(node, self.FuzzinessNode):
                 node = syntax.to_word(node)
