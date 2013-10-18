@@ -881,9 +881,9 @@ class SegmentWriter(IndexWriter):
         clean_files(self.storage, self.indexname, self.generation, segments)
 
     def _finish(self):
+        self._tempstorage.destroy()
         if self.writelock:
             self.writelock.release()
-        self._tempstorage.destroy()
         self.is_closed = True
         #self.storage.close()
 
