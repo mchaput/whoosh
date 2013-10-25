@@ -956,3 +956,12 @@ def test_unicode_num():
     q = parser.parse(u"num:1")
 
     _ = text_type(q)
+
+
+def test_phrase_andmaybe():
+    qp = default.QueryParser("f", None)
+
+    q = qp.parse(u('Dahmen ANDMAYBE "Besov Spaces"'))
+    assert isinstance(q, query.AndMaybe)
+    assert q[0] == query.Term("f", u("Dahmen"))
+    assert q[1] == query.Phrase("f", [u("Besov"), u("Spaces")])
