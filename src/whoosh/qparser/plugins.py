@@ -776,7 +776,7 @@ class SequencePlugin(Plugin):
         return [(FnTagger(self.expr, self.QuoteNode, "quote"), 0)]
 
     def filters(self, parser):
-        return [(self.do_quotes, 650)]
+        return [(self.do_quotes, 550)]
 
     def do_quotes(self, parser, group):
         # New group to copy nodes into

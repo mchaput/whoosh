@@ -587,3 +587,16 @@ def test_sequence_plugin():
     assert q[1].slop == 2
     assert q[1][1].__class__ == query.FuzzyTerm
     assert q[1][1].maxdist == 3
+
+
+def test_sequence_andmaybe():
+    qp = default.QueryParser("f", None)
+    qp.remove_plugin_class(plugins.PhrasePlugin)
+    qp.add_plugins([plugins.FuzzyTermPlugin(), plugins.SequencePlugin()])
+
+    q = qp.parse(u('Dahmen ANDMAYBE "Besov Spaces"'))
+    assert isinstance(q, query.AndMaybe)
+    assert q[0] == query.Term("f", u("Dahmen"))
+    assert q[1] == query.Sequence([query.Term("f", u("Besov")),
+                                   query.Term("f", u("Spaces"))])
+
