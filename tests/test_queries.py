@@ -530,3 +530,21 @@ def test_sequence():
         assert r[0]["id"] == 1
 
 
+def test_andmaybe():
+    schema = fields.Schema(id=fields.STORED, text=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(id=0, text=u("alfa bravo charlie delta echo"))
+        w.add_document(id=1, text=u("bravo charlie delta echo alfa"))
+        w.add_document(id=2, text=u("charlie delta echo bravo"))
+        w.add_document(id=3, text=u("delta echo charlie"))
+        w.add_document(id=4, text=u("echo delta"))
+
+    qp = qparser.QueryParser("text", schema)
+    q = qp.parse(u('bravo ANDMAYBE "echo alfa"'))
+
+    with ix.searcher() as s:
+        r = s.search(q)
+        assert len(r) == 3
+        assert [hit["id"] for hit in r] == [1, 2, 0]
+
