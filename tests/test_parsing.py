@@ -965,3 +965,13 @@ def test_phrase_andmaybe():
     assert isinstance(q, query.AndMaybe)
     assert q[0] == query.Term("f", u("Dahmen"))
     assert q[1] == query.Phrase("f", [u("Besov"), u("Spaces")])
+
+
+def test_phrase_boost():
+    qp = default.QueryParser("f", None)
+    q = qp.parse(u('Dahmen ANDMAYBE "Besov Spaces"^9'))
+    print(q.__unicode__())
+    assert isinstance(q, query.AndMaybe)
+    assert q[0] == query.Term("f", u("Dahmen"))
+    assert q[1] == query.Phrase("f", [u("Besov"), u("Spaces")], boost=9)
+
