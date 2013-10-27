@@ -251,7 +251,7 @@ class BoostPlugin(TaggingPlugin):
         return node
 
     def filters(self, parser):
-        return [(self.clean_boost, 0), (self.do_boost, 700)]
+        return [(self.clean_boost, 0), (self.do_boost, 510)]
 
     def clean_boost(self, parser, group):
         """This filter finds any BoostNodes in positions where they can't boost
@@ -655,6 +655,10 @@ class FunctionPlugin(TaggingPlugin):
                 and isinstance(group[i + 1], syntax.GroupNode)):
                 nextnode = group[i + 1]
                 node.nodes = list(self.do_functions(parser, nextnode))
+
+                if nextnode.boost != 1:
+                    node.set_boost(nextnode.boost)
+
                 i += 1
             elif isinstance(node, syntax.GroupNode):
                 node = self.do_functions(parser, node)
