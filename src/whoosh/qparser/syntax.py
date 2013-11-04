@@ -350,8 +350,19 @@ class BinaryGroup(GroupNode):
 
     def query(self, parser):
         assert len(self.nodes) == 2
-        q = self.qclass(self.nodes[0].query(parser),
-                        self.nodes[1].query(parser))
+
+        qa = self.nodes[0].query(parser)
+        qb = self.nodes[1].query(parser)
+        if qa is None and qb is None:
+            q = query.NullQuery
+        elif qa is None:
+            q = qb
+        elif qb is None:
+            q = qa
+        else:
+            q = self.qclass(self.nodes[0].query(parser),
+                            self.nodes[1].query(parser))
+
         return attach(q, self)
 
 

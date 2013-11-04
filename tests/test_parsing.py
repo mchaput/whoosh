@@ -975,3 +975,9 @@ def test_phrase_boost():
     assert q[0] == query.Term("f", u("Dahmen"))
     assert q[1] == query.Phrase("f", [u("Besov"), u("Spaces")], boost=9)
 
+
+def test_andmaybe_none():
+    schema = fields.Schema(f=fields.TEXT, year=fields.NUMERIC)
+    qp = default.QueryParser("f", schema)
+    _ = qp.parse(u("Dahmen ANDMAYBE @year:[2000 TO]"))
+
