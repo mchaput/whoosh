@@ -803,7 +803,7 @@ def highlight(text, terms, analyzer, fragmenter, formatter, top=3,
     tokens = analyzer(text, chars=True, mode=mode, removestops=False)
     tokens = set_matched_filter(tokens, termset)
     fragments = fragmenter.fragment_tokens(text, tokens)
-    fragments = top_fragments(fragments, top, scorer, order)
+    fragments = top_fragments(fragments, top, scorer, order, minscore)
     return formatter(text, fragments)
 
 
