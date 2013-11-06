@@ -426,3 +426,13 @@ def test_spellable_list():
 
     with ix.writer() as w:
         w.add_document(**doc)
+
+
+def test_zero_procs():
+    schema = fields.Schema(text=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+    with ix.writer(procs=0) as w:
+        assert isinstance(w, writing.IndexWriter)
+
+    with ix.writer(procs=1) as w:
+        assert isinstance(w, writing.IndexWriter)
