@@ -76,7 +76,6 @@ generally a good idea to create a new collector for each search.
 """
 
 import os
-import signal
 import threading
 from array import array
 from bisect import insort
@@ -1016,7 +1015,7 @@ class TimeLimitCollector(WrappingCollector):
     is slow the search could exceed the time limit.
     """
 
-    def __init__(self, child, timelimit, greedy=False):
+    def __init__(self, child, timelimit, greedy=False, use_alarm=True):
         """
         :param child: the collector to wrap.
         :param timelimit: the maximum amount of time (in seconds) to
@@ -1024,17 +1023,26 @@ class TimeLimitCollector(WrappingCollector):
             raise a ``TimeLimit`` exception.
         :param greedy: if ``True``, the collector will finish adding the most
             recent hit before raising the ``TimeLimit`` exception.
+        :param use_alarm: if ``True`` (the default), the collector will try to
+            use signal.SIGALRM (on UNIX).
         """
         self.child = child
         self.timelimit = timelimit
         self.greedy = greedy
-        self.use_alarm = hasattr(signal, "SIGALRM")
+
+        if use_alarm:
+            import signal
+            self.use_alarm = use_alarm and hasattr(signal, "SIGALRM")
+
+        self.timer = None
+        self.timedout = False
 
     def prepare(self, top_searcher, q, context):
         self.child.prepare(top_searcher, q, context)
 
         self.timedout = False
         if self.use_alarm:
+            import signal
             signal.signal(signal.SIGALRM, self._was_signaled)
 
         # Start a timer thread. If the timer fires, it will call this object's
@@ -1049,6 +1057,7 @@ class TimeLimitCollector(WrappingCollector):
         self.timedout = True
 
         if self.use_alarm:
+            import signal
             os.kill(os.getpid(), signal.SIGALRM)
 
     def _was_signaled(self, signum, frame):
