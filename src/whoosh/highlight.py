@@ -803,7 +803,7 @@ def highlight(text, terms, analyzer, fragmenter, formatter, top=3,
     tokens = analyzer(text, chars=True, mode=mode, removestops=False)
     tokens = set_matched_filter(tokens, termset)
     fragments = fragmenter.fragment_tokens(text, tokens)
-    fragments = top_fragments(fragments, top, scorer, order)
+    fragments = top_fragments(fragments, top, scorer, order, minscore)
     return formatter(text, fragments)
 
 
@@ -875,10 +875,6 @@ class Highlighter(object):
             bterms = results.query_terms(expand=True, fieldname=fieldname)
         # Convert bytes to unicode
         words = frozenset(from_bytes(term[1]) for term in bterms)
-
-        # if not words:
-        #     # No terms matches in this field
-        #     return self.formatter.format([])
 
         # If we can do "pinpoint" highlighting...
         if self.can_load_chars(results, fieldname):

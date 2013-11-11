@@ -952,7 +952,31 @@ def test_spacespace_and():
 
 def test_unicode_num():
     schema = fields.Schema(num=fields.NUMERIC)
-    parser = default.QueryParser(u"num", schema=schema)
-    q = parser.parse(u"num:1")
+    parser = default.QueryParser(u("num"), schema=schema)
+    q = parser.parse(u("num:1"))
 
     _ = text_type(q)
+
+
+def test_phrase_andmaybe():
+    qp = default.QueryParser("f", None)
+
+    q = qp.parse(u('Dahmen ANDMAYBE "Besov Spaces"'))
+    assert isinstance(q, query.AndMaybe)
+    assert q[0] == query.Term("f", u("Dahmen"))
+    assert q[1] == query.Phrase("f", [u("Besov"), u("Spaces")])
+
+
+def test_phrase_boost():
+    qp = default.QueryParser("f", None)
+    q = qp.parse(u('Dahmen ANDMAYBE "Besov Spaces"^9'))
+    assert isinstance(q, query.AndMaybe)
+    assert q[0] == query.Term("f", u("Dahmen"))
+    assert q[1] == query.Phrase("f", [u("Besov"), u("Spaces")], boost=9)
+
+
+def test_andmaybe_none():
+    schema = fields.Schema(f=fields.TEXT, year=fields.NUMERIC)
+    qp = default.QueryParser("f", schema)
+    _ = qp.parse(u("Dahmen ANDMAYBE @year:[2000 TO]"))
+

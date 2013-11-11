@@ -412,3 +412,27 @@ def test_clear():
         assert s.doc_count_all() == 1
         assert list(s.reader().lexicon("a")) == [b("bar"), b("baz"), b("foo")]
 
+
+def test_spellable_list():
+    # Make sure a spellable field works with a list of pre-analyzed tokens
+
+    ana = analysis.StemmingAnalyzer()
+    schema = fields.Schema(Location=fields.STORED,Lang=fields.STORED,
+                           Title=fields.TEXT(spelling=True, analyzer=ana))
+    ix = RamStorage().create_index(schema)
+
+    doc = {'Location': '1000/123', 'Lang': 'E',
+           'Title': ['Introduction', 'Numerical', 'Analysis']}
+
+    with ix.writer() as w:
+        w.add_document(**doc)
+
+
+def test_zero_procs():
+    schema = fields.Schema(text=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+    with ix.writer(procs=0) as w:
+        assert isinstance(w, writing.IndexWriter)
+
+    with ix.writer(procs=1) as w:
+        assert isinstance(w, writing.IndexWriter)

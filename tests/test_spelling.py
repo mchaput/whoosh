@@ -426,3 +426,23 @@ def test_correct_correct():
     assert c.format_string(highlight.UppercaseFormatter()) == "dworska"
 
 
+def test_very_long_words():
+    import sys
+    length = int(sys.getrecursionlimit() * 1.5)
+
+    strings1 = [u(chr(i) * length) for i in range(65, 70)]
+    strings2 = [u(chr(i) * length) for i in range(71, 75)]
+
+    ana = analysis.StemmingAnalyzer()
+    schema = fields.Schema(text=fields.TEXT(analyzer=ana, spelling=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        for string in strings1:
+            w.add_document(text=string)
+
+    with ix.writer() as w:
+        for string in strings2:
+            w.add_document(text=string)
+        w.optimize = True
+
+

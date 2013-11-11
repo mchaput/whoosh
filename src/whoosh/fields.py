@@ -292,9 +292,13 @@ class FieldType(object):
         this behavior.
         """
 
-        wordset = sorted(set(token.text for token
-                             in self.analyzer(value, no_morph=True)))
-        return iter(wordset)
+        if isinstance(value, (list, tuple)):
+            words = value
+        else:
+            words = [token.text for token
+                     in self.analyzer(value, no_morph=True)]
+
+        return iter(sorted(set(words)))
 
     def has_morph(self):
         """Returns True if this field by default performs morphological

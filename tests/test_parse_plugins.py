@@ -453,6 +453,47 @@ def test_fuzzy_plugin():
     assert q.text == "bob~"
 
 
+def test_fuzzy_prefix():
+    from whoosh import scoring
+
+    schema = fields.Schema(title=fields.TEXT(stored=True),
+                           content=fields.TEXT(spelling=True))
+
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        # Match -> first
+        w.add_document(title=u("First"),
+                       content=u("This is the first document we've added!"))
+        # No match
+        w.add_document(title=u("Second"),
+                       content=u("The second one is even more interesting! filst"))
+        # Match -> first
+        w.add_document(title=u("Third"),
+                       content=u("The world first line we've added!"))
+        # Match -> zeroth
+        w.add_document(title=u("Fourth"),
+                       content=u("The second one is alaways comes after zeroth!"))
+        # Match -> fire is within 2 edits (transpose + delete) of first
+        w.add_document(title=u("Fifth"),
+                       content=u("The fire is beautiful"))
+
+    from whoosh.qparser import QueryParser, FuzzyTermPlugin #, BoundedFuzzyTermPlugin
+    parser = QueryParser("content", ix.schema)
+    parser.add_plugin(FuzzyTermPlugin())
+    q = parser.parse("first~2/3 OR zeroth", debug=False)
+
+    assert isinstance(q, query.Or)
+    ft = q[0]
+    assert isinstance(ft, query.FuzzyTerm)
+    assert ft.maxdist == 2
+    assert ft.prefixlength == 3
+
+    with ix.searcher(weighting=scoring.TF_IDF()) as searcher:
+        results = searcher.search(q)
+        assert len(results) == 4
+        assert " ".join(hit["title"] for hit in results) == "Fourth First Third Fifth"
+
+
 def test_function_plugin():
     class FakeQuery(query.Query):
         def __init__(self, children, *args, **kwargs):
@@ -545,3 +586,16 @@ def test_sequence_plugin():
     assert q[1].slop == 2
     assert q[1][1].__class__ == query.FuzzyTerm
     assert q[1][1].maxdist == 3
+
+
+def test_sequence_andmaybe():
+    qp = default.QueryParser("f", None)
+    qp.remove_plugin_class(plugins.PhrasePlugin)
+    qp.add_plugins([plugins.FuzzyTermPlugin(), plugins.SequencePlugin()])
+
+    q = qp.parse(u('Dahmen ANDMAYBE "Besov Spaces"'))
+    assert isinstance(q, query.AndMaybe)
+    assert q[0] == query.Term("f", u("Dahmen"))
+    assert q[1] == query.Sequence([query.Term("f", u("Besov")),
+                                   query.Term("f", u("Spaces"))])
+

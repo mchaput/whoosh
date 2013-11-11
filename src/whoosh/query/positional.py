@@ -85,8 +85,7 @@ class Sequence(compound.CompoundQuery):
                               self.slop, self.ordered, self.boost)
 
     def _and_query(self):
-        return compound.And([terms.Term(self.fieldname, word)
-                             for word in self.words])
+        return compound.And(self.subqueries)
 
     def estimate_size(self, ixreader):
         return self._and_query().estimate_size(ixreader)

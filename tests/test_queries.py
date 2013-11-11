@@ -509,3 +509,42 @@ def test_issue_355():
 
         assert r1 == r2 == r3 == []
 
+
+def test_sequence():
+    schema = fields.Schema(id=fields.STORED, text=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(id=0, text=u("alfa bravo charlie delta echo"))
+        w.add_document(id=1, text=u("bravo charlie delta echo alfa"))
+        w.add_document(id=2, text=u("charlie delta echo bravo"))
+        w.add_document(id=3, text=u("delta echo charlie"))
+        w.add_document(id=4, text=u("echo delta"))
+
+    with ix.searcher() as s:
+        seq = query.Sequence([query.Term("text", u("echo")),
+                              query.Term("text", u("alfa"))])
+        q = query.And([query.Term("text", "bravo"), seq])
+
+        r = s.search(q, limit=4)
+        assert len(r) == 1
+        assert r[0]["id"] == 1
+
+
+def test_andmaybe():
+    schema = fields.Schema(id=fields.STORED, text=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(id=0, text=u("alfa bravo charlie delta echo"))
+        w.add_document(id=1, text=u("bravo charlie delta echo alfa"))
+        w.add_document(id=2, text=u("charlie delta echo bravo"))
+        w.add_document(id=3, text=u("delta echo charlie"))
+        w.add_document(id=4, text=u("echo delta"))
+
+    qp = qparser.QueryParser("text", schema)
+    q = qp.parse(u('bravo ANDMAYBE "echo alfa"'))
+
+    with ix.searcher() as s:
+        r = s.search(q)
+        assert len(r) == 3
+        assert [hit["id"] for hit in r] == [1, 2, 0]
+

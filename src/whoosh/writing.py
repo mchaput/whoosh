@@ -639,7 +639,10 @@ class SegmentWriter(IndexWriter):
         for fieldname, fieldobj in self.schema.items():
             if (fieldobj.separate_spelling()
                 and reader.has_word_graph(fieldname)):
-                for word in reader.word_graph(fieldname).flatten():
+
+                gr = reader._get_graph()
+                cursor = gr.cursor(fieldname)
+                for word in cursor.flatten():
                     # Adding a post where docnum=None marks it as a separate
                     # spelling word
                     add_post((fieldname, word, -1, -1, emptybytes))
@@ -881,9 +884,9 @@ class SegmentWriter(IndexWriter):
         clean_files(self.storage, self.indexname, self.generation, segments)
 
     def _finish(self):
+        self._tempstorage.destroy()
         if self.writelock:
             self.writelock.release()
-        self._tempstorage.destroy()
         self.is_closed = True
         #self.storage.close()
 
