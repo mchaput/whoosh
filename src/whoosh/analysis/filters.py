@@ -70,7 +70,12 @@ class Filter(Composable):
     """
 
     def __eq__(self, other):
-        return other and self.__class__ is other.__class__
+        return (other
+                and self.__class__ is other.__class__
+                and self.__dict__ == other.__dict__)
+
+    def __ne__(self, other):
+        return not self == other
 
     def __call__(self, tokens):
         raise NotImplementedError
