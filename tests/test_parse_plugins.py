@@ -463,7 +463,7 @@ def test_fuzzy_prefix():
     with ix.writer() as w:
         # Match -> first
         w.add_document(title=u("First"),
-                       content=u"This is the first document we've added!")
+                       content=u("This is the first document we've added!"))
         # No match
         w.add_document(title=u("Second"),
                        content=u("The second one is even more interesting! filst"))
@@ -490,7 +490,6 @@ def test_fuzzy_prefix():
 
     with ix.searcher(weighting=scoring.TF_IDF()) as searcher:
         results = searcher.search(q)
-        print(len(results))
         assert len(results) == 4
         assert " ".join(hit["title"] for hit in results) == "Fourth First Third Fifth"
 
