@@ -6,7 +6,7 @@ from whoosh import analysis, fields, formats, highlight, qparser, query
 from whoosh.codec.whoosh3 import W3Codec
 from whoosh.compat import u, xrange, text_type, permutations
 from whoosh.filedb.filestore import RamStorage
-from whoosh.util.testing import TempStorage
+from whoosh.util.testing import TempStorage, TempIndex
 
 
 def test_score_retrieval():
@@ -611,3 +611,29 @@ def test_every_keywords():
         hit = r[0]
         assert hit["content"] == "bravo"
         assert hit.highlights("content") == ""
+
+
+def test_filter_by_result():
+    schema = fields.Schema(title=fields.TEXT(stored=True),
+                           content=fields.TEXT(stored=True))
+
+    with TempIndex(schema, "filter") as ix:
+        words = u("foo bar baz qux barney").split()
+        with ix.writer() as w:
+            for x in xrange(100):
+                t = "even" if x % 2 == 0 else "odd"
+                c = words[x % len(words)]
+                w.add_document(title=t, content=c)
+
+        with ix.searcher() as searcher:
+            fq = query.Term("title", "even")
+            filter_result = searcher.search(fq)
+            assert filter_result.docset is None
+
+            q = query.Term("content", "foo")
+
+            # filter_result.docs()
+            result = searcher.search(q, filter=filter_result)
+            assert all(x["title"] == "even" and x["content"] == "foo"
+                       for x in result)
+
