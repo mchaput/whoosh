@@ -453,9 +453,9 @@ class Searcher(object):
         if isinstance(obj, (set, DocIdSet)):
             c = obj
         elif isinstance(obj, Results):
-            c = obj.docset
+            c = obj.docs()
         elif isinstance(obj, ResultsPage):
-            c = obj.results.docset
+            c = obj.results.docs()
         elif isinstance(obj, query.Query):
             c = self._query_to_comb(obj)
         else:
