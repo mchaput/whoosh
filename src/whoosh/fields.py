@@ -566,6 +566,9 @@ class NUMERIC(FieldType):
         dc = self.decimal_places
         if dc and isinstance(x, (string_type, Decimal)):
             x = Decimal(x) * (10 ** dc)
+        elif isinstance(x, Decimal):
+            raise TypeError("Can't index a Decimal object unless you specified "
+                            "decimal_places on the field")
 
         try:
             x = self.numtype(x)
