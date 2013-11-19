@@ -1734,7 +1734,6 @@ def test_find_decimals():
 
     qp = qparser.QueryParser("name", ix.schema)
     q = qp.parse("num:3.0")
-    print("q=", repr(q))
     assert isinstance(q, query.Term)
 
     with ix.searcher() as s:
