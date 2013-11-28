@@ -217,7 +217,12 @@ class ColumnCategorizer(Categorizer):
     def __init__(self, global_searcher, fieldname, reverse=False):
         self._fieldname = fieldname
         self._fieldobj = global_searcher.schema[self._fieldname]
+        self._column_type = self._fieldobj.column_type
         self._reverse = reverse
+
+        # The column reader is set in set_searcher() as we iterate over the
+        # sub-searchers
+        self._creader = None
 
     def __repr__(self):
         return "%s(%r, %r, reverse=%r)" % (self.__class__.__name__,
@@ -226,10 +231,12 @@ class ColumnCategorizer(Categorizer):
 
     def set_searcher(self, segment_searcher, docoffset):
         r = segment_searcher.reader()
-        self._creader = r.column_reader(self._fieldname, translate=False)
+        self._creader = r.column_reader(self._fieldname,
+                                        reverse=self._reverse,
+                                        translate=False)
 
     def key_for(self, matcher, segment_docnum):
-        return self._creader.sort_key(segment_docnum, self._reverse)
+        return self._creader.sort_key(segment_docnum)
 
     def key_to_name(self, key):
         return self._fieldobj.from_column_value(key)
@@ -273,6 +280,11 @@ class OverlappingCategorizer(Categorizer):
         self._use_vectors = bool(field.vector)
         self._use_column = (reader.has_column(fieldname)
                             and field.column_type.stores_lists())
+
+        # These are set in set_searcher() as we iterate over the sub-searchers
+        self._segment_searcher = None
+        self._creader = None
+        self._lists = None
 
     def set_searcher(self, segment_searcher, docoffset):
         fieldname = self._fieldname
@@ -766,6 +778,11 @@ class MultiFacet(FacetType):
             for item in items:
                 self._add(item)
         self.maptype = maptype
+
+    def __repr__(self):
+        return "%s(%r, %r)" % (self.__class__.__name__,
+                               self.facets,
+                               self.maptype)
 
     @classmethod
     def from_sortedby(cls, sortedby):

@@ -908,3 +908,47 @@ def test_add_sortable():
         assert chapr[0] == "alfa"
         assert pricer[0] == 100
 
+
+def test_missing_column():
+    from whoosh import collectors
+
+    schema = fields.Schema(id=fields.STORED, tags=fields.KEYWORD)
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(id=0, tags=u("alfa bravo charlie"))
+        w.add_document(id=1, tags=u("bravo charlie delta"))
+        w.add_document(id=2, tags=u("charlie delta echo"))
+        w.merge = False
+
+    with ix.writer() as w:
+        w.add_field("age", fields.NUMERIC(sortable=True))
+
+        w.add_document(id=3, tags=u("delta echo foxtrot"), age=10)
+        w.add_document(id=4, tags=u("echo foxtrot golf"), age=5)
+        w.add_document(id=5, tags=u("foxtrot golf alfa"), age=20)
+        w.merge = False
+
+    with ix.writer() as w:
+        w.add_document(id=6, tags=u("golf alfa bravo"), age=2)
+        w.add_document(id=7, tags=u("alfa hotel india"), age=50)
+        w.add_document(id=8, tags=u("hotel india bravo"), age=15)
+        w.merge = False
+
+    with ix.searcher() as s:
+        assert not s.is_atomic()
+
+        q = query.Term("tags", u("alfa"))
+
+        # Have to use yucky low-level collector API to make sure we used a
+        # ColumnCategorizer to do the sorting
+        c = s.collector(sortedby="age")
+        assert isinstance(c, collectors.SortingCollector)
+        s.search_with_collector(q, c)
+        assert isinstance(c.categorizer, sorting.ColumnCategorizer)
+
+        r = c.results()
+        assert [hit["id"] for hit in r] == [6, 5, 7, 0]
+
+        r = s.search(q, sortedby="age", reverse=True)
+        assert [hit["id"] for hit in r] == [0, 7, 5, 6]
+
