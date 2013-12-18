@@ -952,3 +952,42 @@ def test_missing_column():
         r = s.search(q, sortedby="age", reverse=True)
         assert [hit["id"] for hit in r] == [0, 7, 5, 6]
 
+
+def test_compound_sort():
+    fspec = fields.KEYWORD(stored=True, sortable=True)
+    schema = fields.Schema(a=fspec, b=fspec, c=fspec)
+    ix = RamStorage().create_index(schema)
+
+    alist = u("alfa bravo alfa bravo alfa bravo alfa bravo alfa bravo").split()
+    blist = u("alfa bravo charlie alfa bravo charlie alfa bravo charlie alfa").split()
+    clist = u("alfa bravo charlie delta echo foxtrot golf hotel india juliet").split()
+    assert all(len(ls) == 10 for ls in (alist, blist, clist))
+
+    with ix.writer() as w:
+        for i in xrange(10):
+            w.add_document(a=alist[i], b=blist[i], c=clist[i])
+
+    with ix.searcher() as s:
+        q = query.Every()
+        sortedby = [sorting.FieldFacet("a"),
+                    sorting.FieldFacet("b", reverse=True),
+                    sorting.FieldFacet("c")]
+
+        r = s.search(q, sortedby=sortedby)
+        output = []
+        for hit in r:
+            output.append(" ".join((hit["a"], hit["b"], hit["c"])))
+
+        assert output == [
+            "alfa charlie charlie",
+            "alfa charlie india",
+            "alfa bravo echo",
+            "alfa alfa alfa",
+            "alfa alfa golf",
+            "bravo charlie foxtrot",
+            "bravo bravo bravo",
+            "bravo bravo hotel",
+            "bravo alfa delta",
+            "bravo alfa juliet",
+        ]
+
