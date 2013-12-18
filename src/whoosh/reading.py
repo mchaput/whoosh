@@ -591,7 +591,21 @@ class IndexReader(object):
     def has_column(self, fieldname):
         return False
 
-    def column_reader(self, fieldname):
+    def column_reader(self, fieldname, column=None, reverse=False,
+                      translate=False):
+        """
+
+        :param fieldname: the name of the field for which to get a reader.
+        :param column: if passed, use this Column object instead of the one
+            associated with the field in the Schema.
+        :param reverse: if passed, reverses the order of keys returned by the
+            reader's ``sort_key()`` method. If the column type is not
+            reversible, this will raise a ``NotImplementedError``.
+        :param translate: if True, wrap the reader to call the field's
+            ``from_bytes()`` method on the returned values.
+        :return: a :class:`whoosh.columns.ColumnReader` object.
+        """
+
         raise NotImplementedError
 
 
@@ -887,15 +901,27 @@ class SegmentReader(IndexReader):
         coltype = self.schema[fieldname].column_type
         return coltype and self._perdoc.has_column(fieldname)
 
-    def column_reader(self, fieldname, column=None, translate=True):
+    def column_reader(self, fieldname, column=None, reverse=False,
+                      translate=True):
         if self.is_closed:
             raise ReaderClosed
-        fieldobj = self.schema[fieldname]
-        if not self.has_column(fieldname):
-            raise Exception("No column for field %r" % fieldname)
 
-        ctype = column or fieldobj.column_type
-        creader = self._perdoc.column_reader(fieldname, ctype)
+        fieldobj = self.schema[fieldname]
+        column = column or fieldobj.column_type
+        if not column:
+            raise Exception("No column for field %r in %r"
+                            % (fieldname, self))
+
+        if self._perdoc.has_column(fieldname):
+            creader = self._perdoc.column_reader(fieldname, column)
+            if reverse:
+                creader.set_reverse()
+        else:
+            # This segment doesn't have a column file for this field, so create
+            # a fake column reader that always returns the default value.
+            default = column.default_value(reverse)
+            creader = columns.EmptyColumnReader(default, self.doc_count_all())
+
         if translate:
             # Wrap the column in a Translator to give the caller
             # nice values instead of sortable representations
@@ -1270,19 +1296,15 @@ class MultiReader(IndexReader):
     def has_column(self, fieldname):
         return any(r.has_column(fieldname) for r in self.readers)
 
-    def column_reader(self, fieldname, translate=True):
-        column = self.schema[fieldname].column_type
+    def column_reader(self, fieldname, column=None, reverse=False,
+                      translate=True):
+        column = column or self.schema[fieldname].column_type
         if not column:
             raise Exception("Field %r has no column type" % (fieldname,))
 
-        default = column.default_value()
-        doccount = self.doc_count_all()
-
         creaders = []
         for r in self.readers:
-            if r.has_column(fieldname):
-                creaders.append(r.column_reader(fieldname, translate=translate))
-            else:
-                creaders.append(columns.EmptyColumnReader(default, doccount))
-
+            cr = r.column_reader(fieldname, column=column, reverse=reverse,
+                                 translate=translate)
+            creaders.append(cr)
         return columns.MultiColumnReader(creaders)

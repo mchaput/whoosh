@@ -458,8 +458,10 @@ class NUMERIC(FieldType):
         # Raise an error if the user tries to use a type other than int or
         # float
         if numtype is Decimal:
-            raise TypeError("To store Decimal instances, set type to int use "
-                            "the decimal_places argument")
+            numtype = int
+            if not decimal_places:
+                raise TypeError("To store Decimal instances, you must set the "
+                                "decimal_places argument")
         elif numtype not in (int, float):
             raise TypeError("Can't use %r as a type, use int or float"
                             % numtype)
@@ -564,6 +566,9 @@ class NUMERIC(FieldType):
         dc = self.decimal_places
         if dc and isinstance(x, (string_type, Decimal)):
             x = Decimal(x) * (10 ** dc)
+        elif isinstance(x, Decimal):
+            raise TypeError("Can't index a Decimal object unless you specified "
+                            "decimal_places on the field")
 
         try:
             x = self.numtype(x)

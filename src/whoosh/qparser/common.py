@@ -51,8 +51,12 @@ def get_single_text(field, text, **kwargs):
 
 def attach(q, stxnode):
     if q:
-        q.startchar = stxnode.startchar
-        q.endchar = stxnode.endchar
+        try:
+            q.startchar = stxnode.startchar
+            q.endchar = stxnode.endchar
+        except AttributeError:
+            raise AttributeError("Can't set attribute on %s"
+                                 % q.__class__.__name__)
     return q
 
 

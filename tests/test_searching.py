@@ -1717,3 +1717,28 @@ def test_issue_334():
         assert r[0]["name"] == u("close")
 
 
+def test_find_decimals():
+    from decimal import Decimal
+
+    schema = fields.Schema(name=fields.KEYWORD(stored=True),
+                           num=fields.NUMERIC(Decimal, decimal_places=5))
+    ix = RamStorage().create_index(schema)
+
+    with ix.writer() as w:
+        w.add_document(name=u("alfa"), num=Decimal("1.5"))
+        w.add_document(name=u("bravo"), num=Decimal("2.1"))
+        w.add_document(name=u("charlie"), num=Decimal("5.3"))
+        w.add_document(name=u("delta"), num=Decimal(3))
+        w.add_document(name=u("echo"), num=Decimal("3.00001"))
+        w.add_document(name=u("foxtrot"), num=Decimal("3"))
+
+    qp = qparser.QueryParser("name", ix.schema)
+    q = qp.parse("num:3.0")
+    assert isinstance(q, query.Term)
+
+    with ix.searcher() as s:
+        r = s.search(q)
+        names = " ".join(sorted(hit["name"] for hit in r))
+        assert names == "delta foxtrot"
+
+

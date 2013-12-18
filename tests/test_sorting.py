@@ -908,3 +908,86 @@ def test_add_sortable():
         assert chapr[0] == "alfa"
         assert pricer[0] == 100
 
+
+def test_missing_column():
+    from whoosh import collectors
+
+    schema = fields.Schema(id=fields.STORED, tags=fields.KEYWORD)
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(id=0, tags=u("alfa bravo charlie"))
+        w.add_document(id=1, tags=u("bravo charlie delta"))
+        w.add_document(id=2, tags=u("charlie delta echo"))
+        w.merge = False
+
+    with ix.writer() as w:
+        w.add_field("age", fields.NUMERIC(sortable=True))
+
+        w.add_document(id=3, tags=u("delta echo foxtrot"), age=10)
+        w.add_document(id=4, tags=u("echo foxtrot golf"), age=5)
+        w.add_document(id=5, tags=u("foxtrot golf alfa"), age=20)
+        w.merge = False
+
+    with ix.writer() as w:
+        w.add_document(id=6, tags=u("golf alfa bravo"), age=2)
+        w.add_document(id=7, tags=u("alfa hotel india"), age=50)
+        w.add_document(id=8, tags=u("hotel india bravo"), age=15)
+        w.merge = False
+
+    with ix.searcher() as s:
+        assert not s.is_atomic()
+
+        q = query.Term("tags", u("alfa"))
+
+        # Have to use yucky low-level collector API to make sure we used a
+        # ColumnCategorizer to do the sorting
+        c = s.collector(sortedby="age")
+        assert isinstance(c, collectors.SortingCollector)
+        s.search_with_collector(q, c)
+        assert isinstance(c.categorizer, sorting.ColumnCategorizer)
+
+        r = c.results()
+        assert [hit["id"] for hit in r] == [6, 5, 7, 0]
+
+        r = s.search(q, sortedby="age", reverse=True)
+        assert [hit["id"] for hit in r] == [0, 7, 5, 6]
+
+
+def test_compound_sort():
+    fspec = fields.KEYWORD(stored=True, sortable=True)
+    schema = fields.Schema(a=fspec, b=fspec, c=fspec)
+    ix = RamStorage().create_index(schema)
+
+    alist = u("alfa bravo alfa bravo alfa bravo alfa bravo alfa bravo").split()
+    blist = u("alfa bravo charlie alfa bravo charlie alfa bravo charlie alfa").split()
+    clist = u("alfa bravo charlie delta echo foxtrot golf hotel india juliet").split()
+    assert all(len(ls) == 10 for ls in (alist, blist, clist))
+
+    with ix.writer() as w:
+        for i in xrange(10):
+            w.add_document(a=alist[i], b=blist[i], c=clist[i])
+
+    with ix.searcher() as s:
+        q = query.Every()
+        sortedby = [sorting.FieldFacet("a"),
+                    sorting.FieldFacet("b", reverse=True),
+                    sorting.FieldFacet("c")]
+
+        r = s.search(q, sortedby=sortedby)
+        output = []
+        for hit in r:
+            output.append(" ".join((hit["a"], hit["b"], hit["c"])))
+
+        assert output == [
+            "alfa charlie charlie",
+            "alfa charlie india",
+            "alfa bravo echo",
+            "alfa alfa alfa",
+            "alfa alfa golf",
+            "bravo charlie foxtrot",
+            "bravo bravo bravo",
+            "bravo bravo hotel",
+            "bravo alfa delta",
+            "bravo alfa juliet",
+        ]
+

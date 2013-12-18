@@ -1033,6 +1033,8 @@ class TimeLimitCollector(WrappingCollector):
         if use_alarm:
             import signal
             self.use_alarm = use_alarm and hasattr(signal, "SIGALRM")
+        else:
+            self.use_alarm = False
 
         self.timer = None
         self.timedout = False

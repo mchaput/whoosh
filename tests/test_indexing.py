@@ -681,3 +681,22 @@ def test_globfield_length_merge():
             assert paths == ["/a", "/b"]
 
 
+def test_index_decimals():
+    from decimal import Decimal
+
+    schema = fields.Schema(name=fields.KEYWORD(stored=True),
+                           num=fields.NUMERIC(int))
+    ix = RamStorage().create_index(schema)
+
+    with ix.writer() as w:
+        with pytest.raises(TypeError):
+            w.add_document(name=u("hello"), num=Decimal("3.2"))
+
+    schema = fields.Schema(name=fields.KEYWORD(stored=True),
+                           num=fields.NUMERIC(Decimal, decimal_places=5))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(name=u("hello"), num=Decimal("3.2"))
+
+
+

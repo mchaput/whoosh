@@ -158,7 +158,7 @@ class Column(object):
 
         return self.Reader(dbfile, basepos, length, doccount)
 
-    def default_value(self):
+    def default_value(self, reverse=False):
         """Returns the default value for this column type.
         """
 
@@ -204,7 +204,7 @@ class ColumnReader(object):
     def __getitem__(self, docnum):
         raise NotImplementedError
 
-    def sort_key(self, docnum, reverse=False):
+    def sort_key(self, docnum):
         return self[docnum]
 
     def __iter__(self):
@@ -213,6 +213,9 @@ class ColumnReader(object):
 
     def load(self):
         return list(self)
+
+    def set_reverse(self):
+        raise NotImplementedError
 
 
 # Arbitrary bytes column
@@ -589,6 +592,12 @@ class NumericColumn(FixedBytesColumn):
         return self.Reader(dbfile, basepos, length, doccount, self._typecode,
                            self._default)
 
+    def default_value(self, reverse=False):
+        v = self._default
+        if reverse:
+            v = 0 - v
+        return v
+
     class Writer(FixedBytesColumn.Writer):
         def __init__(self, dbfile, typecode, default):
             self._dbfile = dbfile
@@ -616,6 +625,7 @@ class NumericColumn(FixedBytesColumn):
             self._basepos = basepos
             self._doccount = doccount
             self._default = default
+            self._reverse = False
 
             self._typecode = typecode
             self._unpack = struct.Struct("!" + typecode).unpack
@@ -630,9 +640,9 @@ class NumericColumn(FixedBytesColumn):
             s = FixedBytesColumn.Reader.__getitem__(self, docnum)
             return self._unpack(s)[0]
 
-        def sort_key(self, docnum, reverse=False):
+        def sort_key(self, docnum):
             key = self[docnum]
-            if reverse:
+            if self._reverse:
                 key = 0 - key
             return key
 
@@ -641,6 +651,9 @@ class NumericColumn(FixedBytesColumn):
                 return list(self)
             else:
                 return array(self._typecode, self)
+
+        def set_reverse(self):
+            self._reverse = True
 
 
 # Column of boolean values
@@ -663,6 +676,9 @@ class BitColumn(Column):
 
     def writer(self, dbfile):
         return self.Writer(dbfile, self._compressat)
+
+    def default_value(self, reverse=False):
+        return self._default ^ reverse
 
     class Writer(ColumnWriter):
         def __init__(self, dbfile, compressat):
@@ -695,6 +711,7 @@ class BitColumn(Column):
             self._basepos = basepos
             self._length = length
             self._doccount = doccount
+            self._reverse = False
 
             compressed = dbfile.get_byte(basepos + (length - 1))
             if compressed:
@@ -714,8 +731,8 @@ class BitColumn(Column):
         def __getitem__(self, i):
             return i in self._bitset
 
-        def sort_key(self, docnum, reverse=False):
-            return int(self[docnum] ^ reverse)
+        def sort_key(self, docnum):
+            return int(self[docnum] ^ self._reverse)
 
         def __iter__(self):
             i = 0
@@ -735,6 +752,9 @@ class BitColumn(Column):
                                             self._length - 1)
                 self._bitset = BitSet.from_bytes(bs)
             return self
+
+        def set_reverse(self):
+            self._reverse = True
 
 
 # Compressed variants
@@ -1074,12 +1094,15 @@ class TranslatingColumnReader(ColumnReader):
     def __getitem__(self, docnum):
         return self._translate(self._reader[docnum])
 
-    def sort_key(self, docnum, reverse=False):
-        return self._reader.sort_key(docnum, reverse=reverse)
+    def sort_key(self, docnum):
+        return self._reader.sort_key(docnum)
 
     def __iter__(self):
         translate = self._translate
         return (translate(v) for v in self._reader)
+
+    def set_reverse(self):
+        self._reader.set_reverse()
 
 
 # Column wrappers
@@ -1122,14 +1145,17 @@ class WrappedColumnReader(ColumnReader):
     def __getitem__(self, docnum):
         return self._child[docnum]
 
-    def sort_key(self, docnum, reverse=False):
-        return self._child.sort_key(docnum, reverse=reverse)
+    def sort_key(self, docnum):
+        return self._child.sort_key(docnum)
 
     def __iter__(self):
         return iter(self._child)
 
     def load(self):
         return list(self)
+
+    def set_reverse(self):
+        self._child.set_reverse()
 
 
 class ClampedNumericColumn(WrappedColumn):
@@ -1200,7 +1226,7 @@ class ListColumn(WrappedColumn):
 
 
 class ListColumnReader(ColumnReader):
-    def sort_key(self, docnum, reverse=False):
+    def sort_key(self, docnum):
         return self[docnum][0]
 
     def __iter__(self):

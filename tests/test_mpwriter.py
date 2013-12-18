@@ -264,3 +264,19 @@ def test_batchsize_eq_doccount():
         with ix.writer(procs=4, batchsize=10) as w:
             for i in xrange(10):
                 w.add_document(a=u(str(i)))
+
+
+def test_finish_segment():
+    check_multi()
+
+    from whoosh.multiproc import MpWriter
+
+    schema = fields.Schema(a=fields.KEYWORD(stored=True))
+    with TempIndex(schema) as ix:
+        w = MpWriter(ix, procs=2, batchsize=1, multisegment=False,
+                     limitmb=0.00001)
+
+        for i in range(9):
+            w.add_document(a=u(chr(65 + i) * 50))
+
+        w.commit()
