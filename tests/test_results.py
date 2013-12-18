@@ -621,7 +621,7 @@ def test_filter_by_result():
         words = u("foo bar baz qux barney").split()
         with ix.writer() as w:
             for x in xrange(100):
-                t = "even" if x % 2 == 0 else "odd"
+                t = u("even" if x % 2 == 0 else "odd")
                 c = words[x % len(words)]
                 w.add_document(title=t, content=c)
 

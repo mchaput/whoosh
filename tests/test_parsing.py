@@ -980,3 +980,16 @@ def test_andmaybe_none():
     qp = default.QueryParser("f", schema)
     _ = qp.parse(u("Dahmen ANDMAYBE @year:[2000 TO]"))
 
+
+def test_quoted_prefix():
+    qp = default.QueryParser("f", None)
+
+    expr = r"(^|(?<=[ (]))(?P<text>\w+|[*]):"
+    qp.replace_plugin(plugins.FieldsPlugin(expr))
+
+    q = qp.parse(u('foo url:http://apple.com:8080/bar* baz'))
+    assert isinstance(q, query.And)
+    assert q[0] == query.Term("f", "foo")
+    assert q[1] == query.Prefix("url", "http://apple.com:8080/bar")
+    assert q[2] == query.Term("f", "baz")
+    assert len(q) == 3
