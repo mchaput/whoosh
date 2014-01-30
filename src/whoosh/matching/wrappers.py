@@ -518,6 +518,9 @@ class SingleTermMatcher(WrappingMatcher):
     def term(self):
         return self._term
 
+    def replace(self, minquality=0):
+        return self
+
 
 class CoordMatcher(WrappingMatcher):
     """Modifies the computed score to penalize documents that don't match all
@@ -532,6 +535,9 @@ class CoordMatcher(WrappingMatcher):
         self._termcount = len(list(child.term_matchers()))
         self._maxqual = child.max_quality()
         self._scale = scale
+
+    def _replacement(self, newchild):
+        return self.__class__(newchild, scale=self._scale)
 
     def _sqr(self, score, matching):
         # This is the "SQR" (Short Query Ranking) function used by Apple's old
