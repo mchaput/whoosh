@@ -25,7 +25,9 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-import errno, sys
+import errno
+import os
+import sys
 from threading import Lock
 from shutil import copyfileobj
 
@@ -46,8 +48,12 @@ class CompoundStorage(FileStorage):
 
     def __init__(self, dbfile, use_mmap=True, basepos=0):
         self._file = dbfile
-        self._file.seek(basepos)
         self.is_closed = False
+
+        # Seek to the end to get total file size (to check if mmap is OK)
+        dbfile.seek(0, os.SEEK_END)
+        filesize = self._file.tell()
+        dbfile.seek(basepos)
 
         self._diroffset = self._file.read_long()
         self._dirlength = self._file.read_int()
@@ -57,7 +63,12 @@ class CompoundStorage(FileStorage):
         self._locks = {}
         self._source = None
 
-        if mmap and use_mmap and hasattr(self._file, "fileno"):
+        use_mmap = (
+            use_mmap
+            and hasattr(self._file, "fileno")  # check file is a real file
+            and filesize < sys.maxsize  # check fit on 32-bit Python
+        )
+        if mmap and use_mmap:
             # Try to open the entire segment as a memory-mapped object
             try:
                 fileno = self._file.fileno()
