@@ -523,3 +523,10 @@ def test_issue358():
     t = analysis.RegexTokenizer("\w+")
     with pytest.raises(analysis.CompositionError):
         _ = t | analysis.StandardAnalyzer()
+
+
+def test_ngramwords_tokenizer():
+    tk = analysis.CommaSeparatedTokenizer()
+    tags = fields.NGRAMWORDS(minsize=3, maxsize=50, tokenizer=tk, stored=True,
+                             queryor=True)
+    schema = fields.Schema(tags=tags)
