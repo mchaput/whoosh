@@ -81,7 +81,7 @@ class QueryParser(object):
         self.group = group
         self.plugins = []
 
-        if not plugins:
+        if plugins is None:
             plugins = self.default_set()
         self._add_ws_plugin()
         self.add_plugins(plugins)
