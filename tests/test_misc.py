@@ -4,7 +4,6 @@ import os, threading, time
 from whoosh.compat import u
 from whoosh.util.filelock import try_for
 from whoosh.util.numeric import length_to_byte, byte_to_length
-from whoosh.util.testing import TempStorage
 
 
 def test_now():
@@ -13,82 +12,6 @@ def test_now():
     t1 = now()
     t2 = now()
     assert t1 <= t2
-
-
-def test_storage_creation():
-    import tempfile, uuid
-    from whoosh import fields
-    from whoosh.filedb.filestore import FileStorage
-
-    schema = fields.Schema(text=fields.TEXT)
-    uid = uuid.uuid4()
-    dirpath = os.path.join(tempfile.gettempdir(), str(uid))
-    assert not os.path.exists(dirpath)
-
-    st = FileStorage(dirpath)
-    st.create()
-    assert os.path.exists(dirpath)
-
-    ix = st.create_index(schema)
-    with ix.writer() as w:
-        w.add_document(text=u("alfa bravo"))
-        w.add_document(text=u("bracho charlie"))
-
-    st.destroy()
-    assert not os.path.exists(dirpath)
-
-
-def test_ramstorage():
-    from whoosh.filedb.filestore import RamStorage
-
-    st = RamStorage()
-    lock = st.lock("test")
-    lock.acquire()
-    lock.release()
-
-
-def test_filelock_simple():
-    with TempStorage("simplefilelock") as st:
-        lock1 = st.lock("testlock")
-        lock2 = st.lock("testlock")
-        assert lock1 is not lock2
-
-        assert lock1.acquire()
-        assert st.file_exists("testlock")
-        assert not lock2.acquire()
-        lock1.release()
-        assert lock2.acquire()
-        assert not lock1.acquire()
-        lock2.release()
-
-
-def test_threaded_filelock():
-    with TempStorage("threadedfilelock") as st:
-        lock1 = st.lock("testlock")
-        result = []
-
-        # The thread function tries to acquire the lock and then quits
-        def fn():
-            lock2 = st.lock("testlock")
-            gotit = try_for(lock2.acquire, 1.0, 0.1)
-            if gotit:
-                result.append(True)
-                lock2.release()
-        t = threading.Thread(target=fn)
-
-        # Acquire the lock in this thread
-        lock1.acquire()
-        # Start the other thread trying to acquire the lock
-        t.start()
-        # Wait for a bit
-        time.sleep(0.15)
-        # Release the lock
-        lock1.release()
-        # Wait for the other thread to finish
-        t.join()
-        # If the other thread got the lock, it should have appended True to the
-        # "results" list.
-        assert result == [True]
 
 
 def test_length_byte():

@@ -26,7 +26,7 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from whoosh.compat import u, text_type
-from whoosh.analysis.acore import Composable, Token
+from whoosh.analysis import Composable, Token
 from whoosh.util.text import rcompile
 
 
@@ -35,9 +35,9 @@ default_pattern = rcompile(r"\w+(\.?\w+)*")
 
 # Tokenizers
 
-
 class Tokenizer(Composable):
-    """Base class for Tokenizers.
+    """
+    Base class for Tokenizers.
     """
 
     def __eq__(self, other):
@@ -45,7 +45,8 @@ class Tokenizer(Composable):
 
 
 class IDTokenizer(Tokenizer):
-    """Yields the entire input string as a single token. For use in indexed but
+    """
+    Yields the entire input string as a single token. For use in indexed but
     untokenized fields, such as a document's path.
 
     >>> idt = IDTokenizer()
@@ -76,7 +77,7 @@ class RegexTokenizer(Tokenizer):
     Uses a regular expression to extract tokens from text.
 
     >>> rex = RegexTokenizer()
-    >>> [token.text for token in rex(u("hi there 3.141 big-time under_score"))]
+    >>> [token.text for token in rex(u"hi there 3.141 big-time under_score")]
     ["hi", "there", "3.141", "big", "time", "under_score"]
     """
 
@@ -101,7 +102,7 @@ class RegexTokenizer(Tokenizer):
 
     def __call__(self, value, positions=False, chars=False, keeporiginal=False,
                  removestops=True, start_pos=0, start_char=0, tokenize=True,
-                 mode='', **kwargs):
+                 mode='', boost=1.0, **kwargs):
         """
         :param value: The unicode string to tokenize.
         :param positions: Whether to record token positions in the token.
@@ -121,7 +122,7 @@ class RegexTokenizer(Tokenizer):
                   **kwargs)
         if not tokenize:
             t.original = t.text = value
-            t.boost = 1.0
+            t.boost = boost
             if positions:
                 t.pos = start_pos
             if chars:
@@ -132,7 +133,7 @@ class RegexTokenizer(Tokenizer):
             # The default: expression matches are used as tokens
             for pos, match in enumerate(self.expression.finditer(value)):
                 t.text = match.group(0)
-                t.boost = 1.0
+                t.boost = boost
                 if keeporiginal:
                     t.original = t.text
                 t.stopped = False
@@ -153,7 +154,7 @@ class RegexTokenizer(Tokenizer):
                 text = value[start:end]
                 if text:
                     t.text = text
-                    t.boost = 1.0
+                    t.boost = boost
                     if keeporiginal:
                         t.original = t.text
                     t.stopped = False
@@ -172,7 +173,7 @@ class RegexTokenizer(Tokenizer):
             # yield the last bit of text as a final token.
             if prevend < len(value):
                 t.text = value[prevend:]
-                t.boost = 1.0
+                t.boost = boost
                 if keeporiginal:
                     t.original = t.text
                 t.stopped = False
@@ -185,7 +186,8 @@ class RegexTokenizer(Tokenizer):
 
 
 class CharsetTokenizer(Tokenizer):
-    """Tokenizes and translates text according to a character mapping object.
+    """
+    Tokenizes and translates text according to a character mapping object.
     Characters that map to None are considered token break characters. For all
     other characters the map is used to translate the character. This is useful
     for case and accent folding.
@@ -251,7 +253,7 @@ class CharsetTokenizer(Tokenizer):
                 t.endchar = start_char + len(value)
             yield t
         else:
-            text = u("")
+            text = u""
             charmap = self.charmap
             pos = start_pos
             startchar = currentchar = start_char
@@ -273,7 +275,7 @@ class CharsetTokenizer(Tokenizer):
                             t.endchar = currentchar
                         yield t
                     startchar = currentchar + 1
-                    text = u("")
+                    text = u""
 
                 currentchar += 1
 
@@ -291,7 +293,8 @@ class CharsetTokenizer(Tokenizer):
 
 
 def SpaceSeparatedTokenizer():
-    """Returns a RegexTokenizer that splits tokens by whitespace.
+    """
+    Returns a RegexTokenizer that splits tokens by whitespace.
 
     >>> sst = SpaceSeparatedTokenizer()
     >>> [token.text for token in sst("hi there big-time, what's up")]
@@ -302,7 +305,8 @@ def SpaceSeparatedTokenizer():
 
 
 def CommaSeparatedTokenizer():
-    """Splits tokens by commas.
+    """
+    Splits tokens by commas.
 
     Note that the tokenizer calls unicode.strip() on each match of the regular
     expression.
@@ -318,7 +322,8 @@ def CommaSeparatedTokenizer():
 
 
 class PathTokenizer(Tokenizer):
-    """A simple tokenizer that given a string ``"/a/b/c"`` yields tokens
+    """
+    A simple tokenizer that given a string ``"/a/b/c"`` yields tokens
     ``["/a", "/a/b", "/a/b/c"]``.
     """
 

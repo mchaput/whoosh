@@ -45,7 +45,8 @@ except ImportError:
 
 
 def unbound_cache(func):
-    """Caching decorator with an unbounded cache size.
+    """
+    Caching decorator with an unbounded cache size.
     """
 
     cache = {}
@@ -63,7 +64,8 @@ def unbound_cache(func):
 
 
 def lru_cache(maxsize=100):
-    """A simple cache that, when the cache is full, deletes the least recently
+    """
+    A simple cache that, when the cache is full, deletes the least recently
     used 10% of the cached values.
 
     This function duplicates (more-or-less) the protocol of the
@@ -115,7 +117,8 @@ def lru_cache(maxsize=100):
 
 
 def lfu_cache(maxsize=100):
-    """A simple cache that, when the cache is full, deletes the least frequently
+    """
+    A simple cache that, when the cache is full, deletes the least frequently
     used 10% of the cached values.
 
     This function duplicates (more-or-less) the protocol of the
@@ -166,7 +169,8 @@ def lfu_cache(maxsize=100):
 
 
 def random_cache(maxsize=100):
-    """A very simple cache that, when the cache is filled, deletes 10% of the
+    """
+    A very simple cache that, when the cache is filled, deletes 10% of the
     cached values AT RANDOM.
 
     This function duplicates (more-or-less) the protocol of the
@@ -213,7 +217,8 @@ def random_cache(maxsize=100):
 
 
 def db_lru_cache(maxsize=100):
-    """Double-barrel least-recently-used cache decorator. This is a simple
+    """
+    Double-barrel least-recently-used cache decorator. This is a simple
     LRU algorithm that keeps a primary and secondary dict. Keys are checked
     in the primary dict, and then the secondary. Once the primary dict fills
     up, the secondary dict is cleared and the two dicts are swapped.
@@ -258,7 +263,8 @@ def db_lru_cache(maxsize=100):
             return stats[3], stats[4], maxsize, len(stats[0]) + len(stats[1])
 
         def cache_clear():
-            """Clear the cache and cache statistics"""
+            """
+            Clear the cache and cache statistics"""
             stats[0].clear()
             stats[1].clear()
             stats[3] = stats[4] = 0
@@ -271,7 +277,8 @@ def db_lru_cache(maxsize=100):
 
 
 def clockface_lru_cache(maxsize=100):
-    """Least-recently-used cache decorator.
+    """
+    Least-recently-used cache decorator.
 
     This function duplicates (more-or-less) the protocol of the
     ``functools.lru_cache`` decorator in the Python 3.2 standard library, but
@@ -361,7 +368,8 @@ def clockface_lru_cache(maxsize=100):
             return stats[0], stats[1], maxsize, len(data)
 
         def cache_clear():
-            """Clear the cache and cache statistics"""
+            """
+            Clear the cache and cache statistics"""
             data.clear()
             stats[0] = stats[1] = stats[2] = 0
             for i in xrange(maxsize):

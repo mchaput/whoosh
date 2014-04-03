@@ -48,6 +48,7 @@ _float_struct = Struct("!f")
 _double_struct = Struct("!d")
 _ushort_le_struct = Struct("<H")
 _uint_le_struct = Struct("<I")
+_long_le_struct = Struct("<q")
 
 pack_byte = _byte_struct.pack
 pack_sbyte = _sbyte_struct.pack
@@ -60,6 +61,7 @@ pack_float = _float_struct.pack
 pack_double = _double_struct.pack
 pack_ushort_le = _ushort_le_struct.pack
 pack_uint_le = _uint_le_struct.pack
+pack_long_le = _long_le_struct.pack
 
 unpack_byte = _byte_struct.unpack  # ord() might be faster
 unpack_sbyte = _sbyte_struct.unpack
@@ -72,6 +74,7 @@ unpack_float = _float_struct.unpack
 unpack_double = _double_struct.unpack
 unpack_ushort_le = _ushort_le_struct.unpack
 unpack_uint_le = _uint_le_struct.unpack
+unpack_long_le = _long_le_struct.unpack
 
 if sys.version_info[0] < 3:
     emptybytes = ""

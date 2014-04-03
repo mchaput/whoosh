@@ -32,7 +32,8 @@ from whoosh.qparser.common import get_single_text, QueryParserError, attach
 
 
 class SyntaxNode(object):
-    """Base class for nodes that make up the abstract syntax tree (AST) of a
+    """
+    Base class for nodes that make up the abstract syntax tree (AST) of a
     parsed user query string. The AST is an intermediate step, generated
     from the query string, then converted into a :class:`whoosh.query.Query`
     tree by calling the ``query()`` method on the nodes.
@@ -67,7 +68,8 @@ class SyntaxNode(object):
         return r
 
     def r(self):
-        """Returns a basic representation of this node. The base class's
+        """
+        Returns a basic representation of this node. The base class's
         ``__repr__`` method calls this, then does the extra busy work of adding
         fieldname and boost where appropriate.
         """
@@ -84,14 +86,16 @@ class SyntaxNode(object):
         return fn_wrapper(self)
 
     def query(self, parser):
-        """Returns a :class:`whoosh.query.Query` instance corresponding to this
+        """
+        Returns a :class:`whoosh.query.Query` instance corresponding to this
         syntax tree node.
         """
 
         raise NotImplementedError(self.__class__.__name__)
 
     def is_ws(self):
-        """Returns True if this node is ignorable whitespace.
+        """
+        Returns True if this node is ignorable whitespace.
         """
 
         return False
@@ -100,7 +104,8 @@ class SyntaxNode(object):
         return False
 
     def set_fieldname(self, name, override=False):
-        """Sets the fieldname associated with this node. If ``override`` is
+        """
+        Sets the fieldname associated with this node. If ``override`` is
         False (the default), the fieldname will only be replaced if this node
         does not already have a fieldname set.
 
@@ -115,7 +120,8 @@ class SyntaxNode(object):
         return self
 
     def set_boost(self, boost):
-        """Sets the boost associated with this node.
+        """
+        Sets the boost associated with this node.
 
         For nodes that don't have a boost, this is a no-op.
         """
@@ -126,7 +132,8 @@ class SyntaxNode(object):
         return self
 
     def set_range(self, startchar, endchar):
-        """Sets the character range associated with this node.
+        """
+        Sets the character range associated with this node.
         """
 
         self.startchar = startchar
@@ -154,7 +161,8 @@ class SyntaxNode(object):
 
 
 class MarkerNode(SyntaxNode):
-    """Base class for nodes that only exist to mark places in the tree.
+    """
+    Base class for nodes that only exist to mark places in the tree.
     """
 
     def r(self):
@@ -162,7 +170,8 @@ class MarkerNode(SyntaxNode):
 
 
 class Whitespace(MarkerNode):
-    """Abstract syntax tree node for ignorable whitespace.
+    """
+    Abstract syntax tree node for ignorable whitespace.
     """
 
     def r(self):
@@ -173,7 +182,8 @@ class Whitespace(MarkerNode):
 
 
 class FieldnameNode(SyntaxNode):
-    """Abstract syntax tree node for field name assignments.
+    """
+    Abstract syntax tree node for field name assignments.
     """
 
     has_fieldname = True
@@ -187,7 +197,8 @@ class FieldnameNode(SyntaxNode):
 
 
 class GroupNode(SyntaxNode):
-    """Base class for abstract syntax tree node types that group together
+    """
+    Base class for abstract syntax tree node types that group together
     sub-nodes.
 
     Instances have the following attributes:
@@ -243,7 +254,8 @@ class GroupNode(SyntaxNode):
         return attach(q, self)
 
     def empty_copy(self):
-        """Returns an empty copy of this group.
+        """
+        Returns an empty copy of this group.
 
         This is used in the common pattern where a filter creates an new
         group and then adds nodes from the input group to it if they meet
@@ -341,7 +353,8 @@ class GroupNode(SyntaxNode):
 
 
 class BinaryGroup(GroupNode):
-    """Intermediate base class for group nodes that have two subnodes and
+    """
+    Intermediate base class for group nodes that have two subnodes and
     whose ``qclass`` initializer takes two arguments instead of a list.
     """
 
@@ -367,7 +380,8 @@ class BinaryGroup(GroupNode):
 
 
 class Wrapper(GroupNode):
-    """Intermediate base class for nodes that wrap a single sub-node.
+    """
+    Intermediate base class for nodes that wrap a single sub-node.
     """
 
     merging = False
@@ -442,7 +456,8 @@ class NotGroup(Wrapper):
 
 
 class RangeNode(SyntaxNode):
-    """Syntax node for range queries.
+    """
+    Syntax node for range queries.
     """
 
     has_fieldname = True
@@ -492,7 +507,8 @@ class RangeNode(SyntaxNode):
 
 
 class TextNode(SyntaxNode):
-    """Intermediate base class for basic nodes that search for text, such as
+    """
+    Intermediate base class for basic nodes that search for text, such as
     term queries, wildcards, prefixes, etc.
 
     Instances have the following attributes:
@@ -537,7 +553,8 @@ class TextNode(SyntaxNode):
 
 
 class WordNode(TextNode):
-    """Syntax node for term queries.
+    """
+    Syntax node for term queries.
     """
 
     tokenize = True
@@ -550,7 +567,8 @@ class WordNode(TextNode):
 # Operators
 
 class Operator(SyntaxNode):
-    """Base class for PrefixOperator, PostfixOperator, and InfixOperator.
+    """
+    Base class for PrefixOperator, PostfixOperator, and InfixOperator.
 
     Operators work by moving the nodes they apply to (e.g. for prefix operator,
     the previous node, for infix operator, the nodes on either side, etc.) into
@@ -575,7 +593,8 @@ class Operator(SyntaxNode):
         return "OP %r" % self.text
 
     def replace_self(self, parser, group, position):
-        """Called with the parser, a group, and the position at which the
+        """
+        Called with the parser, a group, and the position at which the
         operator occurs in that group. Should return a group with the operator
         replaced by whatever effect the operator has (e.g. for an infix op,
         replace the op and the nodes on either side with a sub-group).

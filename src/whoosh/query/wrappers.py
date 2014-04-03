@@ -30,10 +30,10 @@ from array import array
 
 from whoosh import matching
 from whoosh.compat import text_type, u, xrange
-from whoosh.query import qcore
+from whoosh.query import query
 
 
-class WrappingQuery(qcore.Query):
+class WrappingQuery(query.Query):
     def __init__(self, child):
         self.child = child
 
@@ -74,8 +74,9 @@ class WrappingQuery(qcore.Query):
         return self.child.matcher(searcher, context)
 
 
-class Not(qcore.Query):
-    """Excludes any documents that match the subquery.
+class Not(query.Query):
+    """
+    Excludes any documents that match the subquery.
 
     >>> # Match documents that contain 'render' but not 'texture'
     >>> And([Term("content", u"render"),
@@ -84,7 +85,7 @@ class Not(qcore.Query):
     >>> Term("content", u"render") - Term("content", u"texture")
     """
 
-    __inittypes__ = dict(query=qcore.Query)
+    __inittypes__ = dict(query=query.Query)
 
     def __init__(self, query, boost=1.0):
         """
@@ -106,7 +107,7 @@ class Not(qcore.Query):
         return "%s(%s)" % (self.__class__.__name__, repr(self.query))
 
     def __unicode__(self):
-        return u("NOT ") + text_type(self.query)
+        return u"NOT " + text_type(self.query)
 
     __str__ = __unicode__
 
@@ -126,7 +127,7 @@ class Not(qcore.Query):
 
     def normalize(self):
         q = self.query.normalize()
-        if q is qcore.NullQuery:
+        if q is query.NullQuery:
             return q
         else:
             return self.__class__(q, boost=self.boost)
@@ -145,12 +146,14 @@ class Not(qcore.Query):
         # as And and Or do special handling of Not subqueries.
         reader = searcher.reader()
         child = self.query.matcher(searcher, searcher.boolean_context())
-        return matching.InverseMatcher(child, reader.doc_count_all(),
+        mindoc, maxdoc = searcher.doc_id_range()
+        return matching.InverseMatcher(child, maxdoc + 1,
                                        missing=reader.is_deleted)
 
 
 class ConstantScoreQuery(WrappingQuery):
-    """Wraps a query and uses a matcher that always gives a constant score
+    """
+    Wraps a query and uses a matcher that always gives a constant score
     to all matching documents. This is a useful optimization when you don't
     care about scores from a certain branch of the query tree because it is
     simply acting as a filter. See also the :class:`AndMaybe` query.
@@ -179,12 +182,13 @@ class ConstantScoreQuery(WrappingQuery):
             return m
         else:
             ids = array("I", m.all_ids())
-            return matching.ListMatcher(ids, all_weights=self.score,
-                                        term=m.term())
+            return matching.ListMatcher.from_docs(ids, all_weights=self.score,
+                                                  term=m.term())
 
 
 class WeightingQuery(WrappingQuery):
-    """Wraps a query and uses a specific :class:`whoosh.sorting.WeightingModel`
+    """
+    Wraps a query and uses a specific :class:`whoosh.sorting.WeightingModel`
     to score documents that match the wrapped query.
     """
 

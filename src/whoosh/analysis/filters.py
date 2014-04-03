@@ -30,7 +30,7 @@
 from itertools import chain
 
 from whoosh.compat import next, xrange
-from whoosh.analysis.acore import Composable
+from whoosh.analysis import Composable
 from whoosh.util.text import rcompile
 
 
@@ -55,18 +55,17 @@ url_pattern = rcompile("""
 ) | (                      # or...
     \w+([:.]?\w+)*         # word characters, with opt. internal colons/dots
 )
-""", verbose=True)
+"""
+, verbose=True)
 
 
 # Filters
 
 class Filter(Composable):
-    """Base class for Filter objects. A Filter subclass must implement a
+    """
+    Base class for Filter objects. A Filter subclass must implement a
     filter() method that takes a single argument, which is an iterator of Token
     objects, and yield a series of Token objects in return.
-
-    Filters that do morphological transformation of tokens (e.g. stemming)
-    should set their ``is_morph`` attribute to True.
     """
 
     def __eq__(self, other):
@@ -82,7 +81,8 @@ class Filter(Composable):
 
 
 class PassFilter(Filter):
-    """An identity filter: passes the tokens through untouched.
+    """
+    An identity filter: passes the tokens through untouched.
     """
 
     def __call__(self, tokens):
@@ -90,7 +90,8 @@ class PassFilter(Filter):
 
 
 class LoggingFilter(Filter):
-    """Prints the contents of every filter that passes through as a debug
+    """
+    Prints the contents of every filter that passes through as a debug
     log entry.
     """
 
@@ -113,14 +114,16 @@ class LoggingFilter(Filter):
 
 
 class MultiFilter(Filter):
-    """Chooses one of two or more sub-filters based on the 'mode' attribute
+    """
+    Chooses one of two or more sub-filters based on the 'mode' attribute
     of the token stream.
     """
 
     default_filter = PassFilter()
 
     def __init__(self, **kwargs):
-        """Use keyword arguments to associate mode attribute values with
+        """
+        Use keyword arguments to associate mode attribute values with
         instantiated filters.
 
         >>> iwf_for_index = IntraWordFilter(mergewords=True, mergenums=False)
@@ -145,7 +148,8 @@ class MultiFilter(Filter):
 
 
 class TeeFilter(Filter):
-    """Interleaves the results of two or more filters (or filter chains).
+    """
+    Interleaves the results of two or more filters (or filter chains).
 
     NOTE: because it needs to create copies of each token for each sub-filter,
     this filter is quite slow.
@@ -199,7 +203,8 @@ class TeeFilter(Filter):
 
 
 class ReverseTextFilter(Filter):
-    """Reverses the text of each token.
+    """
+    Reverses the text of each token.
 
     >>> ana = RegexTokenizer() | ReverseTextFilter()
     >>> [token.text for token in ana("hello there")]
@@ -213,7 +218,8 @@ class ReverseTextFilter(Filter):
 
 
 class LowercaseFilter(Filter):
-    """Uses unicode.lower() to lowercase token text.
+    """
+    Uses unicode.lower() to lowercase token text.
 
     >>> rext = RegexTokenizer()
     >>> stream = rext("This is a TEST")
@@ -228,7 +234,8 @@ class LowercaseFilter(Filter):
 
 
 class StripFilter(Filter):
-    """Calls unicode.strip() on the token text.
+    """
+    Calls unicode.strip() on the token text.
     """
 
     def __call__(self, tokens):
@@ -238,7 +245,8 @@ class StripFilter(Filter):
 
 
 class StopFilter(Filter):
-    """Marks "stop" words (words too common to index) in the stream (and by
+    """
+    Marks "stop" words (words too common to index) in the stream (and by
     default removes them).
 
     Make sure you precede this filter with a :class:`LowercaseFilter`.
@@ -321,7 +329,8 @@ class StopFilter(Filter):
 
 
 class CharsetFilter(Filter):
-    """Translates the text of tokens by calling unicode.translate() using the
+    """
+    Translates the text of tokens by calling unicode.translate() using the
     supplied character mapping object. This is useful for case and accent
     folding.
 
@@ -373,7 +382,8 @@ class CharsetFilter(Filter):
 
 
 class DelimitedAttributeFilter(Filter):
-    """Looks for delimiter characters in the text of each token and stores the
+    """
+    Looks for delimiter characters in the text of each token and stores the
     data after the delimiter in a named attribute on the token.
 
     The defaults are set up to use the ``^`` character as a delimiter and store
@@ -381,7 +391,7 @@ class DelimitedAttributeFilter(Filter):
 
     >>> daf = DelimitedAttributeFilter(delimiter="^", attribute="boost")
     >>> ana = RegexTokenizer("\\\\S+") | DelimitedAttributeFilter()
-    >>> for t in ana(u("image render^2 file^0.5"))
+    >>> for t in ana(u"image render^2 file^0.5")
     ...    print("%r %f" % (t.text, t.boost))
     'image' 1.0
     'render' 2.0
@@ -437,7 +447,8 @@ class DelimitedAttributeFilter(Filter):
 
 
 class SubstitutionFilter(Filter):
-    """Performs a regular expression substitution on the token text.
+    """
+    Performs a regular expression substitution on the token text.
 
     This is especially useful for removing text from tokens, for example
     hyphens::

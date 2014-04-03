@@ -1,5 +1,4 @@
-from whoosh.filedb.filestore import RamStorage
-from whoosh.idsets import BitSet, OnDiskBitSet, SortedIntSet
+from whoosh.idsets import BitSet, SortedIntSet
 
 
 def test_bit_basics(c=BitSet):
@@ -158,28 +157,24 @@ def test_sortedintset():
     test_before_after(SortedIntSet)
 
 
-def test_ondisk():
-    bs = BitSet([10, 11, 30, 50, 80])
-
-    st = RamStorage()
-    f = st.create_file("test")
-    size = bs.to_disk(f)
-    f.close()
-
-    f = st.open_file("test")
-    b = OnDiskBitSet(f, 0, size)
-    assert list(b) == list(bs)
-
-    assert b.after(0) == 10
-    assert b.after(10) == 11
-    assert b.after(80) is None
-    assert b.after(99) is None
-
-    assert b.before(0) is None
-    assert b.before(99) == 80
-    assert b.before(80) == 50
-    assert b.before(10) is None
-
-    f.seek(0)
-    b = BitSet.from_disk(f, size)
-    assert list(b) == list(bs)
+# def test_ondisk():
+#     with tempfile.TemporaryFile("w+b") as f:
+#         bs = BitSet([10, 11, 30, 50, 80])
+#         size = bs.to_disk(f)
+#
+#         b = OnDiskBitSet(f, 0, size)
+#         assert list(b) == list(bs)
+#
+#         assert b.after(0) == 10
+#         assert b.after(10) == 11
+#         assert b.after(80) is None
+#         assert b.after(99) is None
+#
+#         assert b.before(0) is None
+#         assert b.before(99) == 80
+#         assert b.before(80) == 50
+#         assert b.before(10) is None
+#
+#         f.seek(0)
+#         b = BitSet.from_disk(f, size)
+#         assert list(b) == list(bs)

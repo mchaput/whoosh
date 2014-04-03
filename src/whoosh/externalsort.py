@@ -83,7 +83,8 @@ except ImportError:
 
 
 class SortingPool(object):
-    """This object implements a general K-way external merge sort for Python
+    """
+    This object implements a general K-way external merge sort for Python
     objects.
 
     >>> pool = MergePool()
@@ -150,7 +151,8 @@ class SortingPool(object):
             yield item
 
     def add(self, item):
-        """Adds `item` to the pool to be sorted.
+        """
+        Adds `item` to the pool to be sorted.
         """
 
         if len(self.current) >= self.maxsize:
@@ -200,7 +202,8 @@ class SortingPool(object):
             runs.insert(0, newpath)
 
     def items(self, maxfiles=128):
-        """Returns a sorted list or iterator of the items in the pool.
+        """
+        Returns a sorted list or iterator of the items in the pool.
 
         :param maxfiles: maximum number of files to open at once.
         """
@@ -226,7 +229,8 @@ class SortingPool(object):
 
 
 def sort(items, maxsize=100000, tempdir=None, maxfiles=128):
-    """Sorts the given items using an external merge sort.
+    """
+    Sorts the given items using an external merge sort.
 
     :param tempdir: the path of a directory to use for temporary file
         storage. The default is to use the system's temp directory.

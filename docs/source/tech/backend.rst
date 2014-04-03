@@ -27,9 +27,6 @@ Index
 
   * :meth:`whoosh.index.Index.delete_document`
 
-  * :meth:`whoosh.index.Index.doc_count_all` -- if the backend has delayed
-    deletion.
-
 * Indexes that require/support versioning/transactions *may* implement the following methods.
 
   * :meth:`whoosh.index.Index.latest_generation`
@@ -84,7 +81,7 @@ IndexReader
 
   * :meth:`whoosh.reading.IndexReader.stored_fields`
 
-  * :meth:`whoosh.reading.IndexReader.doc_count_all`
+  * :meth:`whoosh.reading.IndexReader.doc_count`
 
   * :meth:`whoosh.reading.IndexReader.doc_count`
 

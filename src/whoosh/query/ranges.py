@@ -28,7 +28,7 @@
 from __future__ import division
 
 from whoosh.compat import b, u
-from whoosh.query import qcore, terms, compound, wrappers
+from whoosh.query import query, terms, compound, wrappers
 from whoosh.util.times import datetime_to_long
 
 
@@ -46,7 +46,7 @@ class RangeMixin(object):
         endchar = "}" if self.endexcl else "]"
         start = '' if self.start is None else self.start
         end = '' if self.end is None else self.end
-        return u("%s:%s%s TO %s%s") % (self.fieldname, startchar, start, end,
+        return u"%s:%s%s TO %s%s" % (self.fieldname, startchar, start, end,
                                      endchar)
 
     __str__ = __unicode__
@@ -69,17 +69,17 @@ class RangeMixin(object):
 
     def _comparable_start(self):
         if self.start is None:
-            return (qcore.Lowest, 0)
+            return query.Lowest, 0
         else:
             second = 1 if self.startexcl else 0
-            return (self.start, second)
+            return self.start, second
 
     def _comparable_end(self):
         if self.end is None:
-            return (qcore.Highest, 0)
+            return query.Highest, 0
         else:
             second = -1 if self.endexcl else 0
-            return (self.end, second)
+            return self.end, second
 
     def overlaps(self, other):
         if not isinstance(other, TermRange):
@@ -118,9 +118,9 @@ class RangeMixin(object):
             start = min(start1, start2)
             end = max(end1, end2)
 
-        startval = None if start[0] is qcore.Lowest else start[0]
+        startval = None if start[0] is query.Lowest else start[0]
         startexcl = start[1] == 1
-        endval = None if end[0] is qcore.Highest else end[0]
+        endval = None if end[0] is query.Highest else end[0]
         endexcl = end[1] == -1
 
         boost = max(self.boost, other.boost)
@@ -132,7 +132,8 @@ class RangeMixin(object):
 
 
 class TermRange(RangeMixin, terms.MultiTerm):
-    """Matches documents containing any terms in a given range.
+    """
+    Matches documents containing any terms in a given range.
 
     >>> # Match documents where the indexed "id" field is greater than or equal
     >>> # to 'apple' and less than or equal to 'pear'.
@@ -162,12 +163,12 @@ class TermRange(RangeMixin, terms.MultiTerm):
         self.constantscore = constantscore
 
     def normalize(self):
-        if self.start in ('', None) and self.end in (u('\uffff'), None):
+        if self.start in ('', None) and self.end in (u'\uffff', None):
             from whoosh.query import Every
             return Every(self.fieldname, boost=self.boost)
         elif self.start == self.end:
             if self.startexcl or self.endexcl:
-                return qcore.NullQuery
+                return query.NullQuery
             return terms.Term(self.fieldname, self.start, boost=self.boost)
         else:
             return TermRange(self.fieldname, self.start, self.end,
@@ -190,7 +191,7 @@ class TermRange(RangeMixin, terms.MultiTerm):
         endexcl = self.endexcl
 
         if self.start is None:
-            start = b("")
+            start = b""
         else:
             try:
                 start = field.to_bytes(self.start)
@@ -198,27 +199,26 @@ class TermRange(RangeMixin, terms.MultiTerm):
                 return
 
         if self.end is None:
-            end = b("\xFF\xFF\xFF\xFF")
+            end = b"\xFF\xFF\xFF\xFF"
         else:
             try:
                 end = field.to_bytes(self.end)
             except ValueError:
                 return
 
-        for fname, t in ixreader.terms_from(fieldname, start):
-            if fname != fieldname:
-                break
-            if t == start and startexcl:
+        for termbytes in ixreader.terms_from(fieldname, start):
+            if termbytes == start and startexcl:
                 continue
-            if t == end and endexcl:
+            if termbytes == end and endexcl:
                 break
-            if t > end:
+            if termbytes > end:
                 break
-            yield t
+            yield termbytes
 
 
-class NumericRange(RangeMixin, qcore.Query):
-    """A range query for NUMERIC fields. Takes advantage of tiered indexing
+class NumericRange(RangeMixin, query.Query):
+    """
+    A range query for NUMERIC fields. Takes advantage of tiered indexing
     to speed up large ranges by matching at a high resolution at the edges of
     the range and a low resolution in the middle.
 
@@ -304,7 +304,7 @@ class NumericRange(RangeMixin, qcore.Query):
         elif subqueries:
             q = compound.Or(subqueries, boost=self.boost)
         else:
-            return qcore.NullQuery
+            return query.NullQuery
 
         if self.constantscore:
             q = wrappers.ConstantScoreQuery(q, self.boost)
@@ -316,7 +316,8 @@ class NumericRange(RangeMixin, qcore.Query):
 
 
 class DateRange(NumericRange):
-    """This is a very thin subclass of :class:`NumericRange` that only
+    """
+    This is a very thin subclass of :class:`NumericRange` that only
     overrides the initializer and ``__repr__()`` methods to work with datetime
     objects instead of numbers. Internally this object converts the datetime
     objects it's created with to numbers and otherwise acts like a

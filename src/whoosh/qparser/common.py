@@ -42,7 +42,8 @@ class QueryParserError(Exception):
 
 
 def get_single_text(field, text, **kwargs):
-    """Returns the first token from an analyzer's output.
+    """
+    Returns the first token from an analyzer's output.
     """
 
     for t in field.process_text(text, mode="query", **kwargs):

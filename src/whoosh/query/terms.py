@@ -35,11 +35,12 @@ from whoosh import matching
 from whoosh.analysis import Token
 from whoosh.compat import bytes_type, text_type, u
 from whoosh.lang.morph_en import variations
-from whoosh.query import qcore
+from whoosh.query import query
 
 
-class Term(qcore.Query):
-    """Matches documents containing the given term (fieldname+text pair).
+class Term(query.Query):
+    """
+    Matches documents containing the given term (fieldname+text pair).
 
     >>> Term("content", u"render")
     """
@@ -74,9 +75,9 @@ class Term(qcore.Query):
             except UnicodeDecodeError:
                 text = repr(text)
 
-        t = u("%s:%s") % (self.fieldname, text)
+        t = u"%s:%s" % (self.fieldname, text)
         if self.boost != 1:
-            t += u("^") + text_type(self.boost)
+            t += u"^" + text_type(self.boost)
         return t
 
     __str__ = __unicode__
@@ -121,9 +122,9 @@ class Term(qcore.Query):
         if fieldname not in searcher.schema:
             return matching.NullMatcher()
 
-        field = searcher.schema[fieldname]
+        fieldobj = searcher.schema[fieldname]
         try:
-            text = field.to_bytes(text)
+            text = fieldobj.to_bytes(text)
         except ValueError:
             return matching.NullMatcher()
 
@@ -133,7 +134,7 @@ class Term(qcore.Query):
             else:
                 w = context.weighting
 
-            m = searcher.postings(self.fieldname, text, weighting=w)
+            m = searcher.matcher(self.fieldname, text, weighting=w)
             if self.minquality:
                 m.set_min_quality(self.minquality)
             if self.boost != 1.0:
@@ -142,9 +143,19 @@ class Term(qcore.Query):
         else:
             return matching.NullMatcher()
 
+    def trigger(self, schema, fields):
+        if self.fieldname in schema:
+            btext = schema[self.fieldname].to_bytes(self.text)
+            v = fields.get(self.field())
+            if v:
+                i = v.find(btext)
+                if i < len(v):
+                    return v.id(i) == btext
 
-class MultiTerm(qcore.Query):
-    """Abstract base class for queries that operate on multiple terms in the
+
+class MultiTerm(query.Query):
+    """
+    Abstract base class for queries that operate on multiple terms in the
     same field.
     """
 
@@ -175,7 +186,7 @@ class MultiTerm(qcore.Query):
         fieldname = self.field()
 
         if fieldname not in ixreader.schema:
-            return qcore.NullQuery()
+            return query.NullQuery()
         field = ixreader.schema[fieldname]
 
         existing = []
@@ -189,7 +200,7 @@ class MultiTerm(qcore.Query):
             from whoosh.query import Or
             return Or(existing)
         else:
-            return qcore.NullQuery
+            return query.NullQuery
 
     def estimate_size(self, ixreader):
         fieldname = self.field()
@@ -230,7 +241,8 @@ class MultiTerm(qcore.Query):
 
 
 class PatternQuery(MultiTerm):
-    """An intermediate base class for common methods of Prefix and Wildcard.
+    """
+    An intermediate base class for common methods of Prefix and Wildcard.
     """
 
     __inittypes__ = dict(fieldname=str, text=text_type, boost=float)
@@ -289,7 +301,8 @@ class PatternQuery(MultiTerm):
 
 
 class Prefix(PatternQuery):
-    """Matches documents that contain any terms that start with the given text.
+    """
+    Matches documents that contain any terms that start with the given text.
 
     >>> # Match documents containing words starting with 'comp'
     >>> Prefix("content", u"comp")
@@ -313,7 +326,8 @@ class Prefix(PatternQuery):
 
 
 class Wildcard(PatternQuery):
-    """Matches documents that contain any terms that match a "glob" pattern.
+    """
+    Matches documents that contain any terms that match a "glob" pattern.
     See the Python ``fnmatch`` module for information about globs.
 
     >>> Wildcard("content", u"in*f?x")
@@ -359,7 +373,8 @@ class Wildcard(PatternQuery):
 
 
 class Regex(PatternQuery):
-    """Matches documents that contain any terms that match a regular
+    """
+    Matches documents that contain any terms that match a regular
     expression. See the Python ``re`` module for information about regular
     expressions.
     """
@@ -405,7 +420,8 @@ class Regex(PatternQuery):
 
 
 class ExpandingTerm(MultiTerm):
-    """Intermediate base class for queries such as FuzzyTerm and Variations
+    """
+    Intermediate base class for queries such as FuzzyTerm and Variations
     that expand into multiple queries, but come from a single term.
     """
 
@@ -418,7 +434,8 @@ class ExpandingTerm(MultiTerm):
 
 
 class FuzzyTerm(ExpandingTerm):
-    """Matches documents containing words similar to the given term.
+    """
+    Matches documents containing words similar to the given term.
     """
 
     __inittypes__ = dict(fieldname=str, text=text_type, boost=float,
@@ -460,11 +477,11 @@ class FuzzyTerm(ExpandingTerm):
                     self.boost, self.maxdist, self.prefixlength)
 
     def __unicode__(self):
-        r = u("%s:%s") % (self.fieldname, self.text) + u("~")
+        r = u"%s:%s" % (self.fieldname, self.text) + u"~"
         if self.maxdist > 1:
-            r += u("%d") % self.maxdist
+            r += u"%d" % self.maxdist
         if self.boost != 1.0:
-            r += u("^%f") % self.boost
+            r += u"^%f" % self.boost
         return r
 
     __str__ = __unicode__
@@ -480,7 +497,8 @@ class FuzzyTerm(ExpandingTerm):
 
 
 class Variations(ExpandingTerm):
-    """Query that automatically searches for morphological variations of the
+    """
+    Query that automatically searches for morphological variations of the
     given word in the same field.
     """
 
@@ -517,7 +535,7 @@ class Variations(ExpandingTerm):
                 yield btext
 
     def __unicode__(self):
-        return u("%s:<%s>") % (self.fieldname, self.text)
+        return u"%s:<%s>" % (self.fieldname, self.text)
 
     __str__ = __unicode__
 
@@ -526,3 +544,21 @@ class Variations(ExpandingTerm):
         if q.fieldname == fieldname and q.text == oldtext:
             q.text = newtext
         return q
+
+
+class UniqueTerm(Term):
+    """
+
+    """
+
+    def matcher(self, searcher, context=None):
+        from whoosh.formats import Posting
+
+        r = searcher.reader()
+        docid = r.unique_id(self.fieldname, self.text)
+        if docid is not None:
+            posts = [Posting(docid=docid, weight=self.boost)]
+        else:
+            posts = []
+        return matching.ListMatcher(posts)
+

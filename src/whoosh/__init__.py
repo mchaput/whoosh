@@ -29,7 +29,8 @@ __version__ = (2, 6, 0)
 
 
 def versionstring(build=True, extra=True):
-    """Returns the version number of Whoosh as a string.
+    """
+    Returns the version number of Whoosh as a string.
 
     :param build: Whether to include the build number in the string.
     :param extra: Whether to include alpha/beta/rc etc. tags. Only

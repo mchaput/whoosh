@@ -1,4 +1,5 @@
-"""This module contains an object that implements the Paice-Husk stemming
+"""
+This module contains an object that implements the Paice-Husk stemming
 algorithm.
 
 If you just want to use the standard Paice-Husk stemming rules, use the
@@ -19,7 +20,8 @@ from collections import defaultdict
 
 
 class PaiceHuskStemmer(object):
-    """Implements the Paice-Husk stemming algorithm.
+    """
+    Implements the Paice-Husk stemming algorithm.
     """
 
     rule_expr = re.compile(r"""
@@ -28,7 +30,8 @@ class PaiceHuskStemmer(object):
     (?P<num>\d+)
     (?P<append>\w*)
     (?P<cont>[.>])
-    """, re.UNICODE | re.VERBOSE)
+    """
+    , re.UNICODE | re.VERBOSE)
 
     stem_expr = re.compile("^\w+", re.UNICODE)
 
@@ -78,7 +81,8 @@ class PaiceHuskStemmer(object):
         return word
 
     def stem(self, word):
-        """Returns a stemmed version of the argument string.
+        """
+        Returns a stemmed version of the argument string.
         """
 
         rules = self.rules

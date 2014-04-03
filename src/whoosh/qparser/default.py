@@ -36,7 +36,8 @@ from whoosh.qparser.common import print_debug, QueryParserError
 # Query parser object
 
 class QueryParser(object):
-    """A hand-written query parser built on modular plug-ins. The default
+    """
+    A hand-written query parser built on modular plug-ins. The default
     configuration implements a powerful fielded query language similar to
     Lucene's.
 
@@ -87,7 +88,8 @@ class QueryParser(object):
         self.add_plugins(plugins)
 
     def default_set(self):
-        """Returns the default list of plugins to use.
+        """
+        Returns the default list of plugins to use.
         """
 
         from whoosh.qparser import plugins
@@ -105,7 +107,8 @@ class QueryParser(object):
                 ]
 
     def add_plugins(self, pins):
-        """Adds the given list of plugins to the list of plugins in this
+        """
+        Adds the given list of plugins to the list of plugins in this
         parser.
         """
 
@@ -113,7 +116,8 @@ class QueryParser(object):
             self.add_plugin(pin)
 
     def add_plugin(self, pin):
-        """Adds the given plugin to the list of plugins in this parser.
+        """
+        Adds the given plugin to the list of plugins in this parser.
         """
 
         if isinstance(pin, type):
@@ -125,20 +129,23 @@ class QueryParser(object):
         self.add_plugin(WhitespacePlugin())
 
     def remove_plugin(self, pi):
-        """Removes the given plugin object from the list of plugins in this
+        """
+        Removes the given plugin object from the list of plugins in this
         parser.
         """
 
         self.plugins.remove(pi)
 
     def remove_plugin_class(self, cls):
-        """Removes any plugins of the given class from this parser.
+        """
+        Removes any plugins of the given class from this parser.
         """
 
         self.plugins = [pi for pi in self.plugins if not isinstance(pi, cls)]
 
     def replace_plugin(self, plugin):
-        """Removes any plugins of the class of the given plugin and then adds
+        """
+        Removes any plugins of the class of the given plugin and then adds
         it. This is a convenience method to keep from having to call
         ``remove_plugin_class`` followed by ``add_plugin`` each time you want
         to reconfigure a default plugin.
@@ -165,7 +172,8 @@ class QueryParser(object):
         return [item for item, _ in items_and_priorities]
 
     def multitoken_query(self, spec, texts, fieldname, termclass, boost):
-        """Returns a query for multiple texts. This method implements the
+        """
+        Returns a query for multiple texts. This method implements the
         intention specified in the field's ``multitoken_query`` attribute,
         which specifies what to do when strings that look like single terms
         to the parser turn out to yield multiple tokens when analyzed.
@@ -202,7 +210,8 @@ class QueryParser(object):
 
     def term_query(self, fieldname, text, termclass, boost=1.0, tokenize=True,
                    removestops=True):
-        """Returns the appropriate query object for a single term in the query
+        """
+        Returns the appropriate query object for a single term in the query
         string.
         """
 
@@ -241,21 +250,24 @@ class QueryParser(object):
         return termclass(fieldname, text, boost=boost)
 
     def taggers(self):
-        """Returns a priorized list of tagger objects provided by the parser's
+        """
+        Returns a priorized list of tagger objects provided by the parser's
         currently configured plugins.
         """
 
         return self._priorized("taggers")
 
     def filters(self):
-        """Returns a priorized list of filter functions provided by the
+        """
+        Returns a priorized list of filter functions provided by the
         parser's currently configured plugins.
         """
 
         return self._priorized("filters")
 
     def tag(self, text, pos=0, debug=False):
-        """Returns a group of syntax nodes corresponding to the given text,
+        """
+        Returns a group of syntax nodes corresponding to the given text,
         created by matching the Taggers provided by the parser's plugins.
 
         :param text: the text to tag.
@@ -316,7 +328,8 @@ class QueryParser(object):
         return group
 
     def filterize(self, nodes, debug=False):
-        """Takes a group of nodes and runs the filters provided by the parser's
+        """
+        Takes a group of nodes and runs the filters provided by the parser's
         plugins.
         """
 
@@ -334,7 +347,8 @@ class QueryParser(object):
         return nodes
 
     def process(self, text, pos=0, debug=False):
-        """Returns a group of syntax nodes corresponding to the given text,
+        """
+        Returns a group of syntax nodes corresponding to the given text,
         tagged by the plugin Taggers and filtered by the plugin filters.
 
         :param text: the text to tag.
@@ -346,7 +360,8 @@ class QueryParser(object):
         return nodes
 
     def parse(self, text, normalize=True, debug=False):
-        """Parses the input string and returns a :class:`whoosh.query.Query`
+        """
+        Parses the input string and returns a :class:`whoosh.query.Query`
         object/tree.
 
         :param text: the unicode string to parse.
@@ -382,7 +397,8 @@ class QueryParser(object):
 # Premade parser configurations
 
 def MultifieldParser(fieldnames, schema, fieldboosts=None, **kwargs):
-    """Returns a QueryParser configured to search in multiple fields.
+    """
+    Returns a QueryParser configured to search in multiple fields.
 
     Instead of assigning unfielded clauses to a default field, this parser
     transforms them into an OR clause that searches a list of fields. For
@@ -404,7 +420,8 @@ def MultifieldParser(fieldnames, schema, fieldboosts=None, **kwargs):
 
 
 def SimpleParser(fieldname, schema, **kwargs):
-    """Returns a QueryParser configured to support only +, -, and phrase
+    """
+    Returns a QueryParser configured to support only +, -, and phrase
     syntax.
     """
 
@@ -417,7 +434,8 @@ def SimpleParser(fieldname, schema, **kwargs):
 
 
 def DisMaxParser(fieldboosts, schema, tiebreak=0.0, **kwargs):
-    """Returns a QueryParser configured to support only +, -, and phrase
+    """
+    Returns a QueryParser configured to support only +, -, and phrase
     syntax, and which converts individual terms into DisjunctionMax queries
     across a set of fields.
 

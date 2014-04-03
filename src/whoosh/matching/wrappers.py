@@ -28,11 +28,12 @@
 from __future__ import division
 
 from whoosh.compat import xrange
-from whoosh.matching import mcore
+from whoosh.matching import matching
 
 
-class WrappingMatcher(mcore.Matcher):
-    """Base class for matchers that wrap sub-matchers.
+class WrappingMatcher(matching.Matcher):
+    """
+    Base class for matchers that wrap sub-matchers.
     """
 
     def __init__(self, child, boost=1.0):
@@ -43,17 +44,17 @@ class WrappingMatcher(mcore.Matcher):
         return "%s(%r, boost=%s)" % (self.__class__.__name__, self.child,
                                      self.boost)
 
-    def copy(self):
-        kwargs = {}
-        if hasattr(self, "boost"):
-            kwargs["boost"] = self.boost
-        return self.__class__(self.child.copy(), **kwargs)
+    def is_active(self):
+        return self.child.is_active()
 
-    def depth(self):
-        return 1 + self.child.depth()
+    def reset(self):
+        self.child.reset()
 
-    def _replacement(self, newchild):
-        return self.__class__(newchild, boost=self.boost)
+    def term(self):
+        return self.child.term()
+
+    def children(self):
+        return [self.child]
 
     def replace(self, minquality=0):
         # Replace the child matcher
@@ -64,50 +65,65 @@ class WrappingMatcher(mcore.Matcher):
         else:
             return self
 
-    def id(self):
-        return self.child.id()
+    def _replacement(self, newchild):
+        return self.__class__(newchild, boost=self.boost)
 
-    def all_ids(self):
-        return self.child.all_ids()
+    def copy(self):
+        kwargs = {}
+        if hasattr(self, "boost"):
+            kwargs["boost"] = self.boost
+        return self.__class__(self.child.copy(), **kwargs)
 
-    def is_active(self):
-        return self.child.is_active()
-
-    def reset(self):
-        self.child.reset()
-
-    def children(self):
-        return [self.child]
-
-    def supports(self, astype):
-        return self.child.supports(astype)
-
-    def value(self):
-        return self.child.value()
-
-    def value_as(self, astype):
-        return self.child.value_as(astype)
-
-    def spans(self):
-        return self.child.spans()
-
-    def skip_to(self, id):
-        return self.child.skip_to(id)
-
-    def next(self):
-        self.child.next()
+    def depth(self):
+        return 1 + self.child.depth()
 
     def supports_block_quality(self):
         return self.child.supports_block_quality()
-
-    def skip_to_quality(self, minquality):
-        return self.child.skip_to_quality(minquality / self.boost)
 
     def max_quality(self):
         return self.child.max_quality() * self.boost
 
     def block_quality(self):
         return self.child.block_quality() * self.boost
+
+    def id(self):
+        return self.child.id()
+
+    def all_ids(self):
+        return self.child.all_ids()
+
+    def all_values(self):
+        return self.child.all_values()
+
+    def value(self):
+        return self.child.value()
+
+    def supports(self, astype):
+        return self.child.supports(astype)
+
+    def skip_to(self, docid):
+        return self.child.skip_to(docid)
+
+    def skip_to_quality(self, minquality):
+        return self.child.skip_to_quality(minquality / self.boost)
+
+    def positions(self):
+        return self.child.positions()
+
+    def chars(self):
+        return self.child.chars()
+
+    def payloads(self):
+        return self.child.payloads()
+
+    def spans(self):
+        return self.child.spans()
+
+    def next(self):
+        self.child.next()
+
+    def length(self):
+        return self.child.length()
 
     def weight(self):
         return self.child.weight() * self.boost
@@ -116,8 +132,9 @@ class WrappingMatcher(mcore.Matcher):
         return self.child.score() * self.boost
 
 
-class MultiMatcher(mcore.Matcher):
-    """Serializes the results of a list of sub-matchers.
+class MultiMatcher(matching.Matcher):
+    """
+    Serializes the results of a list of sub-matchers.
     """
 
     def __init__(self, matchers, idoffsets, scorer=None, current=0):
@@ -177,7 +194,7 @@ class MultiMatcher(mcore.Matcher):
                 m._next_matcher()
 
         if not m.is_active():
-            return mcore.NullMatcher()
+            return matching.NullMatcher()
 
         # TODO: Possible optimization: if the last matcher is current, replace
         # this with the last matcher, but wrap it with a matcher that adds the
@@ -208,7 +225,7 @@ class MultiMatcher(mcore.Matcher):
 
     def next(self):
         if not self.is_active():
-            raise mcore.ReadTooFar
+            raise matching.ReadTooFar
 
         self.matchers[self.current].next()
         if not self.matchers[self.current].is_active():
@@ -216,7 +233,7 @@ class MultiMatcher(mcore.Matcher):
 
     def skip_to(self, id):
         if not self.is_active():
-            raise mcore.ReadTooFar
+            raise matching.ReadTooFar
         if id <= self.id():
             return
 
@@ -252,33 +269,30 @@ class MultiMatcher(mcore.Matcher):
         return self.scorer.score(self)
 
 
-def ExcludeMatcher(child, excluded, boost=1.0):
-    return FilterMatcher(child, excluded, exclude=True, boost=boost)
-
-
-class FilterMatcher(WrappingMatcher):
-    """Filters the postings from the wrapped based on whether the IDs are
-    present in or absent from a set.
+class PredicateMatcher(WrappingMatcher):
+    """
+    Filters postings from the wrapped matcher based on whether a function
+    returns True for the document ID.
     """
 
-    def __init__(self, child, ids, exclude=False, boost=1.0):
+    def __init__(self, child, predicate, exclude=False, boost=1.0):
         """
         :param child: the child matcher.
-        :param ids: a set of IDs to filter by.
+        :param predicate: the predicate function to use to test IDs.
         :param exclude: by default, only IDs from the wrapped matcher that are
             **in** the set are used. If this argument is True, only IDs from
             the wrapped matcher that are **not in** the set are used.
         """
 
-        super(FilterMatcher, self).__init__(child)
-        self._ids = ids
+        WrappingMatcher.__init__(self, child)
+        self._pred = predicate
         self._exclude = exclude
         self.boost = boost
         self._find_next()
 
     def __repr__(self):
         return "%s(%r, %r, %r, boost=%s)" % (self.__class__.__name__,
-                                             self.child, self._ids,
+                                             self.child, self._pred,
                                              self._exclude, self.boost)
 
     def reset(self):
@@ -286,23 +300,25 @@ class FilterMatcher(WrappingMatcher):
         self._find_next()
 
     def copy(self):
-        return self.__class__(self.child.copy(), self._ids, self._exclude,
+        return self.__class__(self.child.copy(), self._pred, self._exclude,
                               boost=self.boost)
 
     def _replacement(self, newchild):
-        return self.__class__(newchild, self._ids, exclude=self._exclude,
+        return self.__class__(newchild, self._pred, exclude=self._exclude,
                               boost=self.boost)
 
     def _find_next(self):
         child = self.child
-        ids = self._ids
+        pred = self._pred
         r = False
 
         if self._exclude:
-            while child.is_active() and child.id() in ids:
+            # Skip IDs that return True
+            while child.is_active() and pred(child.id()):
                 r = child.next() or r
         else:
-            while child.is_active() and child.id() not in ids:
+            # Skip IDs that don't return True
+            while child.is_active() and not pred(child.id()):
                 r = child.next() or r
         return r
 
@@ -315,23 +331,43 @@ class FilterMatcher(WrappingMatcher):
         self._find_next()
 
     def all_ids(self):
-        ids = self._ids
+        pred = self._pred
         if self._exclude:
-            return (id for id in self.child.all_ids() if id not in ids)
+            # Skip any that return True
+            return (docid for docid in self.child.all_ids() if not pred(docid))
         else:
-            return (id for id in self.child.all_ids() if id in ids)
+            # Skip any that don't return True
+            return (docid for docid in self.child.all_ids() if pred(docid))
 
-    def all_items(self):
-        ids = self._ids
+    def all_values(self):
+        pred = self._pred
         if self._exclude:
-            return (item for item in self.child.all_items()
-                    if item[0] not in ids)
+            return (post for post in self.child.all_values()
+                    if not pred(post.docid))
         else:
-            return (item for item in self.child.all_items() if item[0] in ids)
+            return (post for post in self.child.all_values()
+                    if pred(post.docid))
+
+
+def FilterMatcher(child, ids, exclude=False, boost=1.0):
+    """
+    Filters the postings from the wrapped matcher based on whether the IDs are
+    present in or absent from a set.
+
+    :param child: the child matcher.
+    :param ids: a set of IDs to filter by.
+    :param exclude: by default, only IDs from the wrapped matcher that are
+        **in** the set are used. If this argument is True, only IDs from
+        the wrapped matcher that are **not in** the set are used.
+    """
+
+    pred = ids.__contains__
+    return PredicateMatcher(child, pred, exclude, boost)
 
 
 class InverseMatcher(WrappingMatcher):
-    """Synthetic matcher, generates postings that are NOT present in the
+    """
+    Synthetic matcher, generates postings that are NOT present in the
     wrapped matcher.
     """
 
@@ -398,17 +434,17 @@ class InverseMatcher(WrappingMatcher):
         return self._id
 
     def all_ids(self):
-        return mcore.Matcher.all_ids(self)
+        return matching.Matcher.all_ids(self)
 
     def next(self):
         if self._id >= self.limit:
-            raise mcore.ReadTooFar
+            raise matching.ReadTooFar
         self._id += 1
         self._find_next()
 
     def skip_to(self, id):
         if self._id >= self.limit:
-            raise mcore.ReadTooFar
+            raise matching.ReadTooFar
         if id < self._id:
             return
         self._id = id
@@ -422,7 +458,8 @@ class InverseMatcher(WrappingMatcher):
 
 
 class RequireMatcher(WrappingMatcher):
-    """Matches postings that are in both sub-matchers, but only uses scores
+    """
+    Matches postings that are in both sub-matchers, but only uses scores
     from the first.
     """
 
@@ -442,16 +479,16 @@ class RequireMatcher(WrappingMatcher):
     def replace(self, minquality=0):
         if not self.child.is_active():
             # If one of the sub-matchers is inactive, go inactive
-            return mcore.NullMatcher()
+            return matching.NullMatcher()
         elif minquality and self.a.max_quality() < minquality:
             # If the required matcher doesn't have a high enough max quality
             # to possibly contribute, return an inactive matcher
-            return mcore.NullMatcher()
+            return matching.NullMatcher()
 
         new_a = self.a.replace(minquality)
         new_b = self.b.replace()
         if not new_a.is_active():
-            return mcore.NullMatcher()
+            return matching.NullMatcher()
         elif new_a is not self.a or new_b is not self.b:
             # If one of the sub-matchers changed, return a new Require
             return self.__class__(new_a, self.b)
@@ -507,7 +544,8 @@ class ConstantScoreWrapperMatcher(WrappingMatcher):
 
 
 class SingleTermMatcher(WrappingMatcher):
-    """Makes a tree of matchers act as if they were a matcher for a single
+    """
+    Makes a tree of matchers act as if they were a matcher for a single
     term for the purposes of "what terms are matching?" questions.
     """
 
@@ -523,7 +561,8 @@ class SingleTermMatcher(WrappingMatcher):
 
 
 class CoordMatcher(WrappingMatcher):
-    """Modifies the computed score to penalize documents that don't match all
+    """
+    Modifies the computed score to penalize documents that don't match all
     terms in the matcher tree.
 
     Because this matcher modifies the score, it may give unexpected results

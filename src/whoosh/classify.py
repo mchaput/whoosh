@@ -25,7 +25,8 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-"""Classes and functions for classifying and extracting information from
+"""
+Classes and functions for classifying and extracting information from
 documents.
 """
 
@@ -94,7 +95,8 @@ class KLModel(ExpansionModel):
 
 
 class Expander(object):
-    """Uses an ExpansionModel to expand the set of query terms based on the top
+    """
+    Uses an ExpansionModel to expand the set of query terms based on the top
     N result documents.
     """
 
@@ -109,7 +111,7 @@ class Expander(object):
 
         self.ixreader = ixreader
         self.fieldname = fieldname
-        doccount =  self.ixreader.doc_count_all()
+        doccount = self.ixreader.doc_count()
         fieldlen = self.ixreader.field_length(fieldname)
 
         if type(model) is type:
@@ -123,7 +125,8 @@ class Expander(object):
         self.top_total = 0
 
     def add(self, vector):
-        """Adds forward-index information about one of the "top N" documents.
+        """
+        Adds forward-index information about one of the "top N" documents.
 
         :param vector: A series of (text, weight) tuples, such as is
             returned by Reader.vector_as("weight", docnum, fieldname).
@@ -138,15 +141,13 @@ class Expander(object):
 
         self.top_total += total_weight
 
-    def add_document(self, docnum):
+    def add_document(self, docid):
         ixreader = self.ixreader
-        if self.ixreader.has_vector(docnum, self.fieldname):
-            self.add(ixreader.vector_as("weight", docnum, self.fieldname))
-        elif self.ixreader.schema[self.fieldname].stored:
-            self.add_text(ixreader.stored_fields(docnum).get(self.fieldname))
+        if self.ixreader.schema[self.fieldname].stored:
+            self.add_text(ixreader.stored_fields(docid).get(self.fieldname))
         else:
-            raise Exception("Field %r in document %s is not vectored or stored"
-                            % (self.fieldname, docnum))
+            raise Exception("Field %r in document %s is not stored"
+                            % (self.fieldname, docid))
 
     def add_text(self, string):
         # Unfortunately since field.index() yields bytes texts, and we want
@@ -156,11 +157,12 @@ class Expander(object):
 
         field = self.ixreader.schema[self.fieldname]
         from_bytes = field.from_bytes
-        self.add((from_bytes(text), weight) for text, _, weight, _
-                 in field.index(string))
+        length, postgen = field.index(string)
+        self.add((from_bytes(post.id), post.weight) for post in postgen)
 
     def expanded_terms(self, number, normalize=True):
-        """Returns the N most important terms in the vectors added so far.
+        """
+        Returns the N most important terms in the vectors added so far.
 
         :param number: The number of terms to return.
         :param normalize: Whether to normalize the weights.

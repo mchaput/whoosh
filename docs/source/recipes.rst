@@ -171,10 +171,6 @@ How many documents are in the index?
 ------------------------------------
 ::
 
-    # Including documents that are deleted but not yet optimized away
-    numdocs = searcher.doc_count_all()
-
-    # Not including deleted documents
     numdocs = searcher.doc_count()
 
 

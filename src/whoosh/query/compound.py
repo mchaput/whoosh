@@ -30,19 +30,20 @@ from __future__ import division
 from whoosh import matching
 from whoosh.compat import text_type, u
 from whoosh.compat import xrange
-from whoosh.query import qcore
+from whoosh.query import query
 from whoosh.util import make_binary_tree, make_weighted_tree
 
 
-class CompoundQuery(qcore.Query):
-    """Abstract base class for queries that combine or manipulate the results
+class CompoundQuery(query.Query):
+    """
+    Abstract base class for queries that combine or manipulate the results
     of multiple sub-queries .
     """
 
     def __init__(self, subqueries, boost=1.0):
         for subq in subqueries:
-            if not isinstance(subq, qcore.Query):
-                raise qcore.QueryError("%r is not a query" % subq)
+            if not isinstance(subq, query.Query):
+                raise query.QueryError("%r is not a query" % subq)
         self.subqueries = subqueries
         self.boost = boost
 
@@ -54,9 +55,9 @@ class CompoundQuery(qcore.Query):
         return r
 
     def __unicode__(self):
-        r = u("(")
+        r = u"("
         r += self.JOINT.join([text_type(s) for s in self.subqueries])
-        r += u(")")
+        r += u")"
         return r
 
     __str__ = __unicode__
@@ -130,8 +131,8 @@ class CompoundQuery(qcore.Query):
                 subqueries.append(s)
 
         # If every subquery is Null, this query is Null
-        if all(q is qcore.NullQuery for q in subqueries):
-            return qcore.NullQuery
+        if all(q is query.NullQuery for q in subqueries):
+            return query.NullQuery
 
         # If there's an unfielded Every inside, then this query is Every
         if any((isinstance(q, Every) and q.fieldname is None)
@@ -174,10 +175,10 @@ class CompoundQuery(qcore.Query):
             subqs.append(s)
 
         # Remove NullQuerys
-        subqs = [q for q in subqs if q is not qcore.NullQuery]
+        subqs = [q for q in subqs if q is not query.NullQuery]
 
         if not subqs:
-            return qcore.NullQuery
+            return query.NullQuery
 
         if len(subqs) == 1:
             sub = subqs[0]
@@ -193,7 +194,7 @@ class CompoundQuery(qcore.Query):
             q = self.__class__([subq.simplify(ixreader) for subq in subs],
                                 boost=self.boost).normalize()
         else:
-            q = qcore.NullQuery
+            q = query.NullQuery
         return q
 
     def matcher(self, searcher, context=None):
@@ -240,7 +241,8 @@ class CompoundQuery(qcore.Query):
 
 
 class And(CompoundQuery):
-    """Matches documents that match ALL of the subqueries.
+    """
+    Matches documents that match ALL of the subqueries.
 
     >>> And([Term("content", u"render"),
     ...      Term("content", u"shade"),
@@ -268,9 +270,13 @@ class And(CompoundQuery):
         return self._tree_matcher(subs, matching.IntersectionMatcher, searcher,
                                   context, q_weight_fn)
 
+    def trigger(self, schema, fields):
+        return all(q.trigger(schema, fields) for q in self.subqueries)
+
 
 class Or(CompoundQuery):
-    """Matches documents that match ANY of the subqueries.
+    """
+    Matches documents that match ANY of the subqueries.
 
     >>> Or([Term("content", u"render"),
     ...     And([Term("content", u"shade"), Term("content", u"texture")]),
@@ -309,11 +315,11 @@ class Or(CompoundQuery):
         self.scale = scale
 
     def __unicode__(self):
-        r = u("(")
+        r = u"("
         r += (self.JOINT).join([text_type(s) for s in self.subqueries])
-        r += u(")")
+        r += u")"
         if self.minmatch:
-            r += u(">%s") % self.minmatch
+            r += u">%s" % self.minmatch
         return r
 
     __str__ = __unicode__
@@ -337,7 +343,7 @@ class Or(CompoundQuery):
         matcher_type = self.matcher_type
 
         if matcher_type == self.AUTO_MATCHER:
-            dc = searcher.doc_count_all()
+            dc = searcher.doc_count()
             if (len(subs) < self.TOO_MANY_CLAUSES
                 and (needs_current
                      or self.scale
@@ -445,14 +451,15 @@ class PreloadedOr(Or):
             scored = True
 
         ms = [sub.matcher(searcher, context) for sub in subs]
-        doccount = searcher.doc_count_all()
-        am = matching.ArrayUnionMatcher(ms, doccount, boost=self.boost,
+        mindoc, maxdoc = searcher.doc_id_range()
+        am = matching.ArrayUnionMatcher(ms, maxdoc + 1, boost=self.boost,
                                         scored=scored)
         return am
 
 
 class DisjunctionMax(CompoundQuery):
-    """Matches all documents that match any of the subqueries, but scores each
+    """
+    Matches all documents that match any of the subqueries, but scores each
     document using the maximum score from the subqueries.
     """
 
@@ -461,11 +468,11 @@ class DisjunctionMax(CompoundQuery):
         self.tiebreak = tiebreak
 
     def __unicode__(self):
-        r = u("DisMax(")
+        r = u"DisMax("
         r += " ".join(sorted(text_type(s) for s in self.subqueries))
-        r += u(")")
+        r += u")"
         if self.tiebreak:
-            r += u("~") + text_type(self.tiebreak)
+            r += u"~" + text_type(self.tiebreak)
         return r
 
     __str__ = __unicode__
@@ -493,7 +500,8 @@ class DisjunctionMax(CompoundQuery):
 # Boolean queries
 
 class BinaryQuery(CompoundQuery):
-    """Base class for binary queries (queries which are composed of two
+    """
+    Base class for binary queries (queries which are composed of two
     sub-queries). Subclasses should set the ``matcherclass`` attribute or
     override ``matcher()``, and may also need to override ``normalize()``,
     ``estimate_size()``, and/or ``estimate_min_size()``.
@@ -528,11 +536,11 @@ class BinaryQuery(CompoundQuery):
     def normalize(self):
         a = self.a.normalize()
         b = self.b.normalize()
-        if a is qcore.NullQuery and b is qcore.NullQuery:
-            return qcore.NullQuery
-        elif a is qcore.NullQuery:
+        if a is query.NullQuery and b is query.NullQuery:
+            return query.NullQuery
+        elif a is query.NullQuery:
             return b
-        elif b is qcore.NullQuery:
+        elif b is query.NullQuery:
             return a
 
         return self.__class__(a, b)
@@ -543,7 +551,8 @@ class BinaryQuery(CompoundQuery):
 
 
 class AndNot(BinaryQuery):
-    """Binary boolean query of the form 'a ANDNOT b', where documents that
+    """
+    Binary boolean query of the form 'a ANDNOT b', where documents that
     match b are removed from the matches for a.
     """
 
@@ -556,9 +565,9 @@ class AndNot(BinaryQuery):
         a = self.a.normalize()
         b = self.b.normalize()
 
-        if a is qcore.NullQuery:
-            return qcore.NullQuery
-        elif b is qcore.NullQuery:
+        if a is query.NullQuery:
+            return query.NullQuery
+        elif b is query.NullQuery:
             return a
 
         return self.__class__(a, b)
@@ -573,7 +582,8 @@ class AndNot(BinaryQuery):
 
 
 class Otherwise(BinaryQuery):
-    """A binary query that only matches the second clause if the first clause
+    """
+    A binary query that only matches the second clause if the first clause
     doesn't match any documents.
     """
 
@@ -587,7 +597,8 @@ class Otherwise(BinaryQuery):
 
 
 class Require(BinaryQuery):
-    """Binary query returns results from the first query that also appear in
+    """
+    Binary query returns results from the first query that also appear in
     the second query, but only uses the scores from the first query. This lets
     you filter results without affecting scores.
     """
@@ -610,8 +621,8 @@ class Require(BinaryQuery):
     def normalize(self):
         a = self.a.normalize()
         b = self.b.normalize()
-        if a is qcore.NullQuery or b is qcore.NullQuery:
-            return qcore.NullQuery
+        if a is query.NullQuery or b is query.NullQuery:
+            return query.NullQuery
         return self.__class__(a, b)
 
     def docs(self, searcher):
@@ -624,7 +635,8 @@ class Require(BinaryQuery):
 
 
 class AndMaybe(BinaryQuery):
-    """Binary query takes results from the first query. If and only if the
+    """
+    Binary query takes results from the first query. If and only if the
     same document also appears in the results from the second query, the score
     from the second query will be added to the score from the first query.
     """
@@ -635,9 +647,9 @@ class AndMaybe(BinaryQuery):
     def normalize(self):
         a = self.a.normalize()
         b = self.b.normalize()
-        if a is qcore.NullQuery:
-            return qcore.NullQuery
-        if b is qcore.NullQuery:
+        if a is query.NullQuery:
+            return query.NullQuery
+        if b is query.NullQuery:
             return a
         return self.__class__(a, b)
 
@@ -649,6 +661,9 @@ class AndMaybe(BinaryQuery):
 
     def docs(self, searcher):
         return self.subqueries[0].docs(searcher)
+
+    def trigger(self, schema, fields):
+        return self.a.trigger(schema, fields)
 
 
 def BooleanQuery(required, should, prohibited):

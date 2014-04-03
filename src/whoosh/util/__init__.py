@@ -27,10 +27,11 @@
 
 from __future__ import with_statement
 import random, sys, time
+from array import array
 from bisect import insort, bisect_left
 from functools import wraps
 
-from whoosh.compat import xrange
+from whoosh.compat import bytes_type, xrange
 
 
 # These must be valid separate characters in CASE-INSENSTIVE filenames
@@ -49,8 +50,17 @@ def random_name(size=28):
     return "".join(random.choice(IDCHARS) for _ in xrange(size))
 
 
+def random_bytes(size=28):
+    gen = (random.randint(0, 255) for _ in xrange(size))
+    if sys.version_info[0] >= 3:
+        return bytes(gen)
+    else:
+        return array("B", gen).tostring()
+
+
 def make_binary_tree(fn, args, **kwargs):
-    """Takes a function/class that takes two positional arguments and a list of
+    """
+    Takes a function/class that takes two positional arguments and a list of
     arguments and returns a binary tree of results/instances.
 
     >>> make_binary_tree(UnionMatcher, [matcher1, matcher2, matcher3])
@@ -72,7 +82,8 @@ def make_binary_tree(fn, args, **kwargs):
 
 
 def make_weighted_tree(fn, ls, **kwargs):
-    """Takes a function/class that takes two positional arguments and a list of
+    """
+    Takes a function/class that takes two positional arguments and a list of
     (weight, argument) tuples and returns a huffman-like weighted tree of
     results/instances.
     """
@@ -94,7 +105,8 @@ _fib_cache = {}
 
 
 def fib(n):
-    """Returns the nth value in the Fibonacci sequence.
+    """
+    Returns the nth value in the Fibonacci sequence.
     """
 
     if n <= 2:
@@ -109,7 +121,8 @@ def fib(n):
 # Decorators
 
 def synchronized(func):
-    """Decorator for storage-access methods, which synchronizes on a threading
+    """
+    Decorator for storage-access methods, which synchronizes on a threading
     lock. The parent object must have 'is_closed' and '_sync_lock' attributes.
     """
 
@@ -119,3 +132,18 @@ def synchronized(func):
             return func(self, *args, **kwargs)
 
     return synchronized_wrapper
+
+
+def unclosed(method):
+    """
+    Decorator to check if the object is closed.
+    """
+
+    @wraps(method)
+    def unclosed_wrapper(self, *args, **kwargs):
+        if self.closed:
+            raise ValueError("Operation on a closed object")
+        return method(self, *args, **kwargs)
+    return unclosed_wrapper
+
+

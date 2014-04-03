@@ -1,4 +1,5 @@
-"""An implementation of the Porter2 stemming algorithm.
+"""
+An implementation of the Porter2 stemming algorithm.
 See http://snowball.tartarus.org/algorithms/english/stemmer.html
 
 Adapted from pyporter2 by Michael Dirolf.

@@ -44,7 +44,7 @@ _reprable = (bytes_type, text_type, integer_types, float)
 
 class LineWriter(object):
     def _print_line(self, indent, command, **kwargs):
-        self._dbfile.write(b("  ") * indent)
+        self._dbfile.write(b"  " * indent)
         self._dbfile.write(command.encode("latin1"))
         for k, v in iteritems(kwargs):
             if isinstance(v, memoryview):
@@ -52,7 +52,7 @@ class LineWriter(object):
             if v is not None and not isinstance(v, _reprable):
                 raise TypeError(type(v))
             self._dbfile.write(("\t%s=%r" % (k, v)).encode("latin1"))
-        self._dbfile.write(b("\n"))
+        self._dbfile.write(b"\n")
 
 
 class LineReader(object):
@@ -395,7 +395,7 @@ class PlainTermsReader(base.TermsReader, LineReader):
         for btext in self._iter_btexts():
             if btext < prefix:
                 continue
-            yield (fieldname, btext)
+            yield btext
 
     def items(self):
         for fieldname, btext in self.terms():

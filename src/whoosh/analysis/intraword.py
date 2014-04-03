@@ -34,7 +34,8 @@ from whoosh.analysis.filters import Filter
 
 
 class CompoundWordFilter(Filter):
-    """Given a set of words (or any object with a ``__contains__`` method),
+    """
+    Given a set of words (or any object with a ``__contains__`` method),
     break any tokens in the stream that are composites of words in the word set
     into their individual parts.
 
@@ -100,7 +101,8 @@ class CompoundWordFilter(Filter):
 
 
 class BiWordFilter(Filter):
-    """Merges adjacent tokens into "bi-word" tokens, so that for example::
+    """
+    Merges adjacent tokens into "bi-word" tokens, so that for example::
 
         "the", "sign", "of", "four"
 
@@ -168,7 +170,8 @@ class BiWordFilter(Filter):
 
 
 class ShingleFilter(Filter):
-    """Merges a certain number of adjacent tokens into multi-word tokens, so
+    """
+    Merges a certain number of adjacent tokens into multi-word tokens, so
     that for example::
 
         "better", "a", "witty", "fool", "than", "a", "foolish", "wit"
@@ -221,7 +224,8 @@ class ShingleFilter(Filter):
 
 
 class IntraWordFilter(Filter):
-    """Splits words into subwords and performs optional transformations on
+    """
+    Splits words into subwords and performs optional transformations on
     subword groups. This filter is funtionally based on yonik's
     WordDelimiterFilter in Solr, but shares no code with it.
 
@@ -277,10 +281,10 @@ class IntraWordFilter(Filter):
     (See :class:`MultiFilter`.)
     """
 
-    is_morph = True
-
     __inittypes__ = dict(delims=text_type, splitwords=bool, splitnums=bool,
                          mergewords=bool, mergenums=bool)
+
+    is_morph = True
 
     def __init__(self, delims=u("-_'\"()!@#$%^&*[]{}<>\|;:,./?`~=+"),
                  splitwords=True, splitnums=True,
@@ -302,24 +306,24 @@ class IntraWordFilter(Filter):
         self.delims = re.escape(delims)
 
         # Expression for text between delimiter characters
-        self.between = re.compile(u("[^%s]+") % (self.delims,), re.UNICODE)
+        self.between = re.compile(u"[^%s]+" % (self.delims,), re.UNICODE)
         # Expression for removing "'s" from the end of sub-words
-        dispat = u("(?<=[%s%s])'[Ss](?=$|[%s])") % (lowercase, uppercase,
+        dispat = u"(?<=[%s%s])'[Ss](?=$|[%s])" % (lowercase, uppercase,
                                                     self.delims)
         self.possessive = re.compile(dispat, re.UNICODE)
 
         # Expression for finding case and letter-number transitions
-        lower2upper = u("[%s][%s]") % (lowercase, uppercase)
-        letter2digit = u("[%s%s][%s]") % (lowercase, uppercase, digits)
-        digit2letter = u("[%s][%s%s]") % (digits, lowercase, uppercase)
+        lower2upper = u"[%s][%s]" % (lowercase, uppercase)
+        letter2digit = u"[%s%s][%s]" % (lowercase, uppercase, digits)
+        digit2letter = u"[%s][%s%s]" % (digits, lowercase, uppercase)
         if splitwords and splitnums:
-            splitpat = u("(%s|%s|%s)") % (lower2upper, letter2digit,
+            splitpat = u"(%s|%s|%s)" % (lower2upper, letter2digit,
                                           digit2letter)
             self.boundary = re.compile(splitpat, re.UNICODE)
         elif splitwords:
             self.boundary = re.compile(text_type(lower2upper), re.UNICODE)
         elif splitnums:
-            numpat = u("(%s|%s)") % (letter2digit, digit2letter)
+            numpat = u"(%s|%s)" % (letter2digit, digit2letter)
             self.boundary = re.compile(numpat, re.UNICODE)
 
         self.splitting = splitwords or splitnums
@@ -444,8 +448,11 @@ class IntraWordFilter(Filter):
         # counter.
         newpos = None
         for t in tokens:
-            text = t.text
+            if t.nomorph:
+                yield t
+                continue
 
+            text = t.text
             # If this is the first token we've seen, use it to set the new
             # position counter
             if newpos is None:

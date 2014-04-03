@@ -37,7 +37,7 @@ from whoosh.system import pack_long, unpack_long, pack_ulong, unpack_ulong
 from whoosh.system import pack_float, unpack_float, pack_double, unpack_double
 
 
-NaN = struct.unpack("<d", b('\xff\xff\xff\xff\xff\xff\xff\xff'))[0]
+NaN = struct.unpack("<d", b'\xff\xff\xff\xff\xff\xff\xff\xff')[0]
 
 typecode_max = {"b": 127, "B": 255, "h": 2 ** 15 - 1, "H": 2 ** 16 - 1,
                 "i": 2 ** 31 - 1, "I": 2 ** 32 - 1,
@@ -56,7 +56,8 @@ typecode_unpack = {"B": unpack_byte, "H": unpack_ushort, "i": unpack_int,
 # Functions related to binary representations
 
 def bits_required(maxnum):
-    """Returns the number of bits required to represent the given (unsigned)
+    """
+    Returns the number of bits required to represent the given (unsigned)
     integer.
     """
 
@@ -79,7 +80,8 @@ def typecode_required(maxnum):
 
 
 def max_value(bitcount):
-    """Returns the maximum (unsigned) integer representable in the given number
+    """
+    Returns the maximum (unsigned) integer representable in the given number
     of bits.
     """
 
@@ -141,7 +143,8 @@ def sortable_long_to_float(x, signed):
 # Functions for generating tiered ranges
 
 def split_ranges(intsize, step, start, end):
-    """Splits a range of numbers (from ``start`` to ``end``, inclusive)
+    """
+    Splits a range of numbers (from ``start`` to ``end``, inclusive)
     into a sequence of trie ranges of the form ``(start, end, shift)``. The
     consumer of these tuples is expected to shift the ``start`` and ``end``
     right by ``shift``.
@@ -208,7 +211,8 @@ def tiered_ranges(numtype, intsize, signed, start, end, shift_step,
 # Float-to-byte encoding/decoding
 
 def float_to_byte(value, mantissabits=5, zeroexp=2):
-    """Encodes a floating point number in a single byte.
+    """
+    Encodes a floating point number in a single byte.
     """
 
     # Assume int size == float size
@@ -232,7 +236,8 @@ def float_to_byte(value, mantissabits=5, zeroexp=2):
 
 
 def byte_to_float(b, mantissabits=5, zeroexp=2):
-    """Decodes a floating point number stored in a single byte.
+    """
+    Decodes a floating point number stored in a single byte.
     """
     if type(b) is not int:
         b = ord(b)

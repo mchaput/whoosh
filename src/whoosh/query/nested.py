@@ -27,12 +27,13 @@
 
 from whoosh import matching
 from whoosh.compat import text_type, u, xrange
-from whoosh.query import qcore
+from whoosh.query import query
 from whoosh.query.wrappers import WrappingQuery
 
 
 class NestedParent(WrappingQuery):
-    """A query that allows you to search for "nested" documents, where you can
+    """
+    A query that allows you to search for "nested" documents, where you can
     index (possibly multiple levels of) "parent" and "child" documents using
     the :meth:`~whoosh.writing.IndexWriter.group` and/or
     :meth:`~whoosh.writing.IndexWriter.start_group` methods of a
@@ -93,12 +94,12 @@ class NestedParent(WrappingQuery):
 
     def normalize(self):
         p = self.parents
-        if isinstance(p, qcore.Query):
+        if isinstance(p, query.Query):
             p = p.normalize()
         q = self.child.normalize()
 
-        if p is qcore.NullQuery or q is qcore.NullQuery:
-            return qcore.NullQuery
+        if p is query.NullQuery or q is query.NullQuery:
+            return query.NullQuery
 
         return self.__class__(p, q)
 
@@ -106,6 +107,8 @@ class NestedParent(WrappingQuery):
         return self.child.requires()
 
     def matcher(self, searcher, context=None):
+        ppl = self.per_parent_limit
+
         bits = searcher._filter_to_comb(self.parents)
         if not bits:
             return matching.NullMatcher
@@ -113,8 +116,9 @@ class NestedParent(WrappingQuery):
         if not m.is_active():
             return matching.NullMatcher
 
-        return self.NestedParentMatcher(bits, m, self.per_parent_limit,
-                                        searcher.doc_count_all())
+        mindoc, maxdoc = searcher.doc_id_range()
+        doclimit = maxdoc + 1
+        return self.NestedParentMatcher(bits, m, ppl, doclimit)
 
     def deletion_docs(self, searcher):
         bits = searcher._filter_to_comb(self.parents)
@@ -122,21 +126,22 @@ class NestedParent(WrappingQuery):
             return
 
         m = self.child.matcher(searcher, searcher.boolean_context())
-        maxdoc = searcher.doc_count_all()
+        mindoc, maxdoc = searcher.doc_id_range()
+        doclimit = maxdoc + 1
         while m.is_active():
             docnum = m.id()
             parentdoc = bits.before(docnum + 1)
-            nextparent = bits.after(docnum) or maxdoc
+            nextparent = bits.after(docnum) or doclimit
             for i in xrange(parentdoc, nextparent):
                 yield i
             m.skip_to(nextparent)
 
     class NestedParentMatcher(matching.Matcher):
-        def __init__(self, comb, child, per_parent_limit, maxdoc):
+        def __init__(self, comb, child, per_parent_limit, doclimit):
             self.comb = comb
             self.child = child
             self.per_parent_limit = per_parent_limit
-            self.maxdoc = maxdoc
+            self.doclimit = doclimit
 
             self._nextdoc = None
             if self.child.is_active():
@@ -159,7 +164,7 @@ class NestedParent(WrappingQuery):
             # wouldn't return deleted documents.
             self._nextdoc = self.comb.before(child.id() + 1)
             # The next parent after the child matcher's current document
-            nextparent = self.comb.after(child.id()) or self.maxdoc
+            nextparent = self.comb.after(child.id()) or self.doclimit
 
             # Sum the scores of all matching documents under the parent
             count = 1
@@ -186,13 +191,15 @@ class NestedParent(WrappingQuery):
             self._gather()
 
         def next(self):
+            docid = self._nextdoc
             if self.child.is_active():
                 self._gather()
             else:
-                if self._nextdoc is None:
+                if docid is None:
                     raise matching.ReadTooFar
                 else:
                     self._nextdoc = None
+            assert self._nextdoc != docid, (docid, self._nextdoc)
 
         def skip_to(self, id):
             self.child.skip_to(id)
@@ -206,7 +213,8 @@ class NestedParent(WrappingQuery):
 
 
 class NestedChildren(WrappingQuery):
-    """This is the reverse of a :class:`NestedParent` query: instead of taking
+    """
+    This is the reverse of a :class:`NestedParent` query: instead of taking
     a query that matches children but returns the parent, this query matches
     parents but returns the children.
 
@@ -271,7 +279,8 @@ class NestedChildren(WrappingQuery):
         if not m.is_active():
             return matching.NullMatcher
 
-        return self.NestedChildMatcher(bits, m, searcher.doc_count_all(),
+        mindoc, maxdoc = searcher.doc_id_range()
+        return self.NestedChildMatcher(bits, m, maxdoc + 1,
                                        searcher.reader().is_deleted,
                                        boost=self.boost)
 

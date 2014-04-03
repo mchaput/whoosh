@@ -27,6 +27,6 @@
 
 
 def default_codec(*args, **kwargs):
-    from whoosh.codec.whoosh3 import W3Codec
+    from whoosh.codec.clod import ClodCodec
 
-    return W3Codec(*args, **kwargs)
+    return ClodCodec(*args, **kwargs)

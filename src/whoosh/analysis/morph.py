@@ -33,7 +33,8 @@ from whoosh.util.cache import lfu_cache, unbound_cache
 
 
 class StemFilter(Filter):
-    """Stems (removes suffixes from) the text of tokens using the Porter
+    """
+    Stems (removes suffixes from) the text of tokens using the Porter
     stemming algorithm. Stemming attempts to reduce multiple forms of the same
     root word (for example, "rendering", "renders", "rendered", etc.) to a
     single word in the index.
@@ -66,8 +67,6 @@ class StemFilter(Filter):
     stemmers in that library.
     """
 
-    __inittypes__ = dict(stemfn=object, ignore=list)
-
     is_morph = True
 
     def __init__(self, stemfn=stem, lang=None, ignore=None, cachesize=50000):
@@ -93,7 +92,7 @@ class StemFilter(Filter):
         # Can't pickle a dynamic function, so we have to remove the _stem
         # attribute from the state
         return dict([(k, self.__dict__[k]) for k in self.__dict__
-                      if k != "_stem"])
+                     if k != "_stem"])
 
     def __setstate__(self, state):
         # Check for old instances of StemFilter class, which didn't have a
@@ -142,6 +141,10 @@ class StemFilter(Filter):
         ignore = self.ignore
 
         for t in tokens:
+            if t.nomorph:
+                yield t
+                continue
+
             if not t.stopped:
                 text = t.text
                 if text not in ignore:
@@ -150,7 +153,8 @@ class StemFilter(Filter):
 
 
 class PyStemmerFilter(StemFilter):
-    """This is a simple subclass of StemFilter that works with the py-stemmer
+    """
+    This is a simple subclass of StemFilter that works with the py-stemmer
     third-party library. You must have the py-stemmer library installed to use
     this filter.
 
@@ -175,7 +179,8 @@ class PyStemmerFilter(StemFilter):
         self._stem = self._get_stemmer_fn()
 
     def algorithms(self):
-        """Returns a list of stemming algorithms provided by the py-stemmer
+        """
+        Returns a list of stemming algorithms provided by the py-stemmer
         library.
         """
 
@@ -217,7 +222,8 @@ class PyStemmerFilter(StemFilter):
 
 
 class DoubleMetaphoneFilter(Filter):
-    """Transforms the text of the tokens using Lawrence Philips's Double
+    """
+    Transforms the text of the tokens using Lawrence Philips's Double
     Metaphone algorithm. This algorithm attempts to encode words in such a way
     that similar-sounding words reduce to the same code. This may be useful for
     fields containing the names of people and places, and other uses where
@@ -251,6 +257,10 @@ class DoubleMetaphoneFilter(Filter):
         combine = self.combine
 
         for t in tokens:
+            if t.nomorph:
+                yield t
+                continue
+
             if combine:
                 yield t
 

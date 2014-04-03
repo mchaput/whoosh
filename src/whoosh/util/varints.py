@@ -53,7 +53,8 @@ _varint_cache = tuple(_varint_cache)
 
 
 def varint(i):
-    """Encodes the given integer into a string of the minimum number  of bytes.
+    """
+    Encodes the given integer into a string of the minimum number  of bytes.
     """
     if i < len(_varint_cache):
         return _varint_cache[i]
@@ -74,7 +75,8 @@ def varint_to_int(vi):
 
 
 def signed_varint(i):
-    """Zig-zag encodes a signed integer into a varint.
+    """
+    Zig-zag encodes a signed integer into a varint.
     """
 
     if i >= 0:
@@ -83,7 +85,8 @@ def signed_varint(i):
 
 
 def decode_signed_varint(i):
-    """Zig-zag decodes an integer value.
+    """
+    Zig-zag decodes an integer value.
     """
 
     if not i & 1:

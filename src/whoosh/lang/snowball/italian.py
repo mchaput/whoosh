@@ -22,7 +22,7 @@ class ItalianStemmer(_StandardStemmer):
 
     """
 
-    __vowels = u("aeiou\xE0\xE8\xEC\xF2\xF9")
+    __vowels = u"aeiou\xE0\xE8\xEC\xF2\xF9"
     __step0_suffixes = ('gliela', 'gliele', 'glieli', 'glielo',
                         'gliene', 'sene', 'mela', 'mele', 'meli',
                         'melo', 'mene', 'tela', 'tele', 'teli',
@@ -36,10 +36,10 @@ class ItalianStemmer(_StandardStemmer):
                         'amente', 'abile', 'abili', 'ibile', 'ibili',
                         'mente', 'atore', 'atori', 'logia', 'logie',
                         'anza', 'anze', 'iche', 'ichi', 'ismo',
-                        'ismi', 'ista', 'iste', 'isti', u('ist\xE0'),
-                        u('ist\xE8'), u('ist\xEC'), 'ante', 'anti',
+                        'ismi', 'ista', 'iste', 'isti', u'ist\xE0',
+                        u'ist\xE8', u'ist\xEC', 'ante', 'anti',
                         'enza', 'enze', 'ico', 'ici', 'ica', 'ice',
-                        'oso', 'osi', 'osa', 'ose', u('it\xE0'),
+                        'oso', 'osi', 'osa', 'ose', u'it\xE0',
                         'ivo', 'ivi', 'iva', 'ive')
     __step2_suffixes = ('erebbero', 'irebbero', 'assero', 'assimo',
                         'eranno', 'erebbe', 'eremmo', 'ereste',
@@ -54,8 +54,8 @@ class ItalianStemmer(_StandardStemmer):
                         'iamo', 'immo', 'irai', 'irei', 'isca',
                         'isce', 'isci', 'isco', 'ano', 'are', 'ata',
                         'ate', 'ati', 'ato', 'ava', 'avi', 'avo',
-                        u('er\xE0'), 'ere', u('er\xF2'), 'ete', 'eva',
-                        'evi', 'evo', u('ir\xE0'), 'ire', u('ir\xF2'),
+                        u'er\xE0', 'ere', u'er\xF2', 'ete', 'eva',
+                        'evi', 'evo', u'ir\xE0', 'ire', u'ir\xF2',
                         'ita', 'ite', 'iti', 'ito', 'iva', 'ivi',
                         'ivo', 'ono', 'uta', 'ute', 'uti', 'uto',
                         'ar', 'ir')
@@ -75,11 +75,11 @@ class ItalianStemmer(_StandardStemmer):
         step1_success = False
 
         # All acute accents are replaced by grave accents.
-        word = (word.replace(u("\xE1"), u("\xE0"))
-                    .replace(u("\xE9"), u("\xE8"))
-                    .replace(u("\xED"), u("\xEC"))
-                    .replace(u("\xF3"), u("\xF2"))
-                    .replace(u("\xFA"), u("\xF9")))
+        word = (word.replace(u"\xE1", u"\xE0")
+                    .replace(u"\xE9", u"\xE8")
+                    .replace(u"\xED", u"\xEC")
+                    .replace(u"\xF3", u"\xF2")
+                    .replace(u"\xFA", u"\xF9"))
 
         # Every occurrence of 'u' after 'q'
         # is put into upper case.
@@ -173,7 +173,7 @@ class ItalianStemmer(_StandardStemmer):
                         word = "".join((word[:-2], "te"))
                         rv = "".join((rv[:-2], "te"))
 
-                    elif suffix == u("it\xE0"):
+                    elif suffix == u"it\xE0":
                         word = word[:-3]
                         r2 = r2[:-3]
                         rv = rv[:-3]
@@ -213,8 +213,8 @@ class ItalianStemmer(_StandardStemmer):
                     break
 
         # STEP 3a
-        if rv.endswith(("a", "e", "i", "o", u("\xE0"), u("\xE8"),
-                        u("\xEC"), u("\xF2"))):
+        if rv.endswith(("a", "e", "i", "o", u"\xE0", u"\xE8",
+                        u"\xEC", u"\xF2")):
             word = word[:-1]
             rv = rv[:-1]
 

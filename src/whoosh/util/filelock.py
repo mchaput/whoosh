@@ -40,7 +40,8 @@ import time
 
 
 def try_for(fn, timeout=5.0, delay=0.1):
-    """Calls ``fn`` every ``delay`` seconds until it returns True or
+    """
+    Calls ``fn`` every ``delay`` seconds until it returns True or
     ``timeout`` seconds elapse. Returns True if the lock was acquired, or False
     if the timeout was reached.
 
@@ -59,7 +60,8 @@ def try_for(fn, timeout=5.0, delay=0.1):
 
 
 class LockBase(object):
-    """Base class for file locks.
+    """
+    Base class for file locks.
     """
 
     def __init__(self, filename):
@@ -75,7 +77,8 @@ class LockBase(object):
                 pass
 
     def acquire(self, blocking=False):
-        """Acquire the lock. Returns True if the lock was acquired.
+        """
+        Acquire the lock. Returns True if the lock was acquired.
 
         :param blocking: if True, call blocks until the lock is acquired.
             This may not be available on all platforms. On Windows, this is
@@ -88,7 +91,8 @@ class LockBase(object):
 
 
 class FcntlLock(LockBase):
-    """File lock based on UNIX-only fcntl module.
+    """
+    File lock based on UNIX-only fcntl module.
     """
 
     def acquire(self, blocking=False):
@@ -124,7 +128,8 @@ class FcntlLock(LockBase):
 
 
 class MsvcrtLock(LockBase):
-    """File lock based on Windows-only msvcrt module.
+    """
+    File lock based on Windows-only msvcrt module.
     """
 
     def acquire(self, blocking=False):

@@ -195,12 +195,3 @@ except ImportError:
         return caller
 
 
-try:
-    from abc import abstractmethod  # @UnusedImport
-except ImportError:
-    # Python 2.5
-    def abstractmethod(funcobj):
-        """A decorator indicating abstract methods.
-        """
-        funcobj.__isabstractmethod__ = True
-        return funcobj

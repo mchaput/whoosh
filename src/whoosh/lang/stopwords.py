@@ -37,7 +37,8 @@ stoplists = {
     være dog noget ville jo deres efter ned skulle denne end dette mit
     også under have dig anden hende mine alt meget sit sine vor mod disse
     hvis din nogle hos blive mange ad bliver hendes været thi jer sådan
-    """.split()),
+    """
+    .split()),
 
     "nl": frozenset("""
     de en van ik te dat die in een hij het niet zijn is was op aan met als
@@ -47,7 +48,8 @@ stoplists = {
     doen toen moet ben zonder kan hun dus alles onder ja eens hier wie werd
     altijd doch wordt wezen kunnen ons zelf tegen na reeds wil kon niets uw
     iemand geweest andere
-    """.split()),
+    """
+    .split()),
 
     "en": frozenset("""
     i me my myself we our ours ourselves you your yours yourself yourselves
@@ -59,7 +61,8 @@ stoplists = {
     out on off over under again further then once here there when where why
     how all any both each few more most other some such no nor not only own
     same so than too very s t can will just don should now
-    """.split()),
+    """
+    .split()),
 
     "fi": frozenset("""
     olla olen olet on olemme olette ovat ole oli olisi olisit olisin
@@ -85,7 +88,8 @@ stoplists = {
     joita joissa joista joihin joilla joilta joille joina joiksi että ja
     jos koska kuin mutta niin sekä sillä tai vaan vai vaikka kanssa mukaan
     noin poikki yli kun niin nyt itse
-    """.split()),
+    """
+    .split()),
 
     "fr": frozenset("""
     au aux avec ce ces dans de des du elle en et eux il je la le leur lui ma
@@ -100,7 +104,8 @@ stoplists = {
     auront aurais aurait aurions auriez auraient avais avait avions aviez
     avaient eut eûmes eûtes eurent aie aies ait ayons ayez aient eusse
     eusses eût eussions eussiez eussent
-    """.split()),
+    """
+    .split()),
 
     "de": frozenset("""
     aber alle allem allen aller alles als also am an ander andere anderem
@@ -122,7 +127,8 @@ stoplists = {
     unter viel vom von vor während war waren warst was weg weil weiter
     welche welchem welchen welcher welches wenn werde werden wie wieder will
     wir wird wirst wo wollen wollte würde würden zu zum zur zwar zwischen
-    """.split()),
+    """
+    .split()),
 
     "hu": frozenset("""
     a ahogy ahol aki akik akkor alatt által általában amely amelyek
@@ -143,7 +149,8 @@ stoplists = {
     több úgy ugyanis új újabb újra után utána utolsó vagy vagyis
     valaki valami valamint való vagyok van vannak volt voltam voltak
     voltunk vissza vele viszont volna
-    """.split()),
+    """
+    .split()),
 
     "it": frozenset("""
     ad al allo ai agli all agl alla alle con col coi da dal dallo dai dagli
@@ -170,7 +177,8 @@ stoplists = {
     staresti starebbe staremmo stareste starebbero stavo stavi stava stavamo
     stavate stavano stetti stesti stette stemmo steste stettero stessi
     stesse stessimo stessero stando
-    """.split()),
+    """
+    .split()),
 
     "no": frozenset("""
     og i jeg det at en et den til er som på de med han av ikke ikkje der
@@ -185,7 +193,8 @@ stoplists = {
     hennes hoss hossen ikkje ingi inkje korleis korso kva kvar kvarhelst
     kven kvi kvifor me medan mi mine mykje no nokon noka nokor noko nokre si
     sia sidan so somt somme um upp vere vore verte vort varte vart
-    """.split()),
+    """
+    .split()),
 
     "pt": frozenset("""
     de a o que e do da em um para com não uma os no se na por mais as dos
@@ -207,7 +216,8 @@ stoplists = {
     tivemos tiveram tivera tivéramos tenha tenhamos tenham tivesse
     tivéssemos tivessem tiver tivermos tiverem terei terá teremos terão
     teria teríamos teriam
-    """.split()),
+    """
+    .split()),
 
     "ru": frozenset("""
     и в во не что он на я с со как а то все она
@@ -228,7 +238,8 @@ stoplists = {
     впрочем хорошо свою этой перед иногда
     лучше чуть том нельзя такой им более
     всегда конечно всю между
-    """.split()),
+    """
+    .split()),
 
     "es": frozenset("""
     de la que el en y a los del se las por un para con no una su al lo como
@@ -263,7 +274,8 @@ stoplists = {
     tuvieron tuviera tuvieras tuviéramos tuvierais tuvieran tuviese
     tuvieses tuviésemos tuvieseis tuviesen teniendo tenido tenida tenidos
     tenidas tened
-    """.split()),
+    """
+    .split()),
 
     "sv": frozenset("""
     och det att i en jag hon som han på den med var sig för så till är
@@ -274,12 +286,14 @@ stoplists = {
     mitt ni bli blev oss din dessa några deras blir mina samma vilken er
     sådan vår blivit dess inom mellan sådant varför varje vilka ditt vem
     vilket sitta sådana vart dina vars vårt våra ert era vilkas
-    """.split()),
+    """
+    .split()),
 
     "tr": frozenset("""
     acaba ama aslında az bazı belki biri birkaç birşey biz bu çok
     çünkü da daha de defa diye eğer en gibi hem hep hepsi her hiç için
     ile ise kez ki kim mı mu mü nasıl ne neden nerde nerede nereye niçin
     niye o sanki şey siz şu tüm ve veya ya yani
-    """.split()),
+    """
+    .split()),
 }

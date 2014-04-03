@@ -37,18 +37,21 @@ from whoosh.util.text import rcompile
 
 
 class Plugin(object):
-    """Base class for parser plugins.
+    """
+    Base class for parser plugins.
     """
 
     def taggers(self, parser):
-        """Should return a list of ``(Tagger, priority)`` tuples to add to the
+        """
+        Should return a list of ``(Tagger, priority)`` tuples to add to the
         syntax the parser understands. Lower priorities run first.
         """
 
         return ()
 
     def filters(self, parser):
-        """Should return a list of ``(filter_function, priority)`` tuples to
+        """
+        Should return a list of ``(filter_function, priority)`` tuples to
         add to parser. Lower priority numbers run first.
 
         Filter functions will be called with ``(parser, groupnode)`` and should
@@ -59,7 +62,8 @@ class Plugin(object):
 
 
 class TaggingPlugin(RegexTagger):
-    """A plugin that also acts as a Tagger, to avoid having an extra Tagger
+    """
+    A plugin that also acts as a Tagger, to avoid having an extra Tagger
     class for simple cases.
 
     A TaggingPlugin object should have a ``priority`` attribute and either a
@@ -87,7 +91,8 @@ class TaggingPlugin(RegexTagger):
 
 
 class WhitespacePlugin(TaggingPlugin):
-    """Tags whitespace and removes it at priority 500. Depending on whether
+    """
+    Tags whitespace and removes it at priority 500. Depending on whether
     your plugin's filter wants to see where whitespace was in the original
     query, it should run with priority lower than 500 (before removal of
     whitespace) or higher than 500 (after removal of whitespace).
@@ -113,7 +118,8 @@ class WhitespacePlugin(TaggingPlugin):
 
 
 class SingleQuotePlugin(TaggingPlugin):
-    """Adds the ability to specify single "terms" containing spaces by
+    """
+    Adds the ability to specify single "terms" containing spaces by
     enclosing them in single quotes.
     """
 
@@ -122,7 +128,8 @@ class SingleQuotePlugin(TaggingPlugin):
 
 
 class PrefixPlugin(TaggingPlugin):
-    """Adds the ability to specify prefix queries by ending a term with an
+    """
+    Adds the ability to specify prefix queries by ending a term with an
     asterisk.
 
     This plugin is useful if you want the user to be able to create prefix but
@@ -149,7 +156,7 @@ class WildcardPlugin(TaggingPlugin):
     # \u055E = Armenian question mark
     # \u061F = Arabic question mark
     # \u1367 = Ethiopic question mark
-    qmarks = u("?\u055E\u061F\u1367")
+    qmarks = u"?\u055E\u061F\u1367"
     expr = "(?P<text>[*%s])" % qmarks
 
     def filters(self, parser):
@@ -200,7 +207,8 @@ class WildcardPlugin(TaggingPlugin):
 
 
 class RegexPlugin(TaggingPlugin):
-    """Adds the ability to specify regular expression term queries.
+    """
+    Adds the ability to specify regular expression term queries.
 
     The default syntax for a regular expression term is ``r"termexpr"``.
 
@@ -220,7 +228,8 @@ class RegexPlugin(TaggingPlugin):
 
 
 class BoostPlugin(TaggingPlugin):
-    """Adds the ability to boost clauses of the query using the circumflex.
+    """
+    Adds the ability to boost clauses of the query using the circumflex.
 
     >>> qp = qparser.QueryParser("content", myschema)
     >>> q = qp.parse("hello there^2")
@@ -254,7 +263,8 @@ class BoostPlugin(TaggingPlugin):
         return [(self.clean_boost, 0), (self.do_boost, 510)]
 
     def clean_boost(self, parser, group):
-        """This filter finds any BoostNodes in positions where they can't boost
+        """
+        This filter finds any BoostNodes in positions where they can't boost
         the previous node (e.g. at the very beginning, after whitespace, or
         after another BoostNode) and turns them into WordNodes.
         """
@@ -267,7 +277,8 @@ class BoostPlugin(TaggingPlugin):
         return group
 
     def do_boost(self, parser, group):
-        """This filter finds BoostNodes and applies the boost to the previous
+        """
+        This filter finds BoostNodes and applies the boost to the previous
         node.
         """
 
@@ -288,7 +299,8 @@ class BoostPlugin(TaggingPlugin):
 
 
 class GroupPlugin(Plugin):
-    """Adds the ability to group clauses using parentheses.
+    """
+    Adds the ability to group clauses using parentheses.
     """
 
     # Marker nodes for open and close bracket
@@ -313,7 +325,8 @@ class GroupPlugin(Plugin):
         return [(self.do_groups, 0)]
 
     def do_groups(self, parser, group):
-        """This filter finds open and close bracket markers in a flat group
+        """
+        This filter finds open and close bracket markers in a flat group
         and uses them to organize the nodes into a hierarchy.
         """
 
@@ -366,7 +379,8 @@ class EveryPlugin(TaggingPlugin):
 
 
 class FieldsPlugin(TaggingPlugin):
-    """Adds the ability to specify the field of a clause.
+    """
+    Adds the ability to specify the field of a clause.
     """
 
     class FieldnameTagger(RegexTagger):
@@ -390,7 +404,8 @@ class FieldsPlugin(TaggingPlugin):
         return [(self.do_fieldnames, 100)]
 
     def do_fieldnames(self, parser, group):
-        """This filter finds FieldnameNodes in the tree and applies their
+        """
+        This filter finds FieldnameNodes in the tree and applies their
         fieldname to the next node.
         """
 
@@ -447,7 +462,8 @@ class FieldsPlugin(TaggingPlugin):
 
 
 class FuzzyTermPlugin(TaggingPlugin):
-    """Adds syntax to the query parser to create "fuzzy" term queries, which
+    """
+    Adds syntax to the query parser to create "fuzzy" term queries, which
     match any term within a certain "edit distance" (number of inserted,
     deleted, or transposed characters) by appending a tilde (``~``) and an
     optional maximum edit distance to a term. If you don't specify an explicit
@@ -488,7 +504,8 @@ class FuzzyTermPlugin(TaggingPlugin):
     (/                                # Optional prefix slash
         (?P<prefix>[1-9][0-9]*)       # prefix
     )?                                # (end prefix group)
-    """, verbose=True)
+    """
+    , verbose=True)
 
     class FuzzinessNode(syntax.SyntaxNode):
         def __init__(self, maxdist, prefixlength, original):
@@ -558,7 +575,8 @@ class FuzzyTermPlugin(TaggingPlugin):
 
 
 class FunctionPlugin(TaggingPlugin):
-    """Adds an abitrary "function call" syntax to the query parser to allow
+    """
+    Adds an abitrary "function call" syntax to the query parser to allow
     advanced and extensible query functionality.
 
     This is unfinished and experimental.
@@ -571,7 +589,8 @@ class FunctionPlugin(TaggingPlugin):
         (?P<args>.*?)
         \\]
     )?
-    """, verbose=True)
+    """
+    , verbose=True)
 
     class FunctionNode(syntax.SyntaxNode):
         has_fieldname = False
@@ -669,7 +688,8 @@ class FunctionPlugin(TaggingPlugin):
 
 
 class PhrasePlugin(Plugin):
-    """Adds the ability to specify phrase queries inside double quotes.
+    """
+    Adds the ability to specify phrase queries inside double quotes.
     """
 
     # Didn't use TaggingPlugin because I need to add slop parsing at some
@@ -746,7 +766,8 @@ class PhrasePlugin(Plugin):
 
 
 class SequencePlugin(Plugin):
-    """Adds the ability to group arbitrary queries inside double quotes to
+    """
+    Adds the ability to group arbitrary queries inside double quotes to
     produce a query matching the individual sub-queries in sequence.
 
     To enable this plugin, first remove the default PhrasePlugin, then add
@@ -823,7 +844,8 @@ class SequencePlugin(Plugin):
 
 
 class RangePlugin(Plugin):
-    """Adds the ability to specify term ranges.
+    """
+    Adds the ability to specify term ranges.
     """
 
     expr = rcompile(r"""
@@ -840,7 +862,8 @@ class RangePlugin(Plugin):
         ([^\]}]+?)                # everything until "]" or "}"
     )?
     (?P<close>}|])                # Close paren
-    """, verbose=True)
+    """
+    , verbose=True)
 
     class RangeTagger(RegexTagger):
         def __init__(self, expr, excl_start, excl_end):
@@ -881,7 +904,8 @@ class RangePlugin(Plugin):
 
 
 class OperatorsPlugin(Plugin):
-    """By default, adds the AND, OR, ANDNOT, ANDMAYBE, and NOT operators to
+    """
+    By default, adds the AND, OR, ANDNOT, ANDMAYBE, and NOT operators to
     the parser syntax. This plugin scans the token stream for subclasses of
     :class:`Operator` and calls their :meth:`Operator.make_group` methods
     to allow them to manipulate the stream.
@@ -959,7 +983,8 @@ class OperatorsPlugin(Plugin):
         return [(self.do_operators, 600)]
 
     def do_operators(self, parser, group):
-        """This filter finds PrefixOperator, PostfixOperator, and InfixOperator
+        """
+        This filter finds PrefixOperator, PostfixOperator, and InfixOperator
         nodes in the tree and calls their logic to rearrange the nodes.
         """
 
@@ -999,7 +1024,8 @@ class OperatorsPlugin(Plugin):
 #
 
 class PlusMinusPlugin(Plugin):
-    """Adds the ability to use + and - in a flat OR query to specify required
+    """
+    Adds the ability to use + and - in a flat OR query to specify required
     and prohibited terms.
 
     This is the basis for the parser configuration returned by
@@ -1026,7 +1052,8 @@ class PlusMinusPlugin(Plugin):
         return [(self.do_plusminus, 510)]
 
     def do_plusminus(self, parser, group):
-        """This filter sorts nodes in a flat group into "required", "optional",
+        """
+        This filter sorts nodes in a flat group into "required", "optional",
         and "banned" subgroups based on the presence of plus and minus nodes.
         """
 
@@ -1058,7 +1085,8 @@ class PlusMinusPlugin(Plugin):
 
 
 class GtLtPlugin(TaggingPlugin):
-    """Allows the user to use greater than/less than symbols to create range
+    """
+    Allows the user to use greater than/less than symbols to create range
     queries::
 
         a:>100 b:<=z c:>=-1.4 d:<mz
@@ -1091,7 +1119,8 @@ class GtLtPlugin(TaggingPlugin):
         return [(self.do_gtlt, 99)]
 
     def do_gtlt(self, parser, group):
-        """This filter translate FieldnameNode/GtLtNode pairs into RangeNodes.
+        """
+        This filter translate FieldnameNode/GtLtNode pairs into RangeNodes.
         """
 
         fname = syntax.FieldnameNode
@@ -1133,7 +1162,8 @@ class GtLtPlugin(TaggingPlugin):
 
 
 class MultifieldPlugin(Plugin):
-    """Converts any unfielded terms into OR clauses that search for the
+    """
+    Converts any unfielded terms into OR clauses that search for the
     term in a specified list of fields.
 
     >>> qp = qparser.QueryParser(None, myschema)
@@ -1181,7 +1211,8 @@ class MultifieldPlugin(Plugin):
 
 
 class FieldAliasPlugin(Plugin):
-    """Adds the ability to use "aliases" of fields in the query string.
+    """
+    Adds the ability to use "aliases" of fields in the query string.
 
     This plugin is useful for allowing users of languages that can't be
     represented in ASCII to use field names in their own language, and
@@ -1217,7 +1248,8 @@ class FieldAliasPlugin(Plugin):
 
 
 class CopyFieldPlugin(Plugin):
-    """Looks for basic syntax nodes (terms, prefixes, wildcards, phrases, etc.)
+    """
+    Looks for basic syntax nodes (terms, prefixes, wildcards, phrases, etc.)
     occurring in a certain field and replaces it with a group (by default OR)
     containing the original token and the token copied to a new field.
 
@@ -1285,7 +1317,8 @@ class CopyFieldPlugin(Plugin):
 
 
 class PseudoFieldPlugin(Plugin):
-    """This is an advanced plugin that lets you define "pseudo-fields" the user
+    """
+    This is an advanced plugin that lets you define "pseudo-fields" the user
     can use in their queries. When the parser encounters one of these fields,
     it runs a given function on the following node in the abstract syntax tree.
 

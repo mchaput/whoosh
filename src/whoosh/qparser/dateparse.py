@@ -53,7 +53,8 @@ def print_debug(level, msg, *args):
 # Parser element objects
 
 class Props(object):
-    """A dumb little object that just puts copies a dictionary into attibutes
+    """
+    A dumb little object that just puts copies a dictionary into attibutes
     so I can use dot syntax instead of square bracket string item lookup and
     save a little bit of typing. Used by :class:`Regex`.
     """
@@ -69,7 +70,8 @@ class Props(object):
 
 
 class ParserBase(object):
-    """Base class for date parser elements.
+    """
+    Base class for date parser elements.
     """
 
     def to_parser(self, e):
@@ -90,7 +92,8 @@ class ParserBase(object):
 
 
 class MultiBase(ParserBase):
-    """Base class for date parser elements such as Sequence and Bag that
+    """
+    Base class for date parser elements such as Sequence and Bag that
     have sub-elements.
     """
 
@@ -109,7 +112,8 @@ class MultiBase(ParserBase):
 
 
 class Sequence(MultiBase):
-    """Merges the dates parsed by a sequence of sub-elements.
+    """
+    Merges the dates parsed by a sequence of sub-elements.
     """
 
     def __init__(self, elements, sep="(\\s+|\\s*,\\s*)", name=None,
@@ -186,7 +190,8 @@ class Sequence(MultiBase):
 
 
 class Combo(Sequence):
-    """Parses a sequence of elements in order and combines the dates parsed
+    """
+    Parses a sequence of elements in order and combines the dates parsed
     by the sub-elements somehow. The default behavior is to accept two dates
     from the sub-elements and turn them into a range.
     """
@@ -262,7 +267,8 @@ class Combo(Sequence):
 
 
 class Choice(MultiBase):
-    """Returns the date from the first of its sub-elements that matches.
+    """
+    Returns the date from the first of its sub-elements that matches.
     """
 
     def parse(self, text, dt, pos=0, debug=-9999):
@@ -282,7 +288,8 @@ class Choice(MultiBase):
 
 
 class Bag(MultiBase):
-    """Parses its sub-elements in any order and merges the dates.
+    """
+    Parses its sub-elements in any order and merges the dates.
     """
 
     def __init__(self, elements, sep="(\\s+|\\s*,\\s*)", onceper=True,
@@ -364,7 +371,8 @@ class Bag(MultiBase):
 
 
 class Optional(ParserBase):
-    """Wraps a sub-element to indicate that the sub-element is optional.
+    """
+    Wraps a sub-element to indicate that the sub-element is optional.
     """
 
     def __init__(self, element):
@@ -386,7 +394,8 @@ class Optional(ParserBase):
 
 
 class ToEnd(ParserBase):
-    """Wraps a sub-element and requires that the end of the sub-element's match
+    """
+    Wraps a sub-element and requires that the end of the sub-element's match
     be the end of the text.
     """
 
@@ -409,7 +418,8 @@ class ToEnd(ParserBase):
 
 
 class Regex(ParserBase):
-    """Matches a regular expression and maps named groups in the pattern to
+    """
+    Matches a regular expression and maps named groups in the pattern to
     datetime attributes using a function or overridden method.
 
     There are two points at which you can customize the behavior of this class,
@@ -579,7 +589,8 @@ class Time12(Regex):
 # Top-level parser classes
 
 class DateParser(object):
-    """Base class for locale-specific parser classes.
+    """
+    Base class for locale-specific parser classes.
     """
 
     day = Regex("(?P<day>([123][0-9])|[1-9])(?=(\\W|$))(?!=:)",
@@ -725,7 +736,8 @@ class English(DateParser):
 # QueryParser plugin
 
 class DateParserPlugin(plugins.Plugin):
-    """Adds more powerful parsing of DATETIME fields.
+    """
+    Adds more powerful parsing of DATETIME fields.
 
     >>> parser.add_plugin(DateParserPlugin())
     >>> parser.parse(u"date:'last tuesday'")

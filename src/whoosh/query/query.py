@@ -38,7 +38,8 @@ from whoosh.compat import methodcaller
 # Exceptions
 
 class QueryError(Exception):
-    """Error encountered while running a query.
+    """
+    Error encountered while running a query.
     """
     pass
 
@@ -46,7 +47,8 @@ class QueryError(Exception):
 # Functions
 
 def error_query(msg, q=None):
-    """Returns the query in the second argument (or a :class:`NullQuery` if the
+    """
+    Returns the query in the second argument (or a :class:`NullQuery` if the
     second argument is not given) with its ``error`` attribute set to
     ``msg``.
     """
@@ -58,7 +60,8 @@ def error_query(msg, q=None):
 
 
 def token_lists(q, phrases=True):
-    """Returns the terms in the query tree, with the query hierarchy
+    """
+    Returns the terms in the query tree, with the query hierarchy
     represented as nested lists.
     """
 
@@ -80,7 +83,8 @@ def token_lists(q, phrases=True):
 # Utility classes
 
 class Lowest(object):
-    """A value that is always compares lower than any other object except
+    """
+    A value that is always compares lower than any other object except
     itself.
     """
 
@@ -109,7 +113,8 @@ class Lowest(object):
 
 
 class Highest(object):
-    """A value that is always compares higher than any other object except
+    """
+    A value that is always compares higher than any other object except
     itself.
     """
 
@@ -144,7 +149,8 @@ Highest = Highest()
 # Base classes
 
 class Query(object):
-    """Abstract base class for all queries.
+    """
+    Abstract base class for all queries.
 
     Note that this base class implements __or__, __and__, and __sub__ to allow
     slightly more convenient composition of query objects::
@@ -173,7 +179,8 @@ class Query(object):
         raise NotImplementedError
 
     def __or__(self, query):
-        """Allows you to use | between query objects to wrap them in an Or
+        """
+        Allows you to use | between query objects to wrap them in an Or
         query.
         """
 
@@ -181,7 +188,8 @@ class Query(object):
         return Or([self, query]).normalize()
 
     def __and__(self, query):
-        """Allows you to use & between query objects to wrap them in an And
+        """
+        Allows you to use & between query objects to wrap them in an And
         query.
         """
 
@@ -189,7 +197,8 @@ class Query(object):
         return And([self, query]).normalize()
 
     def __sub__(self, query):
-        """Allows you to use - between query objects to add the right-hand
+        """
+        Allows you to use - between query objects to add the right-hand
         query as a "NOT" query.
         """
 
@@ -203,26 +212,30 @@ class Query(object):
         return not self.__eq__(other)
 
     def is_leaf(self):
-        """Returns True if this is a leaf node in the query tree, or False if
+        """
+        Returns True if this is a leaf node in the query tree, or False if
         this query has sub-queries.
         """
 
         return True
 
     def children(self):
-        """Returns an iterator of the subqueries of this object.
+        """
+        Returns an iterator of the subqueries of this object.
         """
 
         return iter([])
 
     def is_range(self):
-        """Returns True if this object searches for values within a range.
+        """
+        Returns True if this object searches for values within a range.
         """
 
         return False
 
     def has_terms(self):
-        """Returns True if this specific object represents a search for a
+        """
+        Returns True if this specific object represents a search for a
         specific term (as opposed to a pattern, as in Wildcard and Prefix) or
         terms (i.e., whether the ``replace()`` method does something
         meaningful on this instance).
@@ -231,7 +244,8 @@ class Query(object):
         return False
 
     def apply(self, fn):
-        """If this query has children, calls the given function on each child
+        """
+        If this query has children, calls the given function on each child
         and returns a new copy of this node with the new children returned by
         the function. If this is a leaf node, simply returns this object.
 
@@ -258,7 +272,8 @@ class Query(object):
         return self
 
     def accept(self, fn):
-        """Applies the given function to this query's subqueries (if any) and
+        """
+        Applies the given function to this query's subqueries (if any) and
         then to this query itself::
 
             def boost_phrases(q):
@@ -283,7 +298,8 @@ class Query(object):
         return fn_wrapper(self)
 
     def replace(self, fieldname, oldtext, newtext):
-        """Returns a copy of this query with oldtext replaced by newtext (if
+        """
+        Returns a copy of this query with oldtext replaced by newtext (if
         oldtext was anywhere in this query).
 
         Note that this returns a *new* query with the given text replaced. It
@@ -299,13 +315,15 @@ class Query(object):
                                            newtext))
 
     def copy(self):
-        """Deprecated, just use ``copy.deepcopy``.
+        """
+        Deprecated, just use ``copy.deepcopy``.
         """
 
         return copy.deepcopy(self)
 
     def all_terms(self, phrases=True):
-        """Returns a set of all terms in this query tree.
+        """
+        Returns a set of all terms in this query tree.
 
         This method exists for backwards-compatibility. Use iter_all_terms()
         instead.
@@ -317,7 +335,8 @@ class Query(object):
         return set(self.iter_all_terms(phrases=phrases))
 
     def terms(self, phrases=False):
-        """Yields zero or more (fieldname, text) pairs queried by this object.
+        """
+        Yields zero or more (fieldname, text) pairs queried by this object.
         You can check whether a query object targets specific terms before you
         call this method using :meth:`Query.has_terms`.
 
@@ -330,7 +349,8 @@ class Query(object):
         return self.terms(phrases=phrases)
 
     def existing_terms(self, ixreader, phrases=True, expand=False, fieldname=None):
-        """Returns a set of all byteterms in this query tree that exist in
+        """
+        Returns a set of all byteterms in this query tree that exist in
         the given ixreader.
 
         :param ixreader: A :class:`whoosh.reading.IndexReader` object.
@@ -369,7 +389,8 @@ class Query(object):
         return termset
 
     def leaves(self):
-        """Returns an iterator of all the leaf queries in this query tree as a
+        """
+        Returns an iterator of all the leaf queries in this query tree as a
         flat series.
         """
 
@@ -381,7 +402,8 @@ class Query(object):
                     yield qq
 
     def iter_all_terms(self, phrases=True):
-        """Returns an iterator of (fieldname, text) pairs for all terms in
+        """
+        Returns an iterator of (fieldname, text) pairs for all terms in
         this query tree.
 
         >>> qp = qparser.QueryParser("text", myindex.schema)
@@ -407,7 +429,8 @@ class Query(object):
                     yield t
 
     def all_tokens(self, boost=1.0):
-        """Returns an iterator of :class:`analysis.Token` objects corresponding
+        """
+        Returns an iterator of :class:`analysis.Token` objects corresponding
         to all terms in this query tree. The Token objects will have the
         ``fieldname``, ``text``, and ``boost`` attributes set. If the query
         was built by the query parser, they Token objects will also have
@@ -425,7 +448,8 @@ class Query(object):
                     yield token
 
     def tokens(self, boost=1.0, exreader=None):
-        """Yields zero or more :class:`analysis.Token` objects corresponding to
+        """
+        Yields zero or more :class:`analysis.Token` objects corresponding to
         the terms searched for by this query object. You can check whether a
         query object targets specific terms before you call this method using
         :meth:`Query.has_terms`.
@@ -444,7 +468,8 @@ class Query(object):
         return iter(())
 
     def requires(self):
-        """Returns a set of queries that are *known* to be required to match
+        """
+        Returns a set of queries that are *known* to be required to match
         for the entire query to match. Note that other queries might also turn
         out to be required but not be determinable by examining the static
         query.
@@ -466,14 +491,16 @@ class Query(object):
         return set([self])
 
     def field(self):
-        """Returns the field this query matches in, or None if this query does
+        """
+        Returns the field this query matches in, or None if this query does
         not match in a single field.
         """
 
         return self.fieldname
 
     def with_boost(self, boost):
-        """Returns a COPY of this query with the boost set to the given value.
+        """
+        Returns a COPY of this query with the boost set to the given value.
 
         If a query type does not accept a boost itself, it will try to pass the
         boost on to its children, if any.
@@ -484,7 +511,8 @@ class Query(object):
         return q
 
     def estimate_size(self, ixreader):
-        """Returns an estimate of how many documents this query could
+        """
+        Returns an estimate of how many documents this query could
         potentially match (for example, the estimated size of a simple term
         query is the document frequency of the term). It is permissible to
         overestimate, but not to underestimate.
@@ -492,14 +520,16 @@ class Query(object):
         raise NotImplementedError
 
     def estimate_min_size(self, ixreader):
-        """Returns an estimate of the minimum number of documents this query
+        """
+        Returns an estimate of the minimum number of documents this query
         could potentially match.
         """
 
         return self.estimate_size(ixreader)
 
     def matcher(self, searcher, context=None):
-        """Returns a :class:`~whoosh.matching.Matcher` object you can use to
+        """
+        Returns a :class:`~whoosh.matching.Matcher` object you can use to
         retrieve documents and scores matching this query.
 
         :rtype: :class:`whoosh.matching.Matcher`
@@ -508,7 +538,8 @@ class Query(object):
         raise NotImplementedError
 
     def docs(self, searcher):
-        """Returns an iterator of docnums matching this query.
+        """
+        Returns an iterator of docnums matching this query.
 
         >>> with my_index.searcher() as searcher:
         ...     list(my_query.docs(searcher))
@@ -524,7 +555,8 @@ class Query(object):
             return iter([])
 
     def deletion_docs(self, searcher):
-        """Returns an iterator of docnums matching this query for the purpose
+        """
+        Returns an iterator of docnums matching this query for the purpose
         of deletion. The :meth:`~whoosh.writing.IndexWriter.delete_by_query`
         method will use this method when deciding what documents to delete,
         allowing special queries (e.g. nested queries) to override what
@@ -535,7 +567,8 @@ class Query(object):
         return self.docs(searcher)
 
     def normalize(self):
-        """Returns a recursively "normalized" form of this query. The
+        """
+        Returns a recursively "normalized" form of this query. The
         normalized form removes redundancy and empty queries. This is called
         automatically on query trees created by the query parser, but you may
         want to call it yourself if you're writing your own parser or building
@@ -553,11 +586,22 @@ class Query(object):
         return self
 
     def simplify(self, ixreader):
-        """Returns a recursively simplified form of this query, where
+        """
+        Returns a recursively simplified form of this query, where
         "second-order" queries (such as Prefix and Variations) are re-written
         into lower-level queries (such as Term and Or).
         """
         return self
+
+    def trigger(self, schema, fields):
+        """
+        Returns True if this query matches the document content represented by
+        ``fields``, which is a dictionary mapping field names to
+        :class:`whoosh.formats.BlockReader` objects representing term vectors
+        for the fields.
+        """
+
+        raise NotImplementedError
 
 
 # Null query
@@ -571,7 +615,7 @@ class _NullQuery(Query):
         self.error = None
 
     def __unicode__(self):
-        return u("<_NullQuery>")
+        return u"<_NullQuery>"
 
     def __call__(self):
         return self
@@ -619,7 +663,8 @@ NullQuery = _NullQuery()
 # Every
 
 class Every(Query):
-    """A query that matches every document containing any term in a given
+    """
+    A query that matches every document containing any term in a given
     field. If you don't specify a field, the query matches every document.
 
     >>> # Match any documents with something in the "path" field
@@ -679,7 +724,7 @@ class Every(Query):
                 and self.boost == other.boost)
 
     def __unicode__(self):
-        return u("%s:*") % self.fieldname
+        return u"%s:*" % self.fieldname
 
     __str__ = __unicode__
 
@@ -702,8 +747,8 @@ class Every(Query):
             # large indexes
             doclist = set()
             for text in searcher.lexicon(fieldname):
-                pr = searcher.postings(fieldname, text)
+                pr = searcher.matcher(fieldname, text)
                 doclist.update(pr.all_ids())
             doclist = sorted(doclist)
 
-        return matching.ListMatcher(doclist, all_weights=self.boost)
+        return matching.ListMatcher.from_docs(doclist, all_weights=self.boost)

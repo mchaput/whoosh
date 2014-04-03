@@ -43,7 +43,7 @@ For example, to find documents containing "whoosh" at most 5 positions before
 
 """
 
-from whoosh.matching import mcore, wrappers, binary
+from whoosh.matching import matching, wrappers, binary
 from whoosh.query import Query, And, AndMaybe, Or, Term
 from whoosh.util import make_binary_tree
 
@@ -51,25 +51,36 @@ from whoosh.util import make_binary_tree
 # Span class
 
 class Span(object):
-    __slots__ = ("start", "end", "startchar", "endchar", "boost")
+    __slots__ = ("start", "end", "startchar", "endchar", "payload")
 
     def __init__(self, start, end=None, startchar=None, endchar=None,
-                 boost=1.0):
-        if end is None:
+                 payload=None):
+        if start is not None and end is None:
             end = start
-        assert start <= end
+
+        assert start is None or isinstance(start, int)
+        assert start is None or isinstance(end, int)
+        assert start is None or start <= end
+        assert startchar is None or isinstance(startchar, int)
+        assert startchar is None or isinstance(endchar, int)
+
         self.start = start
         self.end = end
         self.startchar = startchar
         self.endchar = endchar
-        self.boost = boost
+        self.payload = payload
 
     def __repr__(self):
-        if self.startchar is not None or self.endchar is not None:
-            return "<%d-%d %d:%d>" % (self.start, self.end, self.startchar,
-                                      self.endchar)
+        string = "<%s" % self.__class__.__name__
+        if self.start == self.end:
+            string += " %s" % self.start
         else:
-            return "<%d-%d>" % (self.start, self.end)
+            string += " %s-%s" % (self.start, self.end)
+        if self.startchar is not None:
+            string += " %s:%s" % (self.startchar, self.endchar)
+        if self.payload is not None:
+            string += " %r" % self.payload
+        return string + ">"
 
     def __eq__(self, span):
         return (self.start == span.start
@@ -91,7 +102,8 @@ class Span(object):
 
     @classmethod
     def merge(cls, spans):
-        """Merges overlapping and touches spans in the given list of spans.
+        """
+        Merges overlapping and touches spans in the given list of spans.
 
         Note that this modifies the original list.
 
@@ -181,7 +193,8 @@ def bisect_spans(spans, start):
 # Base matchers
 
 class SpanWrappingMatcher(wrappers.WrappingMatcher):
-    """An abstract matcher class that wraps a "regular" matcher. This matcher
+    """
+    An abstract matcher class that wraps a "regular" matcher. This matcher
     uses the sub-matcher's matching logic, but only matches documents that have
     matching spans, i.e. where ``_get_spans()`` returns a non-empty list.
 
@@ -248,14 +261,15 @@ class SpanBiMatcher(SpanWrappingMatcher):
     def replace(self, minquality=0):
         # TODO: fix this
         if not self.is_active():
-            return mcore.NullMatcher()
+            return matching.NullMatcher()
         return self
 
 
 # Queries
 
 class SpanQuery(Query):
-    """Abstract base class for span-based queries. Each span query type wraps
+    """
+    Abstract base class for span-based queries. Each span query type wraps
     a "regular" query that implements the basic document-matching functionality
     (for example, SpanNear wraps an And query, because SpanNear requires that
     the two sub-queries occur in the same documents. The wrapped query is
@@ -283,7 +297,8 @@ class SpanQuery(Query):
 
 
 class SpanFirst(SpanQuery):
-    """Matches spans that end within the first N positions. This lets you
+    """
+    Matches spans that end within the first N positions. This lets you
     for example only match terms near the beginning of the document.
     """
 
@@ -416,7 +431,8 @@ class SpanNear(SpanQuery):
 
     @classmethod
     def phrase(cls, fieldname, words, slop=1, ordered=True):
-        """Returns a tree of SpanNear queries to match a list of terms.
+        """
+        Returns a tree of SpanNear queries to match a list of terms.
 
         This class method is a convenience for constructing a phrase query
         using a binary tree of SpanNear queries::
@@ -451,7 +467,7 @@ class SpanNear(SpanQuery):
         def replace(self, minquality=0):
             # TODO: fix this
             if not self.is_active():
-                return mcore.NullMatcher()
+                return matching.NullMatcher()
             return self
 
         def _get_spans(self):
@@ -576,7 +592,7 @@ class SpanNear2(SpanQuery):
         def replace(self, minquality=0):
             # TODO: fix this
             if not self.is_active():
-                return mcore.NullMatcher()
+                return matching.NullMatcher()
             return self
 
         def _get_spans(self):
@@ -628,7 +644,8 @@ class SpanNear2(SpanQuery):
 
 
 class SpanOr(SpanQuery):
-    """Matches documents that match any of a list of sub-queries. Unlike
+    """
+    Matches documents that match any of a list of sub-queries. Unlike
     query.Or, this class merges together matching spans from the different
     sub-queries when they overlap.
     """
@@ -698,7 +715,8 @@ class SpanBiQuery(SpanQuery):
 
 
 class SpanNot(SpanBiQuery):
-    """Matches spans from the first query only if they don't overlap with
+    """
+    Matches spans from the first query only if they don't overlap with
     spans from the second query. If there are no non-overlapping spans, the
     document does not match.
 
@@ -748,7 +766,8 @@ class SpanNot(SpanBiQuery):
 
 
 class SpanContains(SpanBiQuery):
-    """Matches documents where the spans of the first query contain any spans
+    """
+    Matches documents where the spans of the first query contain any spans
     of the second query.
 
     For example, to match documents where "apple" occurs at most 10 places
@@ -796,7 +815,8 @@ class SpanContains(SpanBiQuery):
 
 
 class SpanBefore(SpanBiQuery):
-    """Matches documents where the spans of the first query occur before any
+    """
+    Matches documents where the spans of the first query occur before any
     spans of the second query.
 
     For example, to match documents where "apple" occurs anywhere before
@@ -831,7 +851,8 @@ class SpanBefore(SpanBiQuery):
 
 
 class SpanCondition(SpanBiQuery):
-    """Matches documents that satisfy both subqueries, but only uses the spans
+    """
+    Matches documents that satisfy both subqueries, but only uses the spans
     from the first subquery.
 
     This is useful when you want to place conditions on matches but not have

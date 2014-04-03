@@ -236,7 +236,8 @@ _init()
 
 
 def blockname(ch):
-    """Return the Unicode block name for ch, or None if ch has no block.
+    """
+    Return the Unicode block name for ch, or None if ch has no block.
 
     >>> blockname(u'a')
     'Basic Latin'
@@ -256,7 +257,8 @@ def blockname(ch):
 
 
 def blocknum(ch):
-    """Returns the unicode block number for ch, or None if ch has no block.
+    """
+    Returns the unicode block number for ch, or None if ch has no block.
 
     >>> blocknum(u'a')
     0

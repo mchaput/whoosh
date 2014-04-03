@@ -25,23 +25,23 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-"""This module contains helper functions for correcting typos in user queries.
+"""
+This module contains helper functions for correcting typos in user queries.
 """
 
-from collections import defaultdict
+from bisect import bisect_left
 from heapq import heappush, heapreplace
 
-from whoosh import analysis, fields, highlight, query, scoring
-from whoosh.automata import fst
-from whoosh.compat import xrange, string_type
-from whoosh.support.levenshtein import distance
-from whoosh.util.text import utf8encode
+from whoosh import highlight
+from whoosh.compat import iteritems, xrange, string_type
+from whoosh.support.levenshtein import levenshtein
 
 
 # Corrector objects
 
 class Corrector(object):
-    """Base class for spelling correction objects. Concrete sub-classes should
+    """
+    Base class for spelling correction objects. Concrete sub-classes should
     implement the ``_suggestions`` method.
     """
 
@@ -64,29 +64,19 @@ class Corrector(object):
         _suggestions = self._suggestions
 
         heap = []
-        seen = set([text])
-        for k in xrange(1, maxdist + 1):
-            for item in _suggestions(text, k, prefix):
-                if item[1] in seen:
-                    continue
-                seen.add(item[1])
+        for item in _suggestions(text, maxdist, prefix):
+            # Note that the *higher* scores (item[0]) are better!
+            if len(heap) < limit:
+                heappush(heap, item)
+            elif item > heap[0]:
+                heapreplace(heap, item)
 
-                # Note that the *higher* scores (item[0]) are better!
-                if len(heap) < limit:
-                    heappush(heap, item)
-                elif item > heap[0]:
-                    heapreplace(heap, item)
-
-            # If the heap is already at the required length, don't bother going
-            # to a higher edit distance
-            if len(heap) >= limit:
-                break
-
-        sugs = sorted(heap, key=lambda item: (0 - item[0], item[1]))
+        sugs = sorted(heap, key=lambda x: (0 - x[0], x[1]))
         return [sug for _, sug in sugs]
 
     def _suggestions(self, text, maxdist, prefix):
-        """Low-level method that yields a series of (score, "suggestion")
+        """
+        Low-level method that yields a series of (score, "suggestion")
         tuples.
 
         :param text: the text to check.
@@ -99,90 +89,96 @@ class Corrector(object):
 
 
 class ReaderCorrector(Corrector):
-    """Suggests corrections based on the content of a field in a reader.
+    """
+    Suggests corrections based on the content of a field in a reader.
 
     Ranks suggestions by the edit distance, then by highest to lowest
     frequency.
     """
 
-    def __init__(self, reader, fieldname):
+    def __init__(self, reader, fieldname, fieldobj):
         self.reader = reader
         self.fieldname = fieldname
+        self.fieldobj = fieldobj
 
     def _suggestions(self, text, maxdist, prefix):
+        reader = self.reader
+        freq = reader.frequency
+
         fieldname = self.fieldname
-        freq = self.reader.frequency
-        for sug in self.reader.terms_within(fieldname, text, maxdist,
-                                            prefix=prefix):
+        fieldobj = reader.schema[fieldname]
+        sugfield = fieldobj.spelling_fieldname(fieldname)
+
+        for sug in reader.terms_within(sugfield, text, maxdist, prefix=prefix):
             # Higher scores are better, so negate the distance and frequency
-            # TODO: store spelling frequencies in the graph
             f = freq(fieldname, sug) or 1
             score = 0 - (maxdist + (1.0 / f * 0.5))
             yield (score, sug)
 
 
-class GraphCorrector(Corrector):
-    """Suggests corrections based on the content of a raw
-    :class:`whoosh.automata.fst.GraphReader` object.
-
-    By default ranks suggestions based on the edit distance.
+class ListCorrector(Corrector):
+    """
+    Suggests corrections based on the content of a sorted list of strings.
     """
 
-    def __init__(self, graph):
-        self.graph = graph
+    def __init__(self, wordlist):
+        self.wordlist = wordlist
 
     def _suggestions(self, text, maxdist, prefix):
-        for sug in fst.within(self.graph, text, k=maxdist, prefix=prefix):
-            # Higher scores are better, so negate the edit distance
-            yield (0 - maxdist, sug)
+        from whoosh.automata.lev import levenshtein_automaton
+        from whoosh.automata.fsa import find_all_matches
+
+        seen = set()
+        for i in xrange(1, maxdist + 1):
+            dfa = levenshtein_automaton(text, maxdist, prefix).to_dfa()
+            sk = self.Skipper(self.wordlist)
+            for sug in find_all_matches(dfa, sk):
+                if sug not in seen:
+                    seen.add(sug)
+                    yield (0 - maxdist), sug
+
+    class Skipper(object):
+        def __init__(self, data):
+            self.data = data
+            self.i = 0
+
+        def __call__(self, w):
+            if self.data[self.i] == w:
+                return w
+            self.i += 1
+            pos = bisect_left(self.data, w, self.i)
+            if pos < len(self.data):
+                return self.data[pos]
+            else:
+                return None
 
 
 class MultiCorrector(Corrector):
-    """Merges suggestions from a list of sub-correctors.
+    """
+    Merges suggestions from a list of sub-correctors.
     """
 
-    def __init__(self, correctors):
+    def __init__(self, correctors, op):
         self.correctors = correctors
+        self.op = op
 
     def _suggestions(self, text, maxdist, prefix):
+        op = self.op
+        seen = {}
         for corr in self.correctors:
-            for item in corr._suggestions(text, maxdist, prefix):
-                yield item
-
-
-def wordlist_to_graph_file(wordlist, dbfile, fieldname="_", strip=True):
-    """Writes a word graph file from a list of words.
-
-    >>> # Open a word list file with one word on each line, and write the
-    >>> # word graph to a graph file
-    >>> wordlist_to_graph_file("mywords.txt", "mywords.dawg")
-
-    :param wordlist: an iterable containing the words for the graph. The words
-        must be in sorted order.
-    :param dbfile: a filename string or file-like object to write the word
-        graph to. This function will close the file.
-    """
-
-    from whoosh.filedb.structfile import StructFile
-    if isinstance(dbfile, string_type):
-        dbfile = open(dbfile, "wb")
-    if not isinstance(dbfile, StructFile):
-        dbfile = StructFile(dbfile)
-
-    gw = fst.GraphWriter(dbfile)
-    gw.start_field(fieldname)
-    for word in wordlist:
-        if strip:
-            word = word.strip()
-        gw.insert(word)
-    gw.finish_field()
-    gw.close()
+            for score, sug in corr._suggestions(text, maxdist, prefix):
+                if sug in seen:
+                    seen[sug] = op(seen[sug], score)
+                else:
+                    seen[sug] = score
+        return iteritems(seen)
 
 
 # Query correction
 
 class Correction(object):
-    """Represents the corrected version of a user query string. Has the
+    """
+    Represents the corrected version of a user query string. Has the
     following attributes:
 
     ``query``
@@ -245,11 +241,16 @@ class Correction(object):
 # QueryCorrector objects
 
 class QueryCorrector(object):
-    """Base class for objects that correct words in a user query.
+    """
+    Base class for objects that correct words in a user query.
     """
 
+    def __init__(self, fieldname):
+        self.fieldname = fieldname
+
     def correct_query(self, q, qstring):
-        """Returns a :class:`Correction` object representing the corrected
+        """
+        Returns a :class:`Correction` object representing the corrected
         form of the given query.
 
         :param q: the original :class:`whoosh.query.Query` tree to be
@@ -262,18 +263,24 @@ class QueryCorrector(object):
 
         raise NotImplementedError
 
+    def field(self):
+        return self.fieldname
+
 
 class SimpleQueryCorrector(QueryCorrector):
-    """A simple query corrector based on a mapping of field names to
+    """
+    A simple query corrector based on a mapping of field names to
     :class:`Corrector` objects, and a list of ``("fieldname", "text")`` tuples
     to correct. And terms in the query that appear in list of term tuples are
     corrected using the appropriate corrector.
     """
 
-    def __init__(self, correctors, terms, prefix=0, maxdist=2):
+    def __init__(self, correctors, aliases, terms, prefix=0, maxdist=2):
         """
         :param correctors: a dictionary mapping field names to
             :class:`Corrector` objects.
+        :param aliases: a dictionary mapping field names in the query to
+            field names for spelling suggestions.
         :param terms: a sequence of ``("fieldname", "text")`` tuples
             representing terms to be corrected.
         :param prefix: suggested replacement words must share this number of
@@ -288,12 +295,14 @@ class SimpleQueryCorrector(QueryCorrector):
         """
 
         self.correctors = correctors
+        self.aliases = aliases
         self.termset = frozenset(terms)
         self.prefix = prefix
         self.maxdist = maxdist
 
     def correct_query(self, q, qstring):
         correctors = self.correctors
+        aliases = self.aliases
         termset = self.termset
         prefix = self.prefix
         maxdist = self.maxdist
@@ -311,11 +320,12 @@ class SimpleQueryCorrector(QueryCorrector):
         # in the query each token occured so we can format them later
         for token in q.all_tokens():
             fname = token.fieldname
+            aname = aliases.get(fname, fname)
 
             # If this is one of the words we're supposed to correct...
             if (fname, token.text) in termset:
-                sugs = correctors[fname].suggest(token.text, prefix=prefix,
-                                                 maxdist=maxdist)
+                c = correctors[aname]
+                sugs = c.suggest(token.text, prefix=prefix, maxdist=maxdist)
                 if sugs:
                     # This is a "simple" corrector, so we just pick the first
                     # suggestion :/

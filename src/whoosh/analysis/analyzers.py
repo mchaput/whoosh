@@ -25,7 +25,7 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from whoosh.analysis.acore import Composable, CompositionError
+from whoosh.analysis import Composable, CompositionError
 from whoosh.analysis.tokenizers import Tokenizer
 from whoosh.analysis.filters import LowercaseFilter
 from whoosh.analysis.filters import StopFilter, STOP_WORDS
@@ -42,7 +42,8 @@ from whoosh.lang.porter import stem
 # Analyzers
 
 class Analyzer(Composable):
-    """ Abstract base class for analyzers.
+    """
+     Abstract base class for analyzers.
     """
 
     def __repr__(self):
@@ -58,6 +59,10 @@ class Analyzer(Composable):
 
     def clean(self):
         pass
+
+    @property
+    def is_morph(self):
+        return False
 
 
 class CompositeAnalyzer(Analyzer):
@@ -82,14 +87,15 @@ class CompositeAnalyzer(Analyzer):
         return "%s(%s)" % (self.__class__.__name__,
                            ", ".join(repr(item) for item in self.items))
 
-    def __call__(self, value, no_morph=False, **kwargs):
+    def __call__(self, value, **kwargs):
         items = self.items
         # Start with tokenizer
         gen = items[0](value, **kwargs)
         # Run filters
-        for item in items[1:]:
-            if not (no_morph and hasattr(item, "is_morph") and item.is_morph):
-                gen = item(gen)
+        for filter_ in items[1:]:
+            if filter_.is_morph and kwargs.get("nomorph"):
+                continue
+            gen = filter_(gen)
         return gen
 
     def __getitem__(self, item):
@@ -103,19 +109,21 @@ class CompositeAnalyzer(Analyzer):
                 and self.__class__ is other.__class__
                 and self.items == other.items)
 
+    @property
+    def is_morph(self):
+        return any(item.is_morph for item in self.items)
+
     def clean(self):
         for item in self.items:
             if hasattr(item, "clean"):
                 item.clean()
 
-    def has_morph(self):
-        return any(item.is_morph for item in self.items)
-
 
 # Functions that return composed analyzers
 
 def IDAnalyzer(lowercase=False):
-    """Deprecated, just use an IDTokenizer directly, with a LowercaseFilter if
+    """
+    Deprecated, just use an IDTokenizer directly, with a LowercaseFilter if
     desired.
     """
 
@@ -126,7 +134,8 @@ def IDAnalyzer(lowercase=False):
 
 
 def KeywordAnalyzer(lowercase=False, commas=False):
-    """Parses whitespace- or comma-separated tokens.
+    """
+    Parses whitespace- or comma-separated tokens.
 
     >>> ana = KeywordAnalyzer()
     >>> [token.text for token in ana("Hello there, this is a TEST")]
@@ -147,14 +156,16 @@ def KeywordAnalyzer(lowercase=False, commas=False):
 
 
 def RegexAnalyzer(expression=r"\w+(\.?\w+)*", gaps=False):
-    """Deprecated, just use a RegexTokenizer directly.
+    """
+    Deprecated, just use a RegexTokenizer directly.
     """
 
     return RegexTokenizer(expression=expression, gaps=gaps)
 
 
 def SimpleAnalyzer(expression=default_pattern, gaps=False):
-    """Composes a RegexTokenizer with a LowercaseFilter.
+    """
+    Composes a RegexTokenizer with a LowercaseFilter.
 
     >>> ana = SimpleAnalyzer()
     >>> [token.text for token in ana("Hello there, this is a TEST")]
@@ -170,7 +181,8 @@ def SimpleAnalyzer(expression=default_pattern, gaps=False):
 
 def StandardAnalyzer(expression=default_pattern, stoplist=STOP_WORDS,
                      minsize=2, maxsize=None, gaps=False):
-    """Composes a RegexTokenizer with a LowercaseFilter and optional
+    """
+    Composes a RegexTokenizer with a LowercaseFilter and optional
     StopFilter.
 
     >>> ana = StandardAnalyzer()
@@ -197,7 +209,8 @@ def StandardAnalyzer(expression=default_pattern, stoplist=STOP_WORDS,
 def StemmingAnalyzer(expression=default_pattern, stoplist=STOP_WORDS,
                      minsize=2, maxsize=None, gaps=False, stemfn=stem,
                      ignore=None, cachesize=50000):
-    """Composes a RegexTokenizer with a lower case filter, an optional stop
+    """
+    Composes a RegexTokenizer with a lower case filter, an optional stop
     filter, and a stemming filter.
 
     >>> ana = StemmingAnalyzer()
@@ -229,7 +242,8 @@ def StemmingAnalyzer(expression=default_pattern, stoplist=STOP_WORDS,
 def FancyAnalyzer(expression=r"\s+", stoplist=STOP_WORDS, minsize=2,
                   maxsize=None, gaps=True, splitwords=True, splitnums=True,
                   mergewords=False, mergenums=False):
-    """Composes a RegexTokenizer with an IntraWordFilter, LowercaseFilter, and
+    """
+    Composes a RegexTokenizer with an IntraWordFilter, LowercaseFilter, and
     StopFilter.
 
     >>> ana = FancyAnalyzer()
@@ -255,7 +269,8 @@ def FancyAnalyzer(expression=r"\s+", stoplist=STOP_WORDS, minsize=2,
 
 def LanguageAnalyzer(lang, expression=default_pattern, gaps=False,
                      cachesize=50000):
-    """Configures a simple analyzer for the given language, with a
+    """
+    Configures a simple analyzer for the given language, with a
     LowercaseFilter, StopFilter, and StemFilter.
 
     >>> ana = LanguageAnalyzer("es")

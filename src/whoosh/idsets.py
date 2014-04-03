@@ -7,6 +7,7 @@ from array import array
 from bisect import bisect_left, bisect_right, insort
 
 from whoosh.compat import integer_types, izip, izip_longest, xrange
+from whoosh.compat import array_tobytes, array_frombytes
 from whoosh.util.numeric import bytes_for_bits
 
 
@@ -25,7 +26,8 @@ _1SPERBYTE = array('B', [0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2,
 
 
 class DocIdSet(object):
-    """Base class for a set of positive integers, implementing a subset of the
+    """
+    Base class for a set of positive integers, implementing a subset of the
     built-in ``set`` type's interface with extra docid-related methods.
 
     This is a superclass for alternative set implementations to the built-in
@@ -84,7 +86,8 @@ class DocIdSet(object):
             self.discard(n)
 
     def invert_update(self, size):
-        """Updates the set in-place to contain numbers in the range
+        """
+        Updates the set in-place to contain numbers in the range
         ``[0 - size)`` except numbers that are in this set.
         """
 
@@ -124,30 +127,33 @@ class DocIdSet(object):
                 return False
         return True
 
-    def before(self):
-        """Returns the previous integer in the set before ``i``, or None.
+    def before(self, i):
+        """
+        Returns the previous integer in the set before ``i``, or None.
         """
         raise NotImplementedError
 
-    def after(self):
-        """Returns the next integer in the set after ``i``, or None.
+    def after(self, i):
+        """
+        Returns the next integer in the set after ``i``, or None.
         """
         raise NotImplementedError
 
     def first(self):
-        """Returns the first (lowest) integer in the set.
+        """
+        Returns the first (lowest) integer in the set.
         """
         raise NotImplementedError
 
     def last(self):
-        """Returns the last (highest) integer in the set.
+        """
+        Returns the last (highest) integer in the set.
         """
         raise NotImplementedError
 
 
 class BaseBitSet(DocIdSet):
     # Methods to override
-
     def byte_count(self):
         raise NotImplementedError
 
@@ -176,6 +182,7 @@ class BaseBitSet(DocIdSet):
     __bool__ = __nonzero__
 
     def __contains__(self, i):
+        assert i >= 0
         bucket = i // 8
         if bucket >= self.byte_count():
             return False
@@ -240,62 +247,61 @@ class BaseBitSet(DocIdSet):
         return None
 
 
-class OnDiskBitSet(BaseBitSet):
-    """A DocIdSet backed by an array of bits on disk.
-
-    >>> st = RamStorage()
-    >>> f = st.create_file("test.bin")
-    >>> bs = BitSet([1, 10, 15, 7, 2])
-    >>> bytecount = bs.to_disk(f)
-    >>> f.close()
-    >>> # ...
-    >>> f = st.open_file("test.bin")
-    >>> odbs = OnDiskBitSet(f, bytecount)
-    >>> list(odbs)
-    [1, 2, 7, 10, 15]
-    """
-
-    def __init__(self, dbfile, basepos, bytecount):
-        """
-        :param dbfile: a :class:`~whoosh.filedb.structfile.StructFile` object
-            to read from.
-        :param basepos: the base position of the bytes in the given file.
-        :param bytecount: the number of bytes to use for the bit array.
-        """
-
-        self._dbfile = dbfile
-        self._basepos = basepos
-        self._bytecount = bytecount
-
-    def __repr__(self):
-        return "%s(%s, %d, %d)" % (self.__class__.__name__, self.dbfile,
-                                   self._basepos, self.bytecount)
-
-    def byte_count(self):
-        return self._bytecount
-
-    def _get_byte(self, n):
-        return self._dbfile.get_byte(self._basepos + n)
-
-    def _iter_bytes(self):
-        dbfile = self._dbfile
-        dbfile.seek(self._basepos)
-        for _ in xrange(self._bytecount):
-            yield dbfile.read_byte()
+# class OnDiskBitSet(BaseBitSet):
+#     """A DocIdSet backed by an array of bits on disk.
+#
+#     >>> st = RamStorage()
+#     >>> f = st.create_file("test.bin")
+#     >>> bs = BitSet([1, 10, 15, 7, 2])
+#     >>> bytecount = bs.to_disk(f)
+#     >>> f.close()
+#     >>> # ...
+#     >>> f = st.open_file("test.bin")
+#     >>> odbs = OnDiskBitSet(f, bytecount)
+#     >>> list(odbs)
+#     [1, 2, 7, 10, 15]
+#     """
+#
+#     def __init__(self, dbfile, basepos, bytecount):
+#         """
+#         :param dbfile: a :class:`~whoosh.filedb.structfile.StructFile` object
+#             to read from.
+#         :param basepos: the base position of the bytes in the given file.
+#         :param bytecount: the number of bytes to use for the bit array.
+#         """
+#
+#         self._dbfile = dbfile
+#         self._basepos = basepos
+#         self._bytecount = bytecount
+#
+#     def __repr__(self):
+#         return "%s(%s, %d, %d)" % (self.__class__.__name__, self.dbfile,
+#                                    self._basepos, self.bytecount)
+#
+#     def byte_count(self):
+#         return self._bytecount
+#
+#     def _get_byte(self, n):
+#         return self._dbfile.get_byte(self._basepos + n)
+#
+#     def _iter_bytes(self):
+#         dbfile = self._dbfile
+#         dbfile.seek(self._basepos)
+#         for _ in xrange(self._bytecount):
+#             yield dbfile.read_byte()
 
 
 class BitSet(BaseBitSet):
-    """A DocIdSet backed by an array of bits. This can also be useful as a bit
+    """
+    A DocIdSet backed by an array of bits. This can also be useful as a bit
     array (e.g. for a Bloom filter). It is much more memory efficient than a
     large built-in set of integers, but wastes memory for sparse sets.
     """
 
     def __init__(self, source=None, size=0):
         """
-        :param maxsize: the maximum size of the bit array.
         :param source: an iterable of positive integers to add to this set.
-        :param bits: an array of unsigned bytes ("B") to use as the underlying
-            bit array. This is used by some of the object's methods.
+        :param size: the maximum size of the bit array.
         """
 
         # If the source is a list, tuple, or set, we can guess the size
@@ -311,6 +317,14 @@ class BitSet(BaseBitSet):
 
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, list(self))
+
+    def __getstate__(self):
+        return array_tobytes(self.bits)
+
+    def __setstate__(self, d):
+        bits = array("B")
+        array_frombytes(bits, d)
+        self.bits = bits
 
     def byte_count(self):
         return len(self.bits)
@@ -357,8 +371,11 @@ class BitSet(BaseBitSet):
         return obj
 
     def to_disk(self, dbfile):
-        dbfile.write_array(self.bits)
+        self.bits.tofile(dbfile)
         return len(self.bits)
+
+    def to_bytes(self):
+        return array_tobytes(self.bits)
 
     @classmethod
     def from_bytes(cls, bs):
@@ -375,6 +392,30 @@ class BitSet(BaseBitSet):
         b.bits = array("B", iter(self.bits))
         return b
 
+    def range(self, start, end):
+        bits = self.bits
+        bucket = start // 8
+        if bucket >= len(bits):
+            return
+        byte = bits[bucket]
+        for i in xrange(start, end):
+            buck = i // 8
+            if buck >= len(bits):
+                return
+            if buck > bucket:
+                bucket = buck
+                byte = bits[bucket]
+            if byte & (1 << (i & 7)):
+                yield i
+
+    def approx_count(self, start, end):
+        bits = self.bits
+        sbucket = start // 8
+        if sbucket >= len(self.bits):
+            return 0
+        ebucket = max(end // 8 + 1, len(self.bits))
+        return sum(_1SPERBYTE[bits[i]] for i in xrange(sbucket, ebucket))
+
     def clear(self):
         for i in xrange(len(self.bits)):
             self.bits[i] = 0
@@ -387,7 +428,8 @@ class BitSet(BaseBitSet):
 
     def discard(self, i):
         bucket = i >> 3
-        self.bits[bucket] &= ~(1 << (i & 7))
+        if bucket < len(self.bits):
+            self.bits[bucket] &= ~(1 << (i & 7))
 
     def _resize_to_other(self, other):
         if isinstance(other, (list, tuple, set, frozenset)):
@@ -441,7 +483,8 @@ class BitSet(BaseBitSet):
 
 
 class SortedIntSet(DocIdSet):
-    """A DocIdSet backed by a sorted array of integers.
+    """
+    A DocIdSet backed by a sorted array of integers.
     """
 
     def __init__(self, source=None):
@@ -552,7 +595,8 @@ class SortedIntSet(DocIdSet):
 
 
 class MultiIdSet(DocIdSet):
-    """Wraps multiple SERIAL sub-DocIdSet objects and presents them as an
+    """
+    Wraps multiple SERIAL sub-DocIdSet objects and presents them as an
     aggregated, read-only set.
     """
 

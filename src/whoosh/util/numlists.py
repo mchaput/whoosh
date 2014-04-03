@@ -21,6 +21,15 @@ def delta_decode(nums):
         yield base
 
 
+def min_array_code(maxval):
+    if maxval >= 2**16:
+        return "i"
+    elif maxval >= 256:
+        return "H"
+    else:
+        return "B"
+
+
 class GrowableArray(object):
     def __init__(self, inittype="B", allow_longs=True):
         self.array = array(inittype)
@@ -300,7 +309,8 @@ class GInts(NumberEncoding):
     12, 13, 14, 12, 13, 14, 15, 13, 14, 15, 16])
 
     def key_to_sizes(self, key):
-        """Returns a list of the sizes of the next four numbers given a key
+        """
+        Returns a list of the sizes of the next four numbers given a key
         byte.
         """
 
@@ -338,7 +348,8 @@ class GInts(NumberEncoding):
             f.write(buf)
 
     def read_nums(self, f, n):
-        """Read N integers from the bytes stream dbfile. Expects that the file
+        """
+        Read N integers from the bytes stream dbfile. Expects that the file
         is positioned at a key byte.
         """
 

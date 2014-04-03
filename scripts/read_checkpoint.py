@@ -47,5 +47,3 @@ with ix.searcher() as s:
                 print(hit.fields())
         assert len(r) == 1, len(r)
         assert r[0]["dt"] == dt
-
-print("Done")

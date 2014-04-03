@@ -896,7 +896,8 @@ for p in xrange(0, len(rules) // _partition_size + 1):
 
 
 def variations(word):
-    """Given an English word, returns a collection of morphological variations
+    """
+    Given an English word, returns a collection of morphological variations
     on the word by algorithmically adding and removing suffixes. The variation
     list may contain non-words (e.g. render -> renderment).
 

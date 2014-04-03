@@ -31,12 +31,14 @@ from whoosh.util.text import rcompile
 # Tagger objects
 
 class Tagger(object):
-    """Base class for taggers, objects which match syntax in the query string
+    """
+    Base class for taggers, objects which match syntax in the query string
     and translate it into a :class:`whoosh.qparser.syntax.SyntaxNode` object.
     """
 
     def match(self, parser, text, pos):
-        """This method should see if this tagger matches the query string at
+        """
+        This method should see if this tagger matches the query string at
         the given position. If it matches, it should return
 
         :param parser: the :class:`whoosh.qparser.default.QueryParser` object.
@@ -49,7 +51,8 @@ class Tagger(object):
 
 
 class RegexTagger(Tagger):
-    """Tagger class that uses regular expressions to match the query string.
+    """
+    Tagger class that uses regular expressions to match the query string.
     Subclasses should override ``create()`` instead of ``match()``.
     """
 
@@ -65,7 +68,8 @@ class RegexTagger(Tagger):
                 return node
 
     def create(self, parser, match):
-        """When the regular expression matches, this method is called to
+        """
+        When the regular expression matches, this method is called to
         translate the regex match object into a syntax node.
 
         :param parser: the :class:`whoosh.qparser.default.QueryParser` object.
@@ -76,7 +80,8 @@ class RegexTagger(Tagger):
 
 
 class FnTagger(RegexTagger):
-    """Tagger that takes a regular expression and a class or function, and for
+    """
+    Tagger that takes a regular expression and a class or function, and for
     matches calls the class/function with the regex match's named groups as
     keyword arguments.
     """

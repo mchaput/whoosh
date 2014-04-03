@@ -55,7 +55,7 @@ except ImportError:
 
 # This byte sequence is written at the start of a posting list to identify the
 # codec/version
-WHOOSH3_HEADER_MAGIC = b("W3Bl")
+WHOOSH3_HEADER_MAGIC = b"W3Bl"
 
 # Column type to store field length info
 LENGTHS_COLUMN = columns.NumericColumn("B", default=0)
@@ -194,7 +194,7 @@ class W3PerDocWriter(base.PerDocWriterWithColumns):
         self._vpostfile = self._create_file(W3Codec.VPOSTS_EXT)
         # We'll use offset==0 as a marker for "no vectors", so we can't start
         # postings at position 0, so just write a few header bytes :)
-        self._vpostfile.write(b("VPST"))
+        self._vpostfile.write(b"VPST")
 
     def start_doc(self, docnum):
         if self._indoc:
@@ -574,7 +574,8 @@ class W3TermsReader(base.TermsReader):
 # Postings
 
 class W3PostingsWriter(base.PostingsWriter):
-    """This object writes posting lists to the postings file. It groups postings
+    """
+    This object writes posting lists to the postings file. It groups postings
     into blocks and tracks block level statistics to makes it easier to skip
     through the postings.
     """
@@ -796,7 +797,8 @@ class W3PostingsWriter(base.PostingsWriter):
 
 
 class W3LeafMatcher(LeafMatcher):
-    """Reads on-disk postings from the postings file and presents the
+    """
+    Reads on-disk postings from the postings file and presents the
     :class:`whoosh.matching.Matcher` interface.
     """
 

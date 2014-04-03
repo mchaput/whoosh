@@ -25,7 +25,8 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-"""This module contains low-level functions and a high-level class for parsing
+"""
+This module contains low-level functions and a high-level class for parsing
 the prolog file "wn_s.pl" from the WordNet prolog download
 into an object suitable for looking up synonyms and performing query expansion.
 
@@ -39,7 +40,8 @@ from whoosh.fields import Schema, ID, STORED
 
 
 def parse_file(f):
-    """Parses the WordNet wn_s.pl prolog file and returns two dictionaries:
+    """
+    Parses the WordNet wn_s.pl prolog file and returns two dictionaries:
     word2nums and num2words.
     """
 
@@ -67,7 +69,8 @@ def parse_file(f):
 
 
 def make_index(storage, indexname, word2nums, num2words):
-    """Creates a Whoosh index in the given storage object containing
+    """
+    Creates a Whoosh index in the given storage object containing
     synonyms taken from word2nums and num2words. Returns the Index
     object.
     """
@@ -83,7 +86,8 @@ def make_index(storage, indexname, word2nums, num2words):
 
 
 def synonyms(word2nums, num2words, word):
-    """Uses the word2nums and num2words dicts to look up synonyms
+    """
+    Uses the word2nums and num2words dicts to look up synonyms
     for the given word. Returns a list of synonym strings.
     """
 
@@ -98,7 +102,8 @@ def synonyms(word2nums, num2words, word):
 
 
 class Thesaurus(object):
-    """Represents the WordNet synonym database, either loaded into memory
+    """
+    Represents the WordNet synonym database, either loaded into memory
     from the wn_s.pl Prolog file, or stored on disk in a Whoosh index.
 
     This class allows you to parse the prolog file "wn_s.pl" from the WordNet prolog
@@ -158,7 +163,8 @@ class Thesaurus(object):
 
     @classmethod
     def from_file(cls, fileobj):
-        """Creates a Thesaurus object from the given file-like object, which should
+        """
+        Creates a Thesaurus object from the given file-like object, which should
         contain the WordNet wn_s.pl file.
 
         >>> f = open("wn_s.pl")
@@ -173,7 +179,8 @@ class Thesaurus(object):
 
     @classmethod
     def from_filename(cls, filename):
-        """Creates a Thesaurus object from the given filename, which should
+        """
+        Creates a Thesaurus object from the given filename, which should
         contain the WordNet wn_s.pl file.
 
         >>> t = Thesaurus.from_filename("wn_s.pl")
@@ -189,7 +196,8 @@ class Thesaurus(object):
 
     @classmethod
     def from_storage(cls, storage, indexname="THES"):
-        """Creates a Thesaurus object from the given storage object,
+        """
+        Creates a Thesaurus object from the given storage object,
         which should contain an index created by Thesaurus.to_storage().
 
         >>> from whoosh.filedb.filestore import FileStorage
@@ -210,7 +218,8 @@ class Thesaurus(object):
         return thes
 
     def to_storage(self, storage, indexname="THES"):
-        """Creates am index in the given storage object from the
+        """
+        Creates am index in the given storage object from the
         synonyms loaded from a WordNet file.
 
         >>> from whoosh.filedb.filestore import FileStorage
@@ -229,7 +238,8 @@ class Thesaurus(object):
         make_index(storage, indexname, self.w2n, self.n2w)
 
     def synonyms(self, word):
-        """Returns a list of synonyms for the given word.
+        """
+        Returns a list of synonyms for the given word.
 
         >>> thesaurus.synonyms("hail")
         ['acclaim', 'come', 'herald']

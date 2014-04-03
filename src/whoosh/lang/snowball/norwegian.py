@@ -24,7 +24,7 @@ class NorwegianStemmer(_ScandinavianStemmer):
 
     """
 
-    __vowels = u("aeiouy\xE6\xE5\xF8")
+    __vowels = u"aeiouy\xE6\xE5\xF8"
     __s_ending = "bcdfghjlmnoprtvyz"
     __step1_suffixes = ("hetenes", "hetene", "hetens", "heter",
                         "heten", "endes", "ande", "ende", "edes",

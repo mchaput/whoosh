@@ -25,12 +25,14 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+from whoosh.compat import xrange
 from whoosh.matching import ConstantScoreMatcher, NullMatcher, ReadTooFar
 from whoosh.query import Query
 
 
 class ColumnQuery(Query):
-    """A query that matches per-document values stored in a column rather than
+    """
+    A query that matches per-document values stored in a column rather than
     terms in the inverted index.
 
     This may be useful in special circumstances, but note that this is MUCH
@@ -69,25 +71,28 @@ class ColumnQuery(Query):
             return NullMatcher()
 
         creader = reader.column_reader(fieldname)
-        return ColumnMatcher(creader, comp)
+        mindoc, maxdoc = searcher.doc_id_range()
+        return ColumnMatcher(creader, comp, maxdoc + 1)
 
 
 class ColumnMatcher(ConstantScoreMatcher):
-    def __init__(self, creader, condition):
+    def __init__(self, creader, condition, limit):
         self.creader = creader
         self.condition = condition
+        self.limit = limit
         self._i = 0
         self._find_next()
 
     def _find_next(self):
-        condition = self.condition
         creader = self.creader
+        condition = self.condition
+        limit = self.limit
 
-        while self._i < len(creader) and not condition(creader[self._i]):
+        while self._i < limit and not condition(creader[self._i]):
             self._i += 1
 
     def is_active(self):
-        return self._i < len(self.creader)
+        return self._i < self.limit
 
     def next(self):
         if not self.is_active():
@@ -103,15 +108,17 @@ class ColumnMatcher(ConstantScoreMatcher):
         return self._i
 
     def all_ids(self):
+        creader = self.creader
         condition = self.condition
-        for docnum, v in enumerate(self.creader):
-            if condition(v):
-                yield docnum
+
+        for docid in xrange(self.limit):
+            if condition(creader[docid]):
+                yield docid
 
     def supports(self, astype):
         return False
 
     def skip_to_quality(self, minquality):
         if self._score <= minquality:
-            self._i = len(self.creader)
+            self._i = self.limit
             return True

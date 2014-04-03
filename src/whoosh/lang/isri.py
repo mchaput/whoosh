@@ -195,7 +195,8 @@ class ISRIStemmer(object):
             return self.stm
 
     def pre32(self):
-        """remove length three and length two prefixes in this order"""
+        """
+        remove length three and length two prefixes in this order"""
         if len(self.stm) >= 6:
             for pre3 in self.p3:
                 if self.stm.startswith(pre3):
@@ -208,7 +209,8 @@ class ISRIStemmer(object):
                             return self.stm
 
     def suf32(self):
-        """remove length three and length two suffixes in this order"""
+        """
+        remove length three and length two suffixes in this order"""
         if len(self.stm) >= 6:
             for suf3 in self.s3:
                 if self.stm.endswith(suf3):
@@ -222,13 +224,15 @@ class ISRIStemmer(object):
 
 
     def waw(self):
-        """remove connective ‘و’ if it precedes a word beginning with ‘و’ """
+        """
+        remove connective ‘و’ if it precedes a word beginning with ‘و’ """
         if (len(self.stm) >= 4) & (self.stm[:2] == '\u0648\u0648'):
             self.stm = self.stm[1:]
             return self.stm
 
     def pro_w4(self):
-        """process length four patterns and extract length three roots"""
+        """
+        process length four patterns and extract length three roots"""
         if self.stm[0] in self.pr4[0]:      #  مفعل
             self.stm = self.stm[1:]
             return self.stm
@@ -248,7 +252,8 @@ class ISRIStemmer(object):
             return self.stm
 
     def pro_w53(self):
-        """process length five patterns and extract length three roots"""
+        """
+        process length five patterns and extract length three roots"""
         if ((self.stm[2] in self.pr53[0]) & (self.stm[0] == '\u0627')):    #  افتعل   -  افاعل
             self.stm = self.stm[1] + self.stm[3:]
             return self.stm
@@ -301,7 +306,8 @@ class ISRIStemmer(object):
             return self.stm
 
     def pro_w54(self):
-        """process length five patterns and extract length four roots"""
+        """
+        process length five patterns and extract length four roots"""
         if (self.stm[0] in self.pr53[2]):       #تفعلل - افعلل - مفعلل
             self.stm = self.stm[1:]
             return self.stm
@@ -313,7 +319,8 @@ class ISRIStemmer(object):
             return self.stm
 
     def end_w5(self):
-        """ending step (word of length five)"""
+        """
+        ending step (word of length five)"""
         if len(self.stm) == 3:
             return self.stm
         elif len(self.stm) == 4:
@@ -324,7 +331,8 @@ class ISRIStemmer(object):
             return self.stm
 
     def pro_w6(self):
-        """process length six patterns and extract length three roots"""
+        """
+        process length six patterns and extract length three roots"""
         if ((self.stm.startswith('\u0627\u0633\u062a')) or (self.stm.startswith('\u0645\u0633\u062a'))):   #   مستفعل   -    استفعل
             self.stm = self.stm[3:]
             return self.stm
@@ -347,7 +355,8 @@ class ISRIStemmer(object):
             return self.stm
 
     def pro_w64(self):
-        """process length six patterns and extract length four roots"""
+        """
+        process length six patterns and extract length four roots"""
         if (self.stm[0] and self.stm[4]) == '\u0627':      #  افعلال
             self.stm = self.stm[1:4] + self.stm[5]
             return self.stm
@@ -356,7 +365,8 @@ class ISRIStemmer(object):
             return self.stm
 
     def end_w6(self):
-        """ending step (word of length six)"""
+        """
+        ending step (word of length six)"""
         if len(self.stm) == 3:
             return self.stm
         elif len(self.stm) == 5:
@@ -368,14 +378,16 @@ class ISRIStemmer(object):
             return self.stm
 
     def suf1(self):
-        """normalize short sufix"""
+        """
+        normalize short sufix"""
         for sf1 in self.s1:
             if self.stm.endswith(sf1):
                 self.stm = self.stm[:-1]
                 return self.stm
 
     def pre1(self):
-        """normalize short prefix"""
+        """
+        normalize short prefix"""
         for sp1 in self.p1:
             if self.stm.startswith(sp1):
                 self.stm = self.stm[1:]

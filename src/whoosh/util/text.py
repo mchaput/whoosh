@@ -64,13 +64,14 @@ def prefix_encode(a, b):
 
 
 def prefix_encode_all(ls):
-    """Compresses the given list of (unicode) strings by storing each string
+    """
+    Compresses the given list of (unicode) strings by storing each string
     (except the first one) as an integer (encoded in a byte) representing
     the prefix it shares with its predecessor, followed by the suffix encoded
     as UTF-8.
     """
 
-    last = u('')
+    last = u''
     for w in ls:
         i = first_diff(last, w)
         yield chr(i) + w[i:].encode("utf-8")
@@ -78,10 +79,11 @@ def prefix_encode_all(ls):
 
 
 def prefix_decode_all(ls):
-    """Decompresses a list of strings compressed by prefix_encode().
+    """
+    Decompresses a list of strings compressed by prefix_encode().
     """
 
-    last = u('')
+    last = u''
     for w in ls:
         i = ord(w[0])
         decoded = last[:i] + w[1:].decode("utf-8")
@@ -102,7 +104,8 @@ def _nkconv(i):
 
 
 def natural_key(s):
-    """Converts string ``s`` into a tuple that will sort "naturally" (i.e.,
+    """
+    Converts string ``s`` into a tuple that will sort "naturally" (i.e.,
     ``name5`` will come before ``name10`` and ``1`` will come before ``A``).
     This function is designed to be used as the ``key`` argument to sorting
     functions.
@@ -120,7 +123,8 @@ def natural_key(s):
 # Regular expression functions
 
 def rcompile(pattern, flags=0, verbose=False):
-    """A wrapper for re.compile that checks whether "pattern" is a regex object
+    """
+    A wrapper for re.compile that checks whether "pattern" is a regex object
     or a string to be compiled, and automatically adds the re.UNICODE flag.
     """
 

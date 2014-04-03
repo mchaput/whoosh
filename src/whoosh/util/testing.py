@@ -26,13 +26,11 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 import os.path
-import random
 import shutil
 import sys
 import tempfile
 from contextlib import contextmanager
 
-from whoosh.filedb.filestore import FileStorage
 from whoosh.util import now, random_name
 
 
@@ -73,53 +71,41 @@ class TempDir(object):
                 return False
 
 
-class TempStorage(TempDir):
-    def __init__(self, debug=False, **kwargs):
-        TempDir.__init__(self, **kwargs)
-        self._debug = debug
+class TempDB(TempDir):
+    def __init__(self, basename="", dbclass=None, **kwargs):
+        TempDir.__init__(self, basename, **kwargs)
 
-    def cleanup(self):
-        self.store.close()
+        if not dbclass:
+            from whoosh.kv import default_db_class
+            dbclass = default_db_class
+
+        self.dbclass = dbclass
+        self.db = None
 
     def __enter__(self):
         dirpath = TempDir.__enter__(self)
-        self.store = FileStorage(dirpath, debug=self._debug)
-        return self.store
+        self.db = self.dbclass(dirpath)
+        return self.db
+
+    def cleanup(self):
+        self.db.close()
 
 
-class TempIndex(TempStorage):
-    def __init__(self, schema, ixname='', storage_debug=False, **kwargs):
-        TempStorage.__init__(self, basename=ixname, debug=storage_debug,
-                             **kwargs)
+class TempIndex(TempDB):
+    def __init__(self, schema, ixname='', codec=None, dbclass=None, **kwargs):
+        TempDB.__init__(self, basename=ixname, dbclass=dbclass, **kwargs)
         self.schema = schema
 
+        if not codec:
+            from whoosh.codec import default_codec
+            codec = default_codec()
+        self.codec = codec
+
     def __enter__(self):
-        fstore = TempStorage.__enter__(self)
-        return fstore.create_index(self.schema, indexname=self.basename)
+        from whoosh.index import Index
 
-
-def is_abstract_method(attr):
-    """Returns True if the given object has __isabstractmethod__ == True.
-    """
-
-    return (hasattr(attr, "__isabstractmethod__")
-            and getattr(attr, "__isabstractmethod__"))
-
-
-def check_abstract_methods(base, subclass):
-    """Raises AssertionError if ``subclass`` does not override a method on
-    ``base`` that is marked as an abstract method.
-    """
-
-    for attrname in dir(base):
-        if attrname.startswith("_"):
-            continue
-        attr = getattr(base, attrname)
-        if is_abstract_method(attr):
-            oattr = getattr(subclass, attrname)
-            if is_abstract_method(oattr):
-                raise Exception("%s.%s not overridden"
-                                % (subclass.__name__, attrname))
+        db = TempDB.__enter__(self)
+        return Index.create(db, self.codec, self.schema)
 
 
 @contextmanager

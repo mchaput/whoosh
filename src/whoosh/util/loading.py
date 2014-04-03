@@ -29,7 +29,8 @@ import pickle
 
 
 class RenamingUnpickler(pickle.Unpickler):
-    """Subclasses ``pickle.Unpickler`` to allow remapping of class names before
+    """
+    Subclasses ``pickle.Unpickler`` to allow remapping of class names before
     loading them.
     """
 
@@ -53,7 +54,8 @@ class RenamingUnpickler(pickle.Unpickler):
 
 
 def find_object(name, blacklist=None, whitelist=None):
-    """Imports and returns an object given a fully qualified name.
+    """
+    Imports and returns an object given a fully qualified name.
 
     >>> find_object("whoosh.analysis.StopFilter")
     <class 'whoosh.analysis.StopFilter'>

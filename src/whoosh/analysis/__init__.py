@@ -25,7 +25,8 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-"""Classes and functions for turning a piece of text into an indexable stream
+"""
+Classes and functions for turning a piece of text into an indexable stream
 of "tokens" (usually equivalent to words). There are three general classes
 involved in analysis:
 
@@ -60,7 +61,7 @@ The first item must be a tokenizer and the rest must be filters (you can't put
 a filter first or a tokenizer after the first item).
 """
 
-from whoosh.analysis.acore import *
+from whoosh.analysis.analysis import *
 from whoosh.analysis.tokenizers import *
 from whoosh.analysis.filters import *
 from whoosh.analysis.morph import *

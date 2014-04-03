@@ -37,14 +37,16 @@ class CompositionError(Exception):
 # Utility functions
 
 def unstopped(tokenstream):
-    """Removes tokens from a token stream where token.stopped = True.
+    """
+    Removes tokens from a token stream where token.stopped = True.
     """
     return (t for t in tokenstream if not t.stopped)
 
 
 def entoken(textstream, positions=False, chars=False, start_pos=0,
             start_char=0, **kwargs):
-    """Takes a sequence of unicode strings and yields a series of Token objects
+    """
+    Takes a sequence of unicode strings and yields a series of Token objects
     (actually the same Token object over and over, for performance reasons),
     with the attributes filled in with reasonable values (for example, if
     ``positions`` or ``chars`` is True, the function assumes each token was
@@ -102,7 +104,7 @@ class Token(object):
     """
 
     def __init__(self, positions=False, chars=False, removestops=True, mode='',
-                 **kwargs):
+                 payload=None, nomorph=False, **kwargs):
         """
         :param positions: Whether tokens should have the token position in the
             'pos' attribute.
@@ -112,14 +114,19 @@ class Token(object):
             the tokens pass through a stop filter).
         :param mode: contains a string describing the purpose for which the
             analyzer is being called, i.e. 'index' or 'query'.
+        :param nomorph: Whether filters that transform the text of the toekn
+            should keep an un-transformed version in the ``unmorphed``
+            attribute.
         """
 
+        self.boost = 1.0
         self.positions = positions
         self.chars = chars
+        self.payload = payload
         self.stopped = False
-        self.boost = 1.0
         self.removestops = removestops
         self.mode = mode
+        self.nomorph = nomorph
         self.__dict__.update(kwargs)
 
     def __repr__(self):
@@ -151,6 +158,3 @@ class Composable(object):
                               for key, value
                               in iteritems(self.__dict__))
         return self.__class__.__name__ + "(%s)" % attrs
-
-    def has_morph(self):
-        return self.is_morph

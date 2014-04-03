@@ -31,11 +31,12 @@ import copy
 from whoosh import matching
 from whoosh.analysis import Token
 from whoosh.compat import u
-from whoosh.query import qcore, terms, compound
+from whoosh.query import query, terms, compound
 
 
 class Sequence(compound.CompoundQuery):
-    """Matches documents containing a list of sub-queries in adjacent
+    """
+    Matches documents containing a list of sub-queries in adjacent
     positions.
 
     This object has no sanity check to prevent you from using queries in
@@ -102,7 +103,8 @@ class Sequence(compound.CompoundQuery):
 
 
 class Ordered(Sequence):
-    """Matches documents containing a list of sub-queries in the given order.
+    """
+    Matches documents containing a list of sub-queries in the given order.
     """
 
     JOINT = " BEFORE "
@@ -114,8 +116,9 @@ class Ordered(Sequence):
                                   context, None)
 
 
-class Phrase(qcore.Query):
-    """Matches documents containing a given phrase."""
+class Phrase(query.Query):
+    """
+    Matches documents containing a given phrase."""
 
     def __init__(self, fieldname, words, slop=1, boost=1.0, char_ranges=None):
         """
@@ -149,7 +152,7 @@ class Phrase(qcore.Query):
                                                   self.slop, self.boost)
 
     def __unicode__(self):
-        return u('%s:"%s"') % (self.fieldname, u(" ").join(self.words))
+        return u'%s:"%s"' % (self.fieldname, u" ".join(self.words))
 
     __str__ = __unicode__
 
@@ -180,7 +183,7 @@ class Phrase(qcore.Query):
 
     def normalize(self):
         if not self.words:
-            return qcore.NullQuery
+            return query.NullQuery
         if len(self.words) == 1:
             t = terms.Term(self.fieldname, self.words[0])
             if self.char_ranges:
@@ -218,7 +221,7 @@ class Phrase(qcore.Query):
 
         field = searcher.schema[fieldname]
         if not field.format or not field.format.supports("positions"):
-            raise qcore.QueryError("Phrase search: %r field has no positions"
+            raise query.QueryError("Phrase search: %r field has no positions"
                                    % self.fieldname)
 
         terms = []

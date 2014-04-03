@@ -27,7 +27,7 @@
 
 from whoosh.compat import text_type
 from whoosh.compat import xrange
-from whoosh.analysis.acore import Token
+from whoosh.analysis import Token
 from whoosh.analysis.filters import Filter, LowercaseFilter
 from whoosh.analysis.tokenizers import Tokenizer, RegexTokenizer
 
@@ -35,7 +35,8 @@ from whoosh.analysis.tokenizers import Tokenizer, RegexTokenizer
 # Tokenizer
 
 class NgramTokenizer(Tokenizer):
-    """Splits input text into N-grams instead of words.
+    """
+    Splits input text into N-grams instead of words.
 
     >>> ngt = NgramTokenizer(4)
     >>> [token.text for token in ngt("hi there")]
@@ -117,7 +118,8 @@ class NgramTokenizer(Tokenizer):
 # Filter
 
 class NgramFilter(Filter):
-    """Splits token text into N-grams.
+    """
+    Splits token text into N-grams.
 
     >>> rext = RegexTokenizer()
     >>> stream = rext("hello there")
@@ -221,7 +223,8 @@ class NgramFilter(Filter):
 # Analyzers
 
 def NgramAnalyzer(minsize, maxsize=None):
-    """Composes an NgramTokenizer and a LowercaseFilter.
+    """
+    Composes an NgramTokenizer and a LowercaseFilter.
 
     >>> ana = NgramAnalyzer(4)
     >>> [token.text for token in ana("hi there")]

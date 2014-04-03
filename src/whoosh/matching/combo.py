@@ -29,10 +29,10 @@ from __future__ import division
 from array import array
 
 from whoosh.compat import xrange
-from whoosh.matching import mcore
+from whoosh.matching import matching
 
 
-class CombinationMatcher(mcore.Matcher):
+class CombinationMatcher(matching.Matcher):
     def __init__(self, submatchers, boost=1.0):
         self._submatchers = submatchers
         self._boost = boost
@@ -55,7 +55,8 @@ class CombinationMatcher(mcore.Matcher):
 
 
 class PreloadedUnionMatcher(CombinationMatcher):
-    """Instead of marching the sub-matchers along in parallel, this
+    """
+    Instead of marching the sub-matchers along in parallel, this
     matcher pre-reads the scores for EVERY MATCHING DOCUMENT, trading memory
     for speed.
 
@@ -66,10 +67,10 @@ class PreloadedUnionMatcher(CombinationMatcher):
     current document, just an array of scores.
     """
 
-    def __init__(self, submatchers, doccount, boost=1.0, scored=True):
+    def __init__(self, submatchers, doclimit, boost=1.0, scored=True):
         CombinationMatcher.__init__(self, submatchers, boost=boost)
 
-        self._doccount = doccount
+        self._doclimit = doclimit
 
         a = array("d")
         active = [subm for subm in self._submatchers if subm.is_active()]
@@ -158,7 +159,8 @@ class PreloadedUnionMatcher(CombinationMatcher):
 
 
 class ArrayUnionMatcher(CombinationMatcher):
-    """Instead of marching the sub-matchers along in parallel, this matcher
+    """
+    Instead of marching the sub-matchers along in parallel, this matcher
     pre-reads the scores for a large block of documents at a time from each
     matcher, accumulating the scores in an array.
 
@@ -169,14 +171,14 @@ class ArrayUnionMatcher(CombinationMatcher):
     current document, just an array of scores.
     """
 
-    def __init__(self, submatchers, doccount, boost=1.0, scored=True,
+    def __init__(self, submatchers, doclimit, boost=1.0, scored=True,
                  partsize=2048):
         CombinationMatcher.__init__(self, submatchers, boost=boost)
         self._scored = scored
-        self._doccount = doccount
+        self._doclimit = doclimit
 
         if not partsize:
-            partsize = doccount
+            partsize = doclimit
         self._partsize = partsize
 
         self._a = array("d", (0 for _ in xrange(self._partsize)))
@@ -193,12 +195,12 @@ class ArrayUnionMatcher(CombinationMatcher):
         if active:
             return min(subm.id() for subm in active)
         else:
-            return self._doccount
+            return self._doclimit
 
     def _read_part(self):
         scored = self._scored
         boost = self._boost
-        limit = min(self._docnum + self._partsize, self._doccount)
+        limit = min(self._docnum + self._partsize, self._doclimit)
         offset = self._docnum
         a = self._a
 
@@ -241,7 +243,7 @@ class ArrayUnionMatcher(CombinationMatcher):
         return False
 
     def is_active(self):
-        return self._docnum < self._doccount
+        return self._docnum < self._doclimit
 
     def max_quality(self):
         return max(m.max_quality() for m in self._submatchers)
@@ -271,7 +273,7 @@ class ArrayUnionMatcher(CombinationMatcher):
             self._docnum = self._min_id()
             self._read_part()
         else:
-            self._docnum = self._doccount
+            self._docnum = self._doclimit
 
     def skip_to_quality(self, minquality):
         skipped = 0
@@ -287,7 +289,7 @@ class ArrayUnionMatcher(CombinationMatcher):
         return self._docnum
 
     def all_ids(self):
-        doccount = self._doccount
+        doccount = self._doclimit
         docnum = self._docnum
         offset = self._offset
         limit = self._limit

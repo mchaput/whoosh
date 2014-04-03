@@ -25,7 +25,7 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from whoosh.query.qcore import *
+from whoosh.query.query import *
 from whoosh.query.terms import *
 from whoosh.query.compound import *
 from whoosh.query.positional import *

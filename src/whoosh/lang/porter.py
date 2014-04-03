@@ -77,7 +77,8 @@ _step5 = re.compile("^(.+?)e$")
 # Stemming function
 
 def stem(w):
-    """Uses the Porter stemming algorithm to remove suffixes from English
+    """
+    Uses the Porter stemming algorithm to remove suffixes from English
     words.
 
     >>> stem("fundamentally")

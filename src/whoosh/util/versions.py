@@ -82,7 +82,8 @@ class BaseVersion(object):
 
 
 class SimpleVersion(BaseVersion):
-    """An object that parses version numbers such as::
+    """
+    An object that parses version numbers such as::
 
         12.2.5b
 
@@ -113,7 +114,8 @@ class SimpleVersion(BaseVersion):
         )?
     )?
     $
-    """, verbose=True)
+    """
+    , verbose=True)
 
     # (groupid, method, skippable, default)
     _parts = [("major", int),

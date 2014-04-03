@@ -25,7 +25,8 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-"""The highlight module contains classes and functions for displaying short
+"""
+The highlight module contains classes and functions for displaying short
 excerpts from hit documents in the search results you present to the user, with
 query terms highlighted.
 
@@ -64,7 +65,8 @@ DEFAULT_CHARLIMIT = 2 ** 15
 
 def mkfrag(text, tokens, startchar=None, endchar=None,
            charsbefore=0, charsafter=0):
-    """Returns a :class:`Fragment` object based on the :class:`analysis.Token`
+    """
+    Returns a :class:`Fragment` object based on the :class:`analysis.Token`
     objects in ``tokens`.
     """
 
@@ -80,7 +82,8 @@ def mkfrag(text, tokens, startchar=None, endchar=None,
 
 
 class Fragment(object):
-    """Represents a fragment (extract) from a hit document. This object is
+    """
+    Represents a fragment (extract) from a hit document. This object is
     mainly used to keep track of the start and end points of the fragment and
     the "matched" character ranges inside; it does not contain the text of the
     fragment or do much else.
@@ -166,7 +169,8 @@ def set_matched_filter(tokens, termset):
 
 class Fragmenter(object):
     def must_retokenize(self):
-        """Returns True if this fragmenter requires retokenized text.
+        """
+        Returns True if this fragmenter requires retokenized text.
 
         If this method returns True, the fragmenter's ``fragment_tokens``
         method  will be called with an iterator of ALL tokens from the text,
@@ -180,7 +184,8 @@ class Fragmenter(object):
         return True
 
     def fragment_tokens(self, text, all_tokens):
-        """Yields :class:`Fragment` objects based on the tokenized text.
+        """
+        Yields :class:`Fragment` objects based on the tokenized text.
 
         :param text: the string being highlighted.
         :param all_tokens: an iterator of :class:`analysis.Token`
@@ -190,7 +195,8 @@ class Fragmenter(object):
         raise NotImplementedError
 
     def fragment_matches(self, text, matched_tokens):
-        """Yields :class:`Fragment` objects based on the text and the matched
+        """
+        Yields :class:`Fragment` objects based on the text and the matched
         terms.
 
         :param text: the string being highlighted.
@@ -202,7 +208,8 @@ class Fragmenter(object):
 
 
 class WholeFragmenter(Fragmenter):
-    """Doesn't fragment the token stream. This object just returns the entire
+    """
+    Doesn't fragment the token stream. This object just returns the entire
     entire stream as one "fragment". This is useful if you want to highlight
     the entire text.
 
@@ -244,7 +251,8 @@ NullFragmeter = WholeFragmenter
 
 
 class SentenceFragmenter(Fragmenter):
-    """Breaks the text up on sentence end punctuation characters
+    """
+    Breaks the text up on sentence end punctuation characters
     (".", "!", or "?"). This object works by looking in the original text for a
     sentence end as the next character after each token's 'endchar'.
 
@@ -320,7 +328,8 @@ class SentenceFragmenter(Fragmenter):
 
 
 class ContextFragmenter(Fragmenter):
-    """Looks for matched terms and aggregates them with their surrounding
+    """
+    Looks for matched terms and aggregates them with their surrounding
     context.
     """
 
@@ -408,7 +417,8 @@ class ContextFragmenter(Fragmenter):
 
 
 class PinpointFragmenter(Fragmenter):
-    """This is a NON-RETOKENIZING fragmenter. It builds fragments from the
+    """
+    This is a NON-RETOKENIZING fragmenter. It builds fragments from the
     positions of the matched terms.
     """
 
@@ -532,7 +542,8 @@ def SHORTER(fragment):
 # Formatters
 
 def get_text(original, token, replace):
-    """Convenience function for getting the text to use for a match when
+    """
+    Convenience function for getting the text to use for a match when
     formatting.
 
     If ``replace`` is False, returns the part of ``original`` between
@@ -547,7 +558,8 @@ def get_text(original, token, replace):
 
 
 class Formatter(object):
-    """Base class for formatters.
+    """
+    Base class for formatters.
 
     For highlighters that return strings, it is usually only necessary to
     override :meth:`Formatter.format_token`.
@@ -566,7 +578,8 @@ class Formatter(object):
         return text
 
     def format_token(self, text, token, replace=False):
-        """Returns a formatted version of the given "token" object, which
+        """
+        Returns a formatted version of the given "token" object, which
         should have at least ``startchar`` and ``endchar`` attributes, and
         a ``text`` attribute if ``replace`` is True.
 
@@ -581,7 +594,8 @@ class Formatter(object):
         raise NotImplementedError
 
     def format_fragment(self, fragment, replace=False):
-        """Returns a formatted version of the given text, using the "token"
+        """
+        Returns a formatted version of the given text, using the "token"
         objects in the given :class:`Fragment`.
 
         :param fragment: a :class:`Fragment` object representing a list of
@@ -608,7 +622,8 @@ class Formatter(object):
         return out_string
 
     def format(self, fragments, replace=False):
-        """Returns a formatted version of the given text, using a list of
+        """
+        Returns a formatted version of the given text, using a list of
         :class:`Fragment` objects.
         """
 
@@ -622,7 +637,8 @@ class Formatter(object):
 
 
 class NullFormatter(Formatter):
-    """Formatter that does not modify the string.
+    """
+    Formatter that does not modify the string.
     """
 
     def format_token(self, text, token, replace=False):
@@ -630,7 +646,8 @@ class NullFormatter(Formatter):
 
 
 class UppercaseFormatter(Formatter):
-    """Returns a string in which the matched terms are in UPPERCASE.
+    """
+    Returns a string in which the matched terms are in UPPERCASE.
     """
 
     def __init__(self, between="..."):
@@ -646,7 +663,8 @@ class UppercaseFormatter(Formatter):
 
 
 class HtmlFormatter(Formatter):
-    """Returns a string containing HTML formatting around the matched terms.
+    """
+    Returns a string containing HTML formatting around the matched terms.
 
     This formatter wraps matched terms in an HTML element with two class names.
     The first class name (set with the constructor argument ``classname``) is
@@ -711,13 +729,15 @@ class HtmlFormatter(Formatter):
                                 "tn": termnum}
 
     def clean(self):
-        """Clears the dictionary mapping terms to HTML classnames.
+        """
+        Clears the dictionary mapping terms to HTML classnames.
         """
         self.seen = {}
 
 
 class GenshiFormatter(Formatter):
-    """Returns a Genshi event stream containing HTML formatting around the
+    """
+    Returns a Genshi event stream containing HTML formatting around the
     matched terms.
     """
 
@@ -847,13 +867,17 @@ class Highlighter(object):
 
         for text in texts:
             btext = to_bytes(text)
-            m = results.searcher.postings(fieldname, btext)
+            m = results.searcher.matcher(fieldname, btext)
             docset = set(results.termdocs[(fieldname, btext)])
             for docnum in sorted_ids:
                 if docnum in docset:
                     m.skip_to(docnum)
                     assert m.id() == docnum
-                    cache[docnum][text] = m.value_as("characters")
+                    try:
+                        cache[docnum][text] = m.spans()
+                    except NotImplementedError:
+                        raise NotImplementedError("%s.chars() not implemented"
+                                                  % m.__class__.__name__)
 
     def highlight_hit(self, hitobj, fieldname, text=None, top=3, minscore=1):
         results = hitobj.results
@@ -888,12 +912,13 @@ class Highlighter(object):
             tokens = []
             charlimit = self.fragmenter.charlimit
             for word in words:
-                chars = cmap[word]
-                for pos, startchar, endchar in chars:
-                    if charlimit and endchar > charlimit:
+                spans = cmap[word]
+                for span in spans:
+                    if charlimit and span.endchar > charlimit:
                         break
-                    tokens.append(Token(text=word, pos=pos,
-                                        startchar=startchar, endchar=endchar))
+                    tokens.append(Token(text=word, pos=span.start,
+                                        startchar=span.startchar,
+                                        endchar=span.endchar))
             tokens.sort(key=lambda t: t.startchar)
             fragments = self.fragmenter.fragment_matches(text, tokens)
         else:
