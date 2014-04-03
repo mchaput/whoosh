@@ -91,6 +91,14 @@ class IndexWriter(object):
             else:
                 self.commit()
 
+    @abstractmethod
+    def clear(self):
+        """
+        Clear all information from the index.
+        """
+
+        raise NotImplementedError
+
     def group(self):
         """
         Returns a context manager that calls
@@ -389,6 +397,10 @@ class DBWriter(IndexWriter):
         self.closed = False
         self.merge = True
         self.optimize = False
+
+    @unclosed
+    def clear(self):
+        self._docwriter.clear()
 
     @unclosed
     def reader(self, **kwargs):

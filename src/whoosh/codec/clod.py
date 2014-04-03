@@ -654,6 +654,7 @@ class ClodCodec(codec.Codec):
 class ClodDocWriter(codec.DocWriter):
     def __init__(self, txn):
         self._txn = txn
+        self._postinglimit = 100000
 
         self._docid = -1
         self._lastid = -1
@@ -666,8 +667,7 @@ class ClodDocWriter(codec.DocWriter):
         self._postings = defaultdict(list)
         # Caches doc field length statistics
         self._lengths = LengthsCache(self._txn)
-        # Caches fieldna
-        # me -> fieldbytes encodings
+        # Caches fieldname -> fieldbytes encodings
         self._fieldcache = {}
         # Track the IDs of deleted documents to remove them from posting lists
         self._deleted = set()
@@ -675,7 +675,19 @@ class ClodDocWriter(codec.DocWriter):
         # self._tagmaps = TagmapCache(self._txn)
 
         self._postingcount = 0
-        self._postinglimit = 100000
+
+    def clear(self):
+        assert not self._indoc
+        self._txn.clear()
+        self._reset()
+
+    def _reset(self):
+        self._docmaps = DocmapCache(self._txn)
+        self._postings = defaultdict(list)
+        self._lengths = LengthsCache(self._txn)
+        self._fieldcache = {}
+        self._deleted = set()
+        self._postingcount = 0
 
     def next_doc_id(self):
         return self._docmaps.next_doc_id()

@@ -220,3 +220,19 @@ def test_deleted_in_cursor():
             cur = w.cursor()
             ls = list(cur.expand_prefix(b"0x"))
             assert ls == sorted(keyset)
+
+
+def test_clear():
+    with TempDir("blclear") as dirpath:
+        db = bl.Blueline(dirpath)
+        with db.open(write=True, create=True) as w:
+            for i in xrange(0, 700, 7):
+                w[b(hex(i))] = b"v"
+
+        with db.open(write=True) as w:
+            w.clear()
+
+        with db.open() as r:
+            assert len(r) == 0
+            assert list(r) == []
+            assert r.get(b"0x0") is None

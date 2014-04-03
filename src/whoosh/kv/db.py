@@ -206,6 +206,10 @@ class DBWriter(DBReader):
     def __delitem__(self, key):
         raise NotImplementedError
 
+    def clear(self):
+        for key in self:
+            del self[key]
+
     def delete_by_prefix(self, prefix):
         # Hopefully you can override this implementation in your subclass
         keys = list(self.expand_prefix(prefix))

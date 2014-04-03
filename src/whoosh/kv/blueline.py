@@ -342,6 +342,7 @@ class BluelineWriter(BluelineReader, DBWriter):
         self._mm = db.map_from_file(self._datafile, use_mmap)
         self._datafile.seek(0, 2)
         self._startlength = self._datafile.tell()
+        self._cachesize = cachesize
         self._cache = BlockCache(self.load, self.save, self.new_tag,
                                  self._leaving, cachesize)
         self._cursorpool = []
@@ -353,7 +354,6 @@ class BluelineWriter(BluelineReader, DBWriter):
         self._buffersize = buffersize
         self._bufferkeys = None
         self._buffered = 0
-        self._settime = 0.0
         self.closed = False
 
     def __len__(self):
@@ -367,7 +367,6 @@ class BluelineWriter(BluelineReader, DBWriter):
 
     def __setitem__(self, key, value):
         assert isinstance(key, bytes_type) and isinstance(value, bytes_type)
-        t = now()
         self._buffer[key] = value
         self._bufferkeys = None
         self._buffered += len(key) + len(value)
@@ -380,7 +379,6 @@ class BluelineWriter(BluelineReader, DBWriter):
         # block[key] = value
         # if len(block) > 2 and len(block) > self._blocksize:
         #     self._split(i, block)
-        self._settime += now() - t
 
     def __delitem__(self, key):
         if key in self._buffer:
@@ -395,8 +393,15 @@ class BluelineWriter(BluelineReader, DBWriter):
                 self._cache.remove(block.tag)
                 del self._toc[i]
 
-    def dump_blocks(self):
-        self._cache.dump_blocks()
+    def clear(self):
+        self._toc = Toc(self._toc.filename, [])
+        self._datafile = self._db.create_file(self._toc.filename, mode="r+b")
+        self._cache = BlockCache(self.load, self.save, self.new_tag,
+                                 self._leaving, self._cachesize)
+        self._cursorpool = []
+        self._buffer = {}
+        self._bufferkeys = None
+        self._buffered = 0
 
     def new_tag(self):
         return self._db.new_tag(self._toc.tagset())
@@ -499,7 +504,6 @@ class BluelineWriter(BluelineReader, DBWriter):
             yield ([], keys[left:], len(keys) - left)
 
     def flush(self):
-        t = now()
         toc = self._toc
         cache = self._cache
         buff = self._buffer
