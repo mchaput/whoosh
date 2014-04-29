@@ -25,6 +25,8 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+from itertools import chain
+
 from whoosh.compat import u, text_type
 from whoosh.analysis import Composable, Token
 from whoosh.util.text import rcompile
@@ -183,6 +185,70 @@ class RegexTokenizer(Tokenizer):
                     t.startchar = prevend
                     t.endchar = len(value)
                 yield t
+
+
+class AlphaNumTokenizer(Tokenizer):
+    """
+    Tokenizes text using an "overall word" expression, and then within those
+    words, tokenizes runs of letters and runs of numbers.
+
+    >>> ant = AlphaNumTokenizer()
+    >>> [t.text for t in ant("12-25corrosion5")]
+    ["12-25corrosion5", "corrosion", "12", "25", "5"]
+    """
+
+    def __init__(self, word_expr="([-]|\w)+", alpha_expr="[^\W\d_]+",
+                 num_expr="\d+"):
+        """
+        :param word_expr: a regular expression to match the "overall word".
+        :param alpha_expr: a regular expression to match runs of letters.
+        :param num_expr: a regular expression to match runs of numbers.
+        """
+
+        self.word_expr = rcompile(word_expr)
+        self.alpha_expr = rcompile(alpha_expr)
+        self.num_expr = rcompile(num_expr)
+
+    def __call__(self, value, positions=False, chars=False,
+                 keeporiginal=False,  start_pos=0, start_char=0, tokenize=True,
+                 **kwargs):
+        t = Token(positions, chars, **kwargs)
+
+        if not tokenize:
+            t.original = t.text = value
+            if positions:
+                t.pos = start_pos
+            if chars:
+                t.startchar = start_char
+                t.endchar = start_char + len(value)
+            yield t
+            return
+
+        alpha_expr = self.alpha_expr
+        num_expr = self.num_expr
+        pos = 0
+        for word_match in self.word_expr.finditer(value):
+            if positions:
+                t.pos = pos
+            if chars:
+                t.startchar = word_start = word_match.start()
+                t.endchar = word_match.end()
+            word_text = word_match.group(0)
+            matches = chain([word_match], alpha_expr.finditer(word_text),
+                            num_expr.finditer(word_text))
+            for i, match in enumerate(matches):
+                if chars:
+                    if i > 0:
+                        t.startchar = word_start + match.start()
+                        t.endchar = word_start + match.end()
+                if keeporiginal:
+                    t.original = match.group(0)
+                t.text = match.group(0)
+                t.boost = 1.0
+                t.stopped = False
+                yield t
+
+            pos += 1
 
 
 class CharsetTokenizer(Tokenizer):

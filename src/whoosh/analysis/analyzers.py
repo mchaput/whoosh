@@ -32,6 +32,7 @@ from whoosh.analysis.filters import StopFilter, STOP_WORDS
 from whoosh.analysis.morph import StemFilter
 from whoosh.analysis.intraword import IntraWordFilter
 from whoosh.analysis.tokenizers import default_pattern
+from whoosh.analysis.tokenizers import AlphaNumTokenizer
 from whoosh.analysis.tokenizers import CommaSeparatedTokenizer
 from whoosh.analysis.tokenizers import IDTokenizer
 from whoosh.analysis.tokenizers import RegexTokenizer
@@ -237,6 +238,36 @@ def StemmingAnalyzer(expression=default_pattern, stoplist=STOP_WORDS,
                                    maxsize=maxsize)
     return chain | StemFilter(stemfn=stemfn, ignore=ignore,
                               cachesize=cachesize)
+
+
+def AlphaNumAnalyzer(word_expr=r"([.-]|\w)+", alpha_expr=r"[^\W\d_]+",
+                     num_expr=r"\d+", stoplist=None, lang="en",
+                     minsize=2, maxsize=None):
+    """
+    Composes a :class:`whoosh.analysis.AlphaNumTokenizer` with a lower case
+    filter and a stop filter.
+
+    :param word_expr: a regular expression to match the "overall word".
+    :param alpha_expr: a regular expression to match runs of letters.
+    :param num_expr: a regular expression to match runs of numbers.
+    :param stoplist: a list of "stop" words. Set this and ``lang`` to None to
+        turn off the stop filter.
+    :param lang: a string specifying a language (default is ``"en"``). This is
+        passed to ``whoosh.lang.stemmer_for_language()`` to get a
+        language-specific list of stop words. Set this and ``stoplist`` to None
+        to turn off the stop filter.
+    :param minsize: Words smaller than this are removed from the stream.
+    :param maxsize: Words longer that this are removed from the stream.
+    """
+
+    ret = (
+        AlphaNumTokenizer(word_expr, alpha_expr, num_expr)
+        | LowercaseFilter()
+    )
+    if stoplist or lang:
+        ret |= StopFilter(stoplist=stoplist, lang=lang, minsize=minsize,
+                          maxsize=maxsize)
+    return ret
 
 
 def FancyAnalyzer(expression=r"\s+", stoplist=STOP_WORDS, minsize=2,
