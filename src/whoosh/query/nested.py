@@ -276,17 +276,21 @@ class NestedChildren(WrappingQuery):
                                        boost=self.boost)
 
     class NestedChildMatcher(matching.WrappingMatcher):
-        def __init__(self, comb, m, limit, is_deleted, boost=1.0):
-            self.comb = comb
-            self.child = m
+        def __init__(self, parent_comb, wanted_parent_matcher, limit,
+                     is_deleted, boost=1.0):
+            self.parent_comb = parent_comb
+            self.wanted_parent_matcher = wanted_parent_matcher
             self.limit = limit
             self.is_deleted = is_deleted
             self.boost = boost
-            self._reset()
+            self._nextchild = -1
+            self._nextparent = -1
+            self._find_next_children()
 
         def __repr__(self):
-            return "%s(%r, %r)" % (self.__class__.__name__, self.comb,
-                                   self.child)
+            return "%s(%r, %r)" % (self.__class__.__name__,
+                                   self.parent_comb,
+                                   self.wanted_parent_matcher)
 
         def reset(self):
             self.child.reset()
@@ -304,9 +308,13 @@ class NestedChildren(WrappingQuery):
             return self
 
         def _find_next_children(self):
-            comb = self.comb
-            m = self.child
+            # "comb" contains the doc IDs of all parent documents
+            comb = self.parent_comb
+            # "m" is the matcher for "wanted" parents
+            m = self.wanted_parent_matcher
+            # Last doc ID + 1
             limit = self.limit
+            # A function that returns True if a doc ID is deleted
             is_deleted = self.is_deleted
             nextchild = self._nextchild
             nextparent = self._nextparent
@@ -367,22 +375,30 @@ class NestedChildren(WrappingQuery):
                 self._find_next_children()
 
         def skip_to(self, docid):
+            comb = self.parent_comb
+            wpm = self.wanted_parent_matcher
+
+            # self._nextchild is the "current" matching child ID
             if docid <= self._nextchild:
                 return
 
-            m = self.child
-            if not m.is_active() or docid < m.id():
-                # We've already read-ahead past the desired doc, so iterate
-                while self.is_active() and self._nextchild < docid:
+            # self._nextparent is the next parent ID (matching or not)
+            if docid < self._nextparent:
+                # Just iterate
+                while self.is_active() and self.id() < docid:
                     self.next()
-            elif m.is_active():
-                # The child is active and hasn't read-ahead to the desired doc
-                # yet, so skip to it and re-find
-                m.skip_to(docid)
-                self._find_next_children()
             else:
-                # Go inactive
-                self._nextchild = self.limit
+                # Find the parent before the target ID
+                pid = comb.before(docid)
+                # Skip the parent matcher to that ID
+                wpm.skip_to(pid)
+                # If that made the matcher inactive, then we're done
+                if not wpm.is_active():
+                    self._nextchild = self._nextparent = self.limit
+                else:
+                    # Reestablish for the next child after the next matching
+                    # parent
+                    self._find_next_children()
 
         def value(self):
             raise NotImplementedError(self.__class__)
