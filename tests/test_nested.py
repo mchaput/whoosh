@@ -1,8 +1,9 @@
 from __future__ import with_statement
 
-from whoosh import fields, query, sorting
+from whoosh import fields, qparser, query, sorting
 from whoosh.compat import u
 from whoosh.filedb.filestore import RamStorage
+from whoosh.util.testing import TempIndex
 
 
 def test_nested_parent():
@@ -311,3 +312,50 @@ def test_nested_children():
         f = sorting.StoredFieldFacet("song_name")
         r = s.search(zq, sortedby=f)
         assert [hit["track"] for hit in r] == [3, 2, 1]
+
+
+def test_nested_skip():
+    schema = fields.Schema(
+        id=fields.ID(unique=True, stored=True),
+        name=fields.TEXT(stored=True),
+        name_ngrams=fields.NGRAMWORDS(minsize=4, field_boost=1.2),
+        type=fields.TEXT,
+    )
+
+    domain = [
+        ("book_1", "The Dark Knight Returns", "book"),
+        ("chapter_1", "The Dark Knight Returns", "chapter"),
+        ("chapter_2", "The Dark Knight Triumphant", "chapter"),
+        ("chapter_3", "Hunt the Dark Knight", "chapter"),
+        ("chapter_4", "The Dark Knight Falls", "chapter")
+    ]
+
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            for id, name, typ in domain:
+                w.add_document(id=id, name=name, name_ngrams=name, type=typ)
+
+        with ix.searcher() as s:
+            all_parents = query.Term("type", "book")
+            wanted_parents = query.Term("name", "dark")
+            children_of_wanted_parents = query.NestedChildren(all_parents,
+                                                              wanted_parents)
+
+            r1 = s.search(children_of_wanted_parents)
+            assert r1.scored_length() == 4
+            assert [hit["id"] for hit in r1] == ["chapter_1", "chapter_2",
+                                                 "chapter_3", "chapter_4"]
+
+            wanted_children = query.And([query.Term("type", "chapter"),
+                                         query.Term("name", "hunt")])
+
+            r2 = s.search(wanted_children)
+            assert r2.scored_length() == 1
+            assert [hit["id"] for hit in r2] == ["chapter_3"]
+
+            complex_query = query.And([children_of_wanted_parents,
+                                       wanted_children])
+
+            r3 = s.search(complex_query)
+            assert r3.scored_length() == 1
+            assert [hit["id"] for hit in r3] == ["chapter_3"]
