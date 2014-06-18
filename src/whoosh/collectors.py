@@ -636,9 +636,6 @@ class WrappingCollector(Collector):
     def collect(self, sub_docnum):
         return self.child.collect(sub_docnum)
 
-    def sort_key(self, sub_docnum):
-        return self.child.remove(sub_docnum)
-
     def remove(self, global_docnum):
         return self.child.remove(global_docnum)
 
