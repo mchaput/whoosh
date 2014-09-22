@@ -860,6 +860,25 @@ class Highlighter(object):
                     assert m.id() == docnum
                     cache[docnum][text] = m.value_as("characters")
 
+    def _merge_matched_tokens(self, tokens):
+        token_ready = False
+        for t in tokens:
+            if not t.matched:
+                yield t
+                continue
+            if not token_ready:
+                token = Token(**t.__dict__)
+                token_ready = True
+            elif t.startchar <= token.endchar:
+                if t.endchar > token.endchar:
+                    token.text += t.text[token.endchar-t.endchar:]
+                    token.endchar = t.endchar
+            else:
+                yield token
+                token_ready = False
+        if token_ready:
+            yield token
+
     def highlight_hit(self, hitobj, fieldname, text=None, top=3, minscore=1):
         results = hitobj.results
         schema = results.searcher.schema
@@ -913,6 +932,7 @@ class Highlighter(object):
                               removestops=False)
             # Set Token.matched attribute for tokens that match a query term
             tokens = set_matched_filter(tokens, words)
+            tokens = self._merge_matched_tokens(tokens)
             fragments = self.fragmenter.fragment_tokens(text, tokens)
 
         fragments = top_fragments(fragments, top, self.scorer, self.order,
