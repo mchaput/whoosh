@@ -463,7 +463,11 @@ class PinpointFragmenter(Fragmenter):
         autotrim = self.autotrim
         charlimit = self.charlimit
 
+        j = -1
+
         for i, t in enumerate(tokens):
+            if j >= i:
+                continue
             j = i
             left = t.startchar
             right = t.endchar
