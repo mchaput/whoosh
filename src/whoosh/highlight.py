@@ -51,6 +51,7 @@ See :doc:`/highlight` for more information.
 from __future__ import division
 from collections import deque
 from heapq import nlargest
+from itertools import groupby
 
 from whoosh.compat import htmlescape
 from whoosh.analysis import Token
@@ -902,6 +903,8 @@ class Highlighter(object):
                     tokens.append(Token(text=word, pos=pos,
                                         startchar=startchar, endchar=endchar))
             tokens.sort(key=lambda t: t.startchar)
+            tokens = [max(group, key=lambda t: t.endchar - t.startchar)
+                      for key, group in groupby(tokens, lambda t: t.startchar)]
             fragments = self.fragmenter.fragment_matches(text, tokens)
         else:
             # Retokenize the text
