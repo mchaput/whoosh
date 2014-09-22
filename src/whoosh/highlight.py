@@ -902,7 +902,7 @@ class Highlighter(object):
         else:
             # Retokenize the text
             analyzer = results.searcher.schema[fieldname].analyzer
-            tokens = analyzer(text, positions=True, chars=True, mode="query",
+            tokens = analyzer(text, positions=True, chars=True, mode="index",
                               removestops=False)
             # Set Token.matched attribute for tokens that match a query term
             tokens = set_matched_filter(tokens, words)
