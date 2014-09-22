@@ -869,7 +869,7 @@ class Highlighter(object):
 
         # Get the terms searched for/matched in this field
         if results.has_matched_terms():
-            bterms = (term for term in hitobj.matched_terms()
+            bterms = (term for term in results.matched_terms()
                       if term[0] == fieldname)
         else:
             bterms = results.query_terms(expand=True, fieldname=fieldname)
@@ -882,12 +882,15 @@ class Highlighter(object):
             if fieldname not in results._char_cache:
                 self._load_chars(results, fieldname, words, to_bytes)
 
+            hitterms = (from_bytes(term[1]) for term in hitobj.matched_terms()
+                        if term[0] == fieldname)
+
             # Grab the word->[(startchar, endchar)] map for this docnum
             cmap = results._char_cache[fieldname][hitobj.docnum]
             # A list of Token objects for matched words
             tokens = []
             charlimit = self.fragmenter.charlimit
-            for word in words:
+            for word in hitterms:
                 chars = cmap[word]
                 for pos, startchar, endchar in chars:
                     if charlimit and endchar > charlimit:
