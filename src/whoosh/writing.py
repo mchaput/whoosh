@@ -76,20 +76,33 @@ def MERGE_SMALL(writer, segments):
 
     from whoosh.reading import SegmentReader
 
-    newsegments = []
+    unchanged_segments = []
+    segments_to_merge = []
+
     sorted_segment_list = sorted(segments, key=lambda s: s.doc_count_all())
     total_docs = 0
+
+    merge_point_found = False
     for i, seg in enumerate(sorted_segment_list):
         count = seg.doc_count_all()
         if count > 0:
             total_docs += count
-            if total_docs < fib(i + 5):
-                reader = SegmentReader(writer.storage, writer.schema, seg)
-                writer.add_reader(reader)
-                reader.close()
-            else:
-                newsegments.append(seg)
-    return newsegments
+
+        if merge_point_found:  # append the remaining to unchanged
+            unchanged_segments.append(seg)
+        else:  # look for a merge point
+            segments_to_merge.append((seg, i)) # merge every segment up to the merge point
+            if i > 3 and total_docs < fib(i + 5):  
+                merge_point_found = True
+
+    if merge_point_found and len(segments_to_merge) > 1:
+        for seg, i in segments_to_merge:
+            reader = SegmentReader(writer.storage, writer.schema, seg)
+            writer.add_reader(reader)
+            reader.close()
+        return unchanged_segments
+    else:
+        return segments
 
 
 def OPTIMIZE(writer, segments):
