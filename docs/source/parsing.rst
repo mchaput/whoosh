@@ -194,7 +194,7 @@ OR, NOT, ANDNOT, and ANDMAYBE clauses in queries. You can instantiate a new
 
 Further, you may change the syntax of the ``NOT`` operator::
 
-    np = qparser.OperatorsPlugin(u' NO ')
+    np = qparser.OperatorsPlugin(Not=' NO ')
     parser.replace_plugin(np)
 
 The arguments can be pattern strings or precompiled regular expression objects.
