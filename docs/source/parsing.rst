@@ -180,23 +180,21 @@ and NOT functions::
 
     parser = qparser.QueryParser("content", schema=myschema)
 
-You can replace the default ``CompoundsPlugin`` and ``NotPlugin`` objects to
+You can replace the default ``OperatorsPlugin`` object to
 replace the default English tokens with your own regular expressions.
 
-The :class:`whoosh.qparser.CompoundsPlugin` implements the ability to use AND,
-OR, ANDNOT, and ANDMAYBE clauses in queries. You can instantiate a new
-``CompoundsPlugin`` and use the ``And``, ``Or``, ``AndNot``, and ``AndMaybe``
-keyword arguments to change the token patterns::
+The :class:`whoosh.qparser.OperatorsPlugin` implements the ability to use AND,
+OR, NOT, ANDNOT, and ANDMAYBE clauses in queries. You can instantiate a new
+``OperatorsPlugin`` and use the ``And``, ``Or``, ``Not``, ``AndNot``, and 
+``AndMaybe`` keyword arguments to change the token patterns::
 
     # Use Spanish equivalents instead of AND and OR
-    cp = qparser.CompoundsPlugin(And=" Y ", Or=" O ")
-    parser.replace_plugin(cp)
+    op = qparser.OperatorsPlugin(And=" Y ", Or=" O ")
+    parser.replace_plugin(op)
 
-The :class:`whoosh.qparser.NotPlugin` implements the ability to logically NOT
-subqueries. You can instantiate a new ``NotPlugin`` object with a different
-token::
+Further, you may change the syntax of the ``NOT`` operator::
 
-    np = qparser.NotPlugin("NO ")
+    np = qparser.OperatorsPlugin(u' NO ')
     parser.replace_plugin(np)
 
 The arguments can be pattern strings or precompiled regular expression objects.
@@ -206,9 +204,8 @@ words for the AND, OR, ANDNOT, ANDMAYBE, and NOT functions::
 
     parser = qparser.QueryParser("content", schema=myschema)
     # These are regular expressions, so we have to escape the vertical bar
-    cp = qparser.CompoundsPlugin(And="&", Or="\\|", AndNot="&!", AndMaybe="&~")
-    parser.replace_plugin(cp)
-    parser.replace_plugin(qparser.NotPlugin("!"))
+    op = qparser.OperatorsPlugin(And="&", Or="\\|", AndNot="&!", AndMaybe="&~", Not="\\-")
+    parser.replace_plugin(op)
 
 
 Adding less-than, greater-than, etc.
