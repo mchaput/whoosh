@@ -848,9 +848,9 @@ class Searcher(object):
 
         >>> from whoosh import qparser, highlight
         >>> qtext = 'mary "litle lamb"'
-        >>> q = qparser.QueryParser("text", myindex.schema)
+        >>> q = qparser.QueryParser(qtext, myindex.schema)
         >>> mysearcher = myindex.searcher()
-        >>> correction = mysearcher().correct_query(q, qtext)
+        >>> correction = mysearcher.correct_query(q, qtext)
         >>> correction.query
         <query.And ...>
         >>> correction.string
