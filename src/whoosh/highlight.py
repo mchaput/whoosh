@@ -51,6 +51,7 @@ See :doc:`/highlight` for more information.
 from __future__ import division
 from collections import deque
 from heapq import nlargest
+from itertools import groupby
 
 from whoosh.compat import htmlescape
 from whoosh.analysis import Token
@@ -463,7 +464,11 @@ class PinpointFragmenter(Fragmenter):
         autotrim = self.autotrim
         charlimit = self.charlimit
 
+        j = -1
+
         for i, t in enumerate(tokens):
+            if j >= i:
+                continue
             j = i
             left = t.startchar
             right = t.endchar
@@ -855,6 +860,25 @@ class Highlighter(object):
                     assert m.id() == docnum
                     cache[docnum][text] = m.value_as("characters")
 
+    def _merge_matched_tokens(self, tokens):
+        token_ready = False
+        for t in tokens:
+            if not t.matched:
+                yield t
+                continue
+            if not token_ready:
+                token = Token(**t.__dict__)
+                token_ready = True
+            elif t.startchar <= token.endchar:
+                if t.endchar > token.endchar:
+                    token.text += t.text[token.endchar-t.endchar:]
+                    token.endchar = t.endchar
+            else:
+                yield token
+                token_ready = False
+        if token_ready:
+            yield token
+
     def highlight_hit(self, hitobj, fieldname, text=None, top=3, minscore=1):
         results = hitobj.results
         schema = results.searcher.schema
@@ -869,7 +893,7 @@ class Highlighter(object):
 
         # Get the terms searched for/matched in this field
         if results.has_matched_terms():
-            bterms = (term for term in hitobj.matched_terms()
+            bterms = (term for term in results.matched_terms()
                       if term[0] == fieldname)
         else:
             bterms = results.query_terms(expand=True, fieldname=fieldname)
@@ -882,12 +906,15 @@ class Highlighter(object):
             if fieldname not in results._char_cache:
                 self._load_chars(results, fieldname, words, to_bytes)
 
+            hitterms = (from_bytes(term[1]) for term in hitobj.matched_terms()
+                        if term[0] == fieldname)
+
             # Grab the word->[(startchar, endchar)] map for this docnum
             cmap = results._char_cache[fieldname][hitobj.docnum]
             # A list of Token objects for matched words
             tokens = []
             charlimit = self.fragmenter.charlimit
-            for word in words:
+            for word in hitterms:
                 chars = cmap[word]
                 for pos, startchar, endchar in chars:
                     if charlimit and endchar > charlimit:
@@ -895,14 +922,17 @@ class Highlighter(object):
                     tokens.append(Token(text=word, pos=pos,
                                         startchar=startchar, endchar=endchar))
             tokens.sort(key=lambda t: t.startchar)
+            tokens = [max(group, key=lambda t: t.endchar - t.startchar)
+                      for key, group in groupby(tokens, lambda t: t.startchar)]
             fragments = self.fragmenter.fragment_matches(text, tokens)
         else:
             # Retokenize the text
             analyzer = results.searcher.schema[fieldname].analyzer
-            tokens = analyzer(text, positions=True, chars=True, mode="query",
+            tokens = analyzer(text, positions=True, chars=True, mode="index",
                               removestops=False)
             # Set Token.matched attribute for tokens that match a query term
             tokens = set_matched_filter(tokens, words)
+            tokens = self._merge_matched_tokens(tokens)
             fragments = self.fragmenter.fragment_tokens(text, tokens)
 
         fragments = top_fragments(fragments, top, self.scorer, self.order,
