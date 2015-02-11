@@ -601,6 +601,8 @@ class Formatter(object):
         text = fragment.text
 
         for t in fragment.matches:
+            if t.startchar is None:
+                continue
             if t.startchar < index:
                 continue
             if t.startchar > index:
