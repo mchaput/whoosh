@@ -1034,6 +1034,10 @@ class PlusMinusPlugin(Plugin):
         optional = syntax.OrGroup()
         banned = syntax.OrGroup()
 
+        # If the top-level group is an AndGroup we make everything "required" by default
+        if isinstance(group, syntax.AndGroup):
+            optional = syntax.AndGroup()
+
         # Which group to put the next node we see into
         next = optional
         for node in group:
