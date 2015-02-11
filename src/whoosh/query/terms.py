@@ -478,6 +478,12 @@ class FuzzyTerm(ExpandingTerm):
         return ixreader.terms_within(self.fieldname, self.text, self.maxdist,
                                      prefix=self.prefixlength)
 
+    def replace(self, fieldname, oldtext, newtext):
+        q = copy.copy(self)
+        if q.fieldname == fieldname and q.text == oldtext:
+            q.text = newtext
+        return q
+
 
 class Variations(ExpandingTerm):
     """Query that automatically searches for morphological variations of the
