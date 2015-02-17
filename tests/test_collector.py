@@ -131,5 +131,41 @@ def test_timelimit_alarm():
         assert time.time() - t < 0.5
 
 
+def test_reverse_collapse():
+    from whoosh import sorting
+
+    schema = fields.Schema(title=fields.TEXT(stored=True),
+                           content=fields.TEXT,
+                           path=fields.ID(stored=True),
+                           tags=fields.KEYWORD,
+                           order=fields.NUMERIC(stored=True))
+
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(title=u"First document",
+                       content=u"This is my document!",
+                       path=u"/a", tags=u"first", order=20.0)
+        w.add_document(title=u"Second document",
+                       content=u"This is the second example.",
+                       path=u"/b", tags=u"second", order=12.0)
+        w.add_document(title=u"Third document",
+                       content=u"Examples are many.",
+                       path=u"/c", tags=u"third", order=15.0)
+        w.add_document(title=u"Thirdish document",
+                       content=u"Examples are too many.",
+                       path=u"/d", tags=u"third", order=25.0)
+
+    with ix.searcher() as s:
+        q = query.Every('content')
+        r = s.search(q)
+        assert [hit["path"] for hit in r] == ["/a", "/b", "/c", "/d"]
+
+        q = query.Or([query.Term("title", "document"),
+                      query.Term("content", "document"),
+                      query.Term("tags", "document")])
+        cf = sorting.FieldFacet("tags")
+        of = sorting.FieldFacet("order", reverse=True)
+        r = s.search(q, collapse=cf, collapse_order=of, terms=True)
+        assert [hit["path"] for hit in r] == ["/a", "/b", "/d"]
 
 
