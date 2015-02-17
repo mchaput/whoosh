@@ -96,9 +96,13 @@ class Sequence(compound.CompoundQuery):
     def _matcher(self, subs, searcher, context):
         from whoosh.query.spans import SpanNear
 
-        return self._tree_matcher(subs, SpanNear.SpanNearMatcher, searcher,
-                                  context, None, slop=self.slop,
-                                  ordered=self.ordered)
+        # Tell the sub-queries this matcher will need the current match to get
+        # spans
+        context = context.set(needs_current=True)
+        m = self._tree_matcher(subs, SpanNear.SpanNearMatcher, searcher,
+                               context, None, slop=self.slop,
+                               ordered=self.ordered)
+        return m
 
 
 class Ordered(Sequence):
