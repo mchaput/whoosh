@@ -14,7 +14,7 @@ search engine (or both!).
 * Whoosh is fast, but uses only pure Python, so it will run anywhere Python runs,
   without requiring a compiler.
 
-* By default, Whoosh uses the `Okapi BM25F <http://en.wikipedia.com/wiki/BM25>`_ ranking
+* By default, Whoosh uses the `Okapi BM25F <http://en.wikipedia.com/wiki/Okapi_BM25>`_ ranking
   function, but like most things the ranking function can be easily customized.
 
 * Whoosh creates fairly small indexes compared to many other search libraries.
