@@ -991,3 +991,47 @@ def test_compound_sort():
             "bravo alfa juliet",
         ]
 
+
+def test_column_scoring():
+    from whoosh import scoring
+
+    # "sortable=True" on the "id" field tells it to build a column store
+    # of field values. If you didn't ever need to actually search on this field,
+    # you could get JUST the column using count=fields.COLUMN
+    schema = fields.Schema(id=fields.ID(sortable=True),
+                           tag=fields.KEYWORD)
+
+    class MyWeighting(scoring.WeightingModel):
+        def scorer(self, searcher, fieldname, text, qf=1):
+            # Pass the searcher to the scorer so it can look up values in the
+            # "count" field
+            return MyScorer(searcher)
+
+    class MyScorer(scoring.BaseScorer):
+        def __init__(self, searcher):
+            self.searcher = searcher
+            # Get a column value reader for the "id" field
+            self.col = searcher.reader().column_reader("id")
+
+        def score(self, matcher):
+            # Get the document number of the current match
+            docnum = matcher.id()
+            # Use the value from the column as the score
+            # Note: the return value must be a number, so for this contrived
+            # example we'll call ord() on the ID letter
+            id_value = self.col[docnum]
+            return ord(id_value)
+
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            w.add_document(id=u"a", tag=u"foo")
+            w.add_document(id=u"b", tag=u"foo")
+            w.add_document(id=u"c", tag=u"foo")
+            w.add_document(id=u"d", tag=u"foo")
+
+        with ix.searcher(weighting=MyWeighting()) as s:
+            r = s.search(query.Term("tag", u"foo"))
+            # Note that higher scores are better, so higher letters come first
+            assert [hit["id"] for hit in r] == ["d", "c", "b", "a"]
+
+

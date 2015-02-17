@@ -508,3 +508,49 @@ def test_arrayunion2():
     aum.skip_to(50)
     assert aum.id() == 50
 
+
+def test_every_matcher():
+    class MyQuery(query.Query):
+        def __init__(self, subqs):
+            self.subqs = subqs
+
+        def estimate_min_size(self, ixreader):
+            return ixreader.doc_count()
+
+        def matcher(self, searcher, context=None):
+            # Get matchers for the sub-queries
+            children = [q.matcher(searcher, context) for q in self.subqs]
+            # Pass the child matchers, the number of documents in the searcher,
+            # and a reference to the searcher's is_deleted() method to the
+            # matcher
+            return MyMatcher(children, searcher.doc_count_all(),
+                             searcher.is_deleted)
+
+    class MyMatcher(matching.UnionMatcher):
+        def __init__(self, children, doccount, is_deleted):
+            self.children = children
+            self._id = 0
+            self.doccount = doccount
+            self.is_deleted = is_deleted
+
+        def is_active(self):
+            return self._id < self.doccount
+
+        def id(self):
+            return self._id
+
+        def next(self):
+            self._id += 1
+            while self._id < self.doccount and self.is_deleted(self._id):
+                self._id += 1
+
+        def score(self):
+            # Iterate through the sub-matchers
+            for child in self.children:
+                # If the matcher is on the current document, do something
+                # with its score
+                if child.is_active() and child.id() == self.id():
+                    # Something here
+                    pass
+            return 0
+
