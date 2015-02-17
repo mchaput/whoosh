@@ -555,6 +555,20 @@ def test_function_plugin():
           "(f:alfa AND f:bravo~2 AND f:charlie)")
 
 
+def test_function_first():
+    from whoosh.query.spans import SpanFirst
+
+    def make_first(qs):
+        return SpanFirst(qs[0])
+
+    fp = plugins.FunctionPlugin({"first": make_first})
+    qp = default.QueryParser("f", None)
+    qp.add_plugin(fp)
+
+    q = qp.parse("#first(apples)")
+    assert isinstance(q, SpanFirst)
+
+
 def test_sequence_plugin():
     qp = default.QueryParser("f", None)
     qp.remove_plugin_class(plugins.PhrasePlugin)
@@ -598,4 +612,31 @@ def test_sequence_andmaybe():
     assert q[0] == query.Term("f", u("Dahmen"))
     assert q[1] == query.Sequence([query.Term("f", u("Besov")),
                                    query.Term("f", u("Spaces"))])
+
+
+def test_sequence_complex():
+    ana = analysis.StandardAnalyzer(stoplist=None)
+    schema = fields.Schema(title=fields.TEXT(stored=True),
+                           path=fields.ID(stored=True),
+                           content=fields.TEXT(stored=True, phrase=True,
+                                               analyzer=ana))
+    ix = RamStorage().create_index(schema)
+
+    with ix.writer() as w:
+        w.add_document(title=u"First document", path=u"/a",
+                       content=u"This is the first document we've added!")
+        w.add_document(title=u"Second document", path=u"/b",
+                       content=(u"In truth, he said, I would like to combine "
+                                u"logical operators with proximity-based "
+                                u"search in Whoosh!"))
+
+    with ix.searcher() as s:
+        qp = qparser.QueryParser("content", ix.schema)
+        qp.remove_plugin_class(plugins.PhrasePlugin)
+        qp.add_plugin(plugins.SequencePlugin())
+        qp.add_plugin(plugins.FuzzyTermPlugin())
+
+        q = qp.parse(u'"(he OR she OR we~) would*"~3')
+        r = s.search(q)
+        assert r.scored_length()
 

@@ -230,6 +230,12 @@ class Query(object):
 
         return False
 
+    def needs_spans(self):
+        for child in self.children():
+            if child.needs_spans():
+                return True
+        return False
+
     def apply(self, fn):
         """If this query has children, calls the given function on each child
         and returns a new copy of this node with the new children returned by
