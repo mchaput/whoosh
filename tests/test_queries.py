@@ -548,3 +548,26 @@ def test_andmaybe():
         assert len(r) == 3
         assert [hit["id"] for hit in r] == [1, 2, 0]
 
+
+def test_numeric_filter():
+    schema = fields.Schema(status=fields.NUMERIC, tags=fields.TEXT)
+    ix = RamStorage().create_index(schema)
+
+    # Add a single document with status = -2
+    with ix.writer() as w:
+        w.add_document(status=-2, tags="alfa bravo")
+
+    with ix.searcher() as s:
+        # No document should match the filter
+        fq = query.NumericRange("status", 0, 2)
+        fr = s.search(fq)
+        assert fr.scored_length() == 0
+
+        # Make sure the query would otherwise match
+        q = query.Term("tags", "alfa")
+        r = s.search(q)
+        assert r.scored_length() == 1
+
+        # Check the query doesn't match with the filter
+        r = s.search(q, filter=fq)
+        assert r.scored_length() == 0
