@@ -181,8 +181,9 @@ class CompoundQuery(qcore.Query):
 
         if len(subqs) == 1:
             sub = subqs[0]
-            if not (self.boost == 1.0 and sub.boost == 1.0):
-                sub = sub.with_boost(sub.boost * self.boost)
+            sub_boost = getattr(sub, "boost", 1.0)
+            if not (self.boost == 1.0 and sub_boost == 1.0):
+                sub = sub.with_boost(sub_boost * self.boost)
             return sub
 
         return self.__class__(subqs, boost=self.boost)
@@ -512,6 +513,9 @@ class BinaryQuery(CompoundQuery):
 
     def __hash__(self):
         return (hash(self.__class__.__name__) ^ hash(self.a) ^ hash(self.b))
+
+    def needs_spans(self):
+        return self.a.needs_spans() or self.b.needs_spans()
 
     def apply(self, fn):
         return self.__class__(fn(self.a), fn(self.b))

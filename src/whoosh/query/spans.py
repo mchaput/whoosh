@@ -269,7 +269,10 @@ class SpanQuery(Query):
         return self.q.matcher(s, context)
 
     def __getattr__(self, name):
-        return super(Query, self).__getattr__(self.q, name)
+        try:
+            return super(Query, self).__getattr__(self.q, name)
+        except AttributeError:
+            raise AttributeError("No attribute %r on %r" % (name, self))
 
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.q)
@@ -281,8 +284,25 @@ class SpanQuery(Query):
     def __hash__(self):
         return hash(self.__class__.__name__) ^ hash(self.q)
 
+    def field(self):
+        return None
 
-class SpanFirst(SpanQuery):
+    def needs_spans(self):
+        return True
+
+
+class WrappingSpan(SpanQuery):
+    def is_leaf(self):
+        return False
+
+    def apply(self, fn):
+        return self.__class__(fn(self.q), limit=self.limit)
+
+    def field(self):
+        return self.q.field()
+
+
+class SpanFirst(WrappingSpan):
     """Matches spans that end within the first N positions. This lets you
     for example only match terms near the beginning of the document.
     """
@@ -304,12 +324,6 @@ class SpanFirst(SpanQuery):
 
     def __hash__(self):
         return hash(self.q) ^ hash(self.limit)
-
-    def is_leaf(self):
-        return False
-
-    def apply(self, fn):
-        return self.__class__(fn(self.q), limit=self.limit)
 
     def matcher(self, searcher, context=None):
         m = self._subm(searcher, context)
