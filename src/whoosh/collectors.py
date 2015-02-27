@@ -584,8 +584,7 @@ class SortingCollector(Collector):
 
 class UnsortedCollector(Collector):
     def prepare(self, top_searcher, q, context):
-        Collector.prepare(self, top_searcher, q,
-                          top_searcher.boolean_context())
+        Collector.prepare(self, top_searcher, q, context.set(weighting=None))
         self.items = []
 
     def collect(self, sub_docnum):
@@ -610,6 +609,10 @@ class WrappingCollector(Collector):
     @property
     def top_searcher(self):
         return self.child.top_searcher
+
+    @property
+    def context(self):
+        return self.child.context
 
     def prepare(self, top_searcher, q, context):
         self.child.prepare(top_searcher, q, context)
@@ -1142,6 +1145,7 @@ class TermsCollector(WrappingCollector):
         child.collect(sub_docnum)
 
         global_docnum = child.offset + sub_docnum
+
         # For each term matcher...
         for tm in self.termmatchers:
             # If the term matcher is matching the current document...
