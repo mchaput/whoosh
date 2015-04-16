@@ -676,7 +676,8 @@ def test_simple_parsing():
     assert text_type(q) == "(x:bravo ANDMAYBE (x:alfa OR x:charlie OR x:delta))"
 
     q = parser.parse(u("alfa +bravo -charlie delta"))
-    assert text_type(q) == "((x:bravo ANDMAYBE (x:alfa OR x:delta)) ANDNOT x:charlie)"
+    assert (text_type(q)
+            == "((x:bravo ANDMAYBE (x:alfa OR x:delta)) ANDNOT x:charlie)")
 
     q = parser.parse(u("- alfa +bravo + delta"))
     assert text_type(q) == "((x:bravo AND x:delta) ANDNOT x:alfa)"

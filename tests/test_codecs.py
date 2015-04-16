@@ -159,73 +159,6 @@ def test_termindex():
         assert ti.doc_frequency() == 1
 
 
-def test_w2_block():
-    from whoosh.codec.whoosh2 import W2Codec
-
-    st = RamStorage()
-    codec = W2Codec()
-    seg = codec.new_segment(st, "test")
-
-    schema = fields.Schema(a=fields.TEXT)
-    fw = codec.field_writer(st, seg)
-
-    # This is a very convoluted, backwards way to get postings into a file but
-    # it was the easiest low-level method available when this test was written
-    # :(
-    fl = FakeLengths(a=[2, 5, 3, 4, 1])
-    fw.add_postings(schema, fl, [("a", b("b"), 0, 2.0, b("test1")),
-                                 ("a", b("b"), 1, 5.0, b("test2")),
-                                 ("a", b("b"), 2, 3.0, b("test3")),
-                                 ("a", b("b"), 3, 4.0, b("test4")),
-                                 ("a", b("b"), 4, 1.0, b("test5"))])
-    fw.close()
-
-    tr = codec.terms_reader(st, seg)
-    m = tr.matcher("a", b("b"), schema["a"].format)
-    block = m.block
-    block.read_ids()
-    assert block.min_length() == 1
-    assert block.max_length() == 5
-    assert block.max_weight() == 5.0
-    assert block.min_id() == 0
-    assert block.max_id() == 4
-    assert list(block.ids) == [0, 1, 2, 3, 4]
-    assert list(block.read_weights()) == [2.0, 5.0, 3.0, 4.0, 1.0]
-    assert list(block.read_values()) == [b("test1"), b("test2"), b("test3"),
-                                         b("test4"), b("test5")]
-
-    seg = codec.new_segment(st, "test")
-    fw = codec.field_writer(st, seg)
-    fl = FakeLengths(a=[1, 2, 6, 1, 1, 420])
-    fw.add_postings(schema, fl, [("a", b("b"), 0, 1.0, ""),
-                                 ("a", b("b"), 1, 2.0, ""),
-                                 ("a", b("b"), 2, 12.0, ""),
-                                 ("a", b("b"), 5, 6.5, "")])
-    fw.close()
-
-    def blen(n):
-        return byte_to_length(length_to_byte(n))
-
-    tr = codec.terms_reader(st, seg)
-    m = tr.matcher("a", b("b"), schema["a"].format)
-    block = m.block
-    block.read_ids()
-    assert len(block) == 4
-    assert list(block.ids) == [0, 1, 2, 5]
-    assert list(block.weights) == [1.0, 2.0, 12.0, 6.5]
-    assert block.values is None
-    assert block.min_length() == 1
-    assert block.max_length() == blen(420)
-    assert block.max_weight() == 12.0
-
-    ti = tr.term_info("a", b("b"))
-    assert ti.weight() == 21.5
-    assert ti.doc_frequency() == 4
-    assert ti.min_length() == 1
-    assert ti.max_length() == blen(420)
-    assert ti.max_weight() == 12.0
-
-
 def test_docwriter_one():
     field = fields.TEXT(stored=True)
     st, codec, seg = _make_codec()
@@ -495,53 +428,53 @@ def test_skip():
     assert m.id() == 1800
 
 
-def test_spelled_field():
-    field = fields.TEXT(spelling=True)
-    st, codec, seg = _make_codec()
-
-    fw = codec.field_writer(st, seg)
-    fw.start_field("text", field)
-    fw.start_term(b("special"))
-    fw.add(0, 1.0, b("test1"), 1)
-    fw.finish_term()
-    fw.start_term(b("specific"))
-    fw.add(1, 1.0, b("test2"), 1)
-    fw.finish_term()
-    fw.finish_field()
-    fw.close()
-
-    gr = codec.graph_reader(st, seg)
-    assert gr.has_root("text")
-    cur = gr.cursor("text")
-    strings = list(cur.flatten_strings())
-    assert type(strings[0]) == text_type
-    assert strings == ["special", "specific"]
-
-
-def test_special_spelled_field():
-    from whoosh.analysis import StemmingAnalyzer
-
-    field = fields.TEXT(analyzer=StemmingAnalyzer(), spelling=True)
-    st, codec, seg = _make_codec()
-
-    fw = codec.field_writer(st, seg)
-    fw.start_field("text", field)
-    fw.start_term(b("special"))
-    fw.add(0, 1.0, b("test1"), 1)
-    fw.finish_term()
-    fw.start_term(b("specific"))
-    fw.add(1, 1.0, b("test2"), 1)
-    fw.finish_term()
-    fw.add_spell_word("text", u("specials"))
-    fw.add_spell_word("text", u("specifically"))
-    fw.finish_field()
-    fw.close()
-
-    tr = codec.terms_reader(st, seg)
-    assert list(tr.terms()) == [("text", b("special")), ("text", b("specific"))]
-
-    cur = codec.graph_reader(st, seg).cursor("text")
-    assert list(cur.flatten_strings()) == ["specials", "specifically"]
+# def test_spelled_field():
+#     field = fields.TEXT(spelling=True)
+#     st, codec, seg = _make_codec()
+#
+#     fw = codec.field_writer(st, seg)
+#     fw.start_field("text", field)
+#     fw.start_term(b("special"))
+#     fw.add(0, 1.0, b("test1"), 1)
+#     fw.finish_term()
+#     fw.start_term(b("specific"))
+#     fw.add(1, 1.0, b("test2"), 1)
+#     fw.finish_term()
+#     fw.finish_field()
+#     fw.close()
+#
+#     gr = codec.graph_reader(st, seg)
+#     assert gr.has_root("text")
+#     cur = gr.cursor("text")
+#     strings = list(cur.flatten_strings())
+#     assert type(strings[0]) == text_type
+#     assert strings == ["special", "specific"]
+#
+#
+# def test_special_spelled_field():
+#     from whoosh.analysis import StemmingAnalyzer
+#
+#     field = fields.TEXT(analyzer=StemmingAnalyzer(), spelling=True)
+#     st, codec, seg = _make_codec()
+#
+#     fw = codec.field_writer(st, seg)
+#     fw.start_field("text", field)
+#     fw.start_term(b("special"))
+#     fw.add(0, 1.0, b("test1"), 1)
+#     fw.finish_term()
+#     fw.start_term(b("specific"))
+#     fw.add(1, 1.0, b("test2"), 1)
+#     fw.finish_term()
+#     fw.add_spell_word("text", u("specials"))
+#     fw.add_spell_word("text", u("specifically"))
+#     fw.finish_field()
+#     fw.close()
+#
+#     tr = codec.terms_reader(st, seg)
+#     assert list(tr.terms()) == [("text", b("special")), ("text", b("specific"))]
+#
+#     cur = codec.graph_reader(st, seg).cursor("text")
+#     assert list(cur.flatten_strings()) == ["specials", "specifically"]
 
 
 def test_plaintext_codec():
@@ -579,6 +512,7 @@ def test_plaintext_codec():
 
     with ix.searcher() as s:
         reader = s.reader()
+        assert isinstance(reader.codec(), PlainTextCodec)
 
         r = s.search(query.Term("a", "delta"))
         assert len(r) == 3
@@ -587,6 +521,13 @@ def test_plaintext_codec():
         assert (" ".join(s.field_terms("a"))
                 == "alfa bravo charlie delta echo foxtrot india")
 
+        storage = ix.storage
+        for fname in storage.list():
+            if fname.endswith(".dcs"):
+                f = storage.open_file(fname)
+                print(f.read().decode("utf8"))
+
+        assert reader.doc_field_length(0, "a") == 3
         assert reader.doc_field_length(2, "a") == 3
 
         cfield = schema["c"]
@@ -656,13 +597,6 @@ def test_memory_codec():
     assert s.has_vector(2, "a")
     v = s.vector(2, "a")
     assert " ".join(v.all_ids()) == "charlie delta echo"
-
-    assert reader.has_word_graph("d")
-    gr = reader.word_graph("d")
-    assert (" ".join(gr.flatten_strings()) ==
-            "aching dipping echoing filling going hopping opening "
-            "pulling quelling rolling selling timing using whining "
-            "yelling")
 
 
 def test_memory_multiwrite():

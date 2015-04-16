@@ -11,6 +11,7 @@ from whoosh.codec.whoosh3 import W3Codec
 from whoosh.compat import b, u, text_type
 from whoosh.compat import xrange, permutations, izip_longest
 from whoosh.filedb.filestore import RamStorage
+from whoosh.util.testing import TempIndex
 
 
 def make_index():
@@ -465,30 +466,27 @@ def test_keyword_or():
 
 
 def test_merged():
-    sc = fields.Schema(id=fields.ID(stored=True), content=fields.TEXT)
-    st = RamStorage()
-    ix = st.create_index(sc)
-    w = ix.writer()
-    w.add_document(id=u("alfa"), content=u("alfa"))
-    w.add_document(id=u("bravo"), content=u("bravo"))
-    w.add_document(id=u("charlie"), content=u("charlie"))
-    w.add_document(id=u("delta"), content=u("delta"))
-    w.commit()
+    schema = fields.Schema(id=fields.ID(stored=True), content=fields.TEXT)
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            w.add_document(id=u("alfa"), content=u("alfa"))
+            w.add_document(id=u("bravo"), content=u("bravo"))
 
-    with ix.searcher() as s:
-        r = s.search(query.Term("content", u("bravo")))
-        assert len(r) == 1
-        assert r[0]["id"] == "bravo"
+        with ix.searcher() as s:
+            r = s.search(query.Term("content", u("bravo")))
+            assert len(r) == 1
+            assert r[0]["id"] == "bravo"
 
-    w = ix.writer()
-    w.add_document(id=u("echo"), content=u("echo"))
-    w.commit()
-    assert len(ix._segments()) == 1
+        with ix.writer() as w:
+            w.add_document(id=u("charlie"), content=u("charlie"))
+            w.optimize = True
 
-    with ix.searcher() as s:
-        r = s.search(query.Term("content", u("bravo")))
-        assert len(r) == 1
-        assert r[0]["id"] == "bravo"
+        assert len(ix._segments()) == 1
+
+        with ix.searcher() as s:
+            r = s.search(query.Term("content", u("bravo")))
+            assert len(r) == 1
+            assert r[0]["id"] == "bravo"
 
 
 def test_multireader():
@@ -689,30 +687,25 @@ def test_phrase_multi():
 def test_missing_field_scoring():
     schema = fields.Schema(name=fields.TEXT(stored=True),
                            hobbies=fields.TEXT(stored=True))
-    storage = RamStorage()
-    ix = storage.create_index(schema)
-    writer = ix.writer()
-    writer.add_document(name=u('Frank'), hobbies=u('baseball, basketball'))
-    writer.commit()
-    r = ix.reader()
-    assert r.field_length("hobbies") == 2
-    assert r.field_length("name") == 1
-    r.close()
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            w.add_document(name=u('Frank'), hobbies=u('baseball, basketball'))
 
-    writer = ix.writer()
-    writer.add_document(name=u('Jonny'))
-    writer.commit()
+        with ix.reader() as r:
+            assert r.field_length("hobbies") == 2
+            assert r.field_length("name") == 1
 
-    with ix.searcher() as s:
-        r = s.reader()
-        assert len(ix._segments()) == 1
-        assert r.field_length("hobbies") == 2
-        assert r.field_length("name") == 2
+        with ix.writer() as w:
+            w.add_document(name=u('Jonny'))
 
-        parser = qparser.MultifieldParser(['name', 'hobbies'], schema)
-        q = parser.parse(u("baseball"))
-        result = s.search(q)
-        assert len(result) == 1
+        with ix.searcher() as s:
+            assert s.field_length("hobbies") == 2
+            assert s.field_length("name") == 2
+
+            parser = qparser.MultifieldParser(['name', 'hobbies'], schema)
+            q = parser.parse(u("baseball"))
+            result = s.search(q)
+            assert len(result) == 1
 
 
 def test_search_fieldname_underscores():

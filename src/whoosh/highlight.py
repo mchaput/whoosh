@@ -301,8 +301,7 @@ class SentenceFragmenter(Fragmenter):
             # punctuation, finish the sentence and reset
             if endchar < textlen and text[endchar] in sentencechars:
                 # Don't break for two periods in a row (e.g. ignore "...")
-                if (endchar + 1 < textlen
-                    and text[endchar + 1] in sentencechars):
+                if endchar + 1 < textlen and text[endchar + 1] in sentencechars:
                     continue
 
                 # If the sentence had matches and it's not too long, yield it
@@ -357,6 +356,7 @@ class ContextFragmenter(Fragmenter):
         currentlen = 0
 
         for t in tokens:
+            print("t=", t, "first=", first)
             startchar = t.startchar
             endchar = t.endchar
             tlength = endchar - startchar
@@ -842,7 +842,8 @@ class Highlighter(object):
         field = results.searcher.schema[fieldname]
         return field.supports("characters")
 
-    def _load_chars(self, results, fieldname, texts, to_bytes):
+    @staticmethod
+    def _load_chars(results, fieldname, texts, to_bytes):
         # For each docnum, create a mapping of text -> [(startchar, endchar)]
         # for the matched terms
 
@@ -862,23 +863,32 @@ class Highlighter(object):
                     assert m.id() == docnum
                     cache[docnum][text] = m.value_as("characters")
 
-    def _merge_matched_tokens(self, tokens):
-        token_ready = False
+    @staticmethod
+    def _merge_matched_tokens(tokens):
+        # Merges consecutive matched tokens together, so they are highlighted
+        # as one
+
+        token = None
+
         for t in tokens:
             if not t.matched:
+                if token is not None:
+                    yield token
+                    token = None
                 yield t
                 continue
-            if not token_ready:
-                token = Token(**t.__dict__)
-                token_ready = True
+
+            if token is None:
+                token = t.copy()
             elif t.startchar <= token.endchar:
                 if t.endchar > token.endchar:
                     token.text += t.text[token.endchar-t.endchar:]
                     token.endchar = t.endchar
             else:
                 yield token
-                token_ready = False
-        if token_ready:
+                token = None
+
+        if token is not None:
             yield token
 
     def highlight_hit(self, hitobj, fieldname, text=None, top=3, minscore=1):

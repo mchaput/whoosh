@@ -408,12 +408,14 @@ def SimpleParser(fieldname, schema, **kwargs):
     syntax.
     """
 
-    from whoosh.qparser import plugins
+    from whoosh.qparser import plugins, syntax
 
     pins = [plugins.WhitespacePlugin,
             plugins.PlusMinusPlugin,
             plugins.PhrasePlugin]
-    return QueryParser(fieldname, schema, plugins=pins, **kwargs)
+    orgroup = syntax.OrGroup
+    return QueryParser(fieldname, schema, plugins=pins, group=orgroup,
+                       **kwargs)
 
 
 def DisMaxParser(fieldboosts, schema, tiebreak=0.0, **kwargs):
@@ -424,7 +426,7 @@ def DisMaxParser(fieldboosts, schema, tiebreak=0.0, **kwargs):
     :param fieldboosts: a dictionary mapping field names to boosts.
     """
 
-    from whoosh.qparser import plugins
+    from whoosh.qparser import plugins, syntax
 
     mfp = plugins.MultifieldPlugin(list(fieldboosts.keys()),
                                    fieldboosts=fieldboosts,
@@ -433,4 +435,5 @@ def DisMaxParser(fieldboosts, schema, tiebreak=0.0, **kwargs):
             plugins.PlusMinusPlugin,
             plugins.PhrasePlugin,
             mfp]
-    return QueryParser(None, schema, plugins=pins, **kwargs)
+    orgroup = syntax.OrGroup
+    return QueryParser(None, schema, plugins=pins, group=orgroup, **kwargs)

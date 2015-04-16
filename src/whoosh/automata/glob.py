@@ -25,12 +25,8 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from whoosh.compat import b
-from whoosh.system import emptybytes
-from whoosh.automata.fst import to_labels, Arc
+from whoosh.automata.fsa import ANY, EPSILON, NFA
 
-
-# Implement glob matching on graph reader
 
 # Constants for glob
 _LIT = 0
@@ -38,34 +34,27 @@ _STAR = 1
 _PLUS = 2
 _QUEST = 3
 _RANGE = 4
-_END = 5
 
 
-def parse_glob(pattern, _glob_multi=b("*"), _glob_single=b("?"),
-               _glob_range1=b("["), _glob_range2=b("]"),
-               _glob_range_not=b("!")):
-    parsed = []
+def parse_glob(pattern, _glob_multi="*", _glob_single="?",
+               _glob_range1="[", _glob_range2="]"):
     pos = 0
+    last = None
     while pos < len(pattern):
         char = pattern[pos]
         pos += 1
         if char == _glob_multi:  # *
             # (Ignore more than one star in a row)
-            if parsed:
-                prev = parsed[-1][0]
-                if prev == _STAR:
-                    continue
-            parsed.append((_STAR,))
+            if last is not _STAR:
+                yield _STAR, None
+                last = _STAR
         elif char == _glob_single:  # ?
             # (Ignore ? after a star)
-            if parsed:
-                prev = parsed[-1][0]
-                if prev == _STAR:
-                    continue
-            parsed.append((_QUEST,))
+            if last is not _STAR:
+                yield _QUEST, None
+                last = _QUEST
         elif char == _glob_range1:  # [
             chars = set()
-            firstchar = True
             negate = False
             # Take the char range specification until the ]
             while pos < len(pattern):
@@ -73,210 +62,29 @@ def parse_glob(pattern, _glob_multi=b("*"), _glob_single=b("?"),
                 pos += 1
                 if char == _glob_range2:
                     break
-                # If first char inside the range is !, negate the list
-                if firstchar and char == _glob_range_not:
-                    negate = True
-                else:
-                    chars.add(char)
-                firstchar = False
+                chars.add(char)
             if chars:
-                parsed.append((_RANGE, chars, negate))
+                yield _RANGE, (chars, negate)
+                last = _RANGE
         else:
-            if parsed and parsed[-1][0] == _LIT:
-                parsed[-1][1] += char
-            else:
-                parsed.append([_LIT, char])
-    parsed.append((_END,))
-    return parsed
+            yield _LIT, char
+            last = _LIT
 
 
-def glob(graph, pattern, address=None):
-    """Yields a series of keys in the given graph matching the given "glob"
-    string.
-
-    This function implements the same glob features found in the `fnmatch`
-    module in the Python standard library: ``*`` matches any number of
-    characters, ``?`` matches any single character, `[abc]` matches any of
-    the characters in the list, and ``[!abc]`` matches any character not in
-    the list. (Use ``[[]`` to match an open bracket.) As ``fnmatch``, the star
-    is greedy.
-
-    :param graph: a :class:`GraphReader` object.
-    :param pattern: a string specifying the glob to match, e.g.
-        `"a*b?c[def]"`.
-    """
-
-    address = address if address is not None else graph._root
-    if not isinstance(pattern, list):
-        pattern = parse_glob(pattern)
-
-    # address, pos, sofar, accept
-    states = [(address, 0, [], False)]
-    seen = set()
-    arc = Arc()
-    times = 0
-    while states:
-        ns = []
-        for address, pos, sofar, accept in states:
-            times += 1
-            op = pattern[pos]
-            code = op[0]
-            if accept and code == _END:
-                if sofar not in seen:
-                    yield sofar
-                    seen.add(sofar)
-            if code == _END:
-                continue
-
-            # Zero width match
-            if code == _STAR:
-                ns.append((address, pos + 1, sofar, accept))
-
-            if address is None:
-                continue
-            if code == _STAR:
-                for arc in graph.iter_arcs(address, arc):
-                    ns.append((arc.target, pos + 1, sofar + [arc.label],
-                               arc.accept))
-                    ns.append((arc.target, pos, sofar + [arc.label],
-                               arc.accept))
-            elif code == _QUEST:
-                for arc in graph.iter_arcs(address, arc):
-                    ns.append((arc.target, pos + 1, sofar + [arc.label],
-                               arc.accept))
-            elif code == _LIT:
-                labels = op[1]
-                for label in labels:
-                    arc = graph.find_arc(address, label)
-                    address = arc.target
-                    if address is None:
-                        break
-                if address is not None:
-                    ns.append((address, pos + 1, sofar + labels, arc.accept))
-            elif code == _RANGE:
-                chars = op[1]
-                negate = op[2]
-                for arc in graph.iter_arcs(address, arc):
-                    take = (arc.label in chars) ^ negate
-                    if take:
-                        ns.append((arc.target, pos + 1, sofar + [arc.label],
-                                   arc.accept))
-            else:
-                raise ValueError(code)
-        states = ns
-
-
-# glob limit constants
-LO = 0
-HI = 1
-
-
-def glob_graph_limit(graph, mode, pattern, address):
-    low = mode == LO
-
-    output = []
-    arc = Arc(target=address)
-    for op in pattern:
-        if arc.target is None:
-            break
-
-        code = op[0]
-        if code == _STAR or code == _PLUS:
-            while arc.target:
-                if low:
-                    arc = graph.arc_at(arc.target, arc)
-                else:
-                    for arc in graph.iter_arcs(arc.target, arc):
-                        pass
-                output.append(arc.label)
-                if low and arc.accept:
-                    break
-        elif code == _QUEST:
-            if low:
-                arc = graph.arc_at(arc.target, arc)
-            else:
-                for arc in graph.iter_arcs(arc.target, arc):
-                    pass
-        elif code == _LIT:
-            labels = op[1]
-            for label in labels:
-                arc = graph.find_arc(arc.target, label)
-                if arc is None:
-                    break
-                output.append(label)
-                if arc.target is None:
-                    break
-            if arc is None:
-                break
-        elif code == _RANGE:
-            chars = op[1]
-            negate = op[2]
-            newarc = None
-            for a in graph.iter_arcs(arc.target):
-                if (a.label in chars) ^ negate:
-                    newarc = a.copy()
-                    if low:
-                        break
-            if newarc:
-                output.append(newarc.label)
-                arc = newarc
-            else:
-                break
-    return emptybytes.join(output)
-
-
-def glob_vacuum_limit(mode, pattern):
-    low = mode == LO
-    output = []
-    for op in pattern:
-        code = op[0]
-        if code == _STAR or code == _PLUS or code == _QUEST:
-            break
-        elif code == _LIT:
-            output.append(op[1])
-        elif code == _RANGE:
-            if op[2]:  # Don't do negated char lists
-                break
-            chars = op[1]
-            if low:
-                output.append(min(chars))
-            else:
-                output.append(max(chars))
-    return emptybytes.join(output)
-
-
-# if __name__ == "__main__":
-#     from whoosh import index, query
-#     from whoosh.filedb.filestore import RamStorage
-#     from whoosh.automata import fst
-#     from whoosh.util.testing import timing
-#
-#     st = RamStorage()
-#     gw = fst.GraphWriter(st.create_file("test"))
-#     gw.start_field("test")
-#     for key in ["aaaa", "aaab", "aabb", "abbb", "babb", "bbab", "bbba"]:
-#         gw.insert(key)
-#     gw.close()
-#     gr = fst.GraphReader(st.open_file("test"))
-#
-#     print glob_graph_limit(gr, LO, "bbb*", gr._root)
-#     print glob_graph_limit(gr, HI, "bbb*", gr._root)
-#
-#     ix = index.open_dir("e:/dev/src/houdini/help/index")
-#     r = ix.reader()
-#     gr = r._get_graph()
-#     p = "?[abc]*"
-#     p = "*/"
-#
-#     with timing():
-#         q = query.Wildcard("path", p)
-#         x = list(q._btexts(r))
-#
-#     with timing():
-#         prog = parse_glob(p)
-#         lo = glob_graph_limit(gr, LO, prog, address=gr.root("path"))
-#         hi = glob_graph_limit(gr, HI, prog, address=gr.root("path"))
-#         q = query.TermRange("path", lo, hi)
-#         y = list(q._btexts(r))
-#
-#
+def glob_automaton(pattern):
+    nfa = NFA(0)
+    i = -1
+    for i, (op, arg) in enumerate(parse_glob(pattern)):
+        if op is _LIT:
+            nfa.add_transition(i, arg, i + 1)
+        elif op is _STAR:
+            nfa.add_transition(i, ANY, i + 1)
+            nfa.add_transition(i, EPSILON, i + 1)
+            nfa.add_transition(i + 1, EPSILON, i)
+        elif op is _QUEST:
+            nfa.add_transition(i, ANY, i + 1)
+        elif op is _RANGE:
+            for char in arg[0]:
+                nfa.add_transition(i, char, i + 1)
+    nfa.add_final_state(i + 1)
+    return nfa

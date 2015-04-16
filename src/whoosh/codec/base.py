@@ -32,8 +32,8 @@ This module contains base classes/interfaces for "codec" objects.
 from bisect import bisect_right
 
 from whoosh import columns
-from whoosh.compat import text_type
-from whoosh.compat import abstractmethod, izip, xrange
+from whoosh.automata import lev
+from whoosh.compat import abstractmethod, izip, unichr, xrange
 from whoosh.filedb.compound import CompoundStorage
 from whoosh.system import emptybytes
 from whoosh.util import random_name
@@ -74,19 +74,15 @@ class Codec(object):
 
     # Index readers
 
+    def automata(self, storage, segment):
+        return Automata()
+
     @abstractmethod
     def terms_reader(self, storage, segment):
         raise NotImplementedError
 
     @abstractmethod
     def per_document_reader(self, storage, segment):
-        raise NotImplementedError
-
-    def supports_graph(self):
-        return False
-
-    # Don't need to override this if supports_graph() return False
-    def graph_reader(self, storage, segment):
         raise NotImplementedError
 
     # Segments and generations
@@ -113,17 +109,14 @@ class WrappingCodec(Codec):
         return self._child.postings_reader(dbfile, terminfo, format_, term=term,
                                            scorer=scorer)
 
+    def automata(self, storage, segment):
+        return self._child.automata(storage, segment)
+
     def terms_reader(self, storage, segment):
         return self._child.terms_reader(storage, segment)
 
     def per_document_reader(self, storage, segment):
         return self._child.per_document_reader(storage, segment)
-
-    def supports_graph(self):
-        return self._child.supports_graph()
-
-    def graph_reader(self, storage, segment):
-        return self._child.graph_reader(storage, segment)
 
     def new_segment(self, storage, indexname):
         return self._child.new_segment(storage, indexname)
@@ -214,13 +207,13 @@ class FieldWriter(object):
             # HACK: items where docnum == -1 indicate words that should be added
             # to the spelling graph, not the postings
             if docnum == -1:
-                spellterm = (fieldname, btext)
-                # There can be duplicates of spelling terms, so only add a spell
-                # term if it's greater than the last one
-                if lastspell is None or spellterm > lastspell:
-                    spellword = fieldobj.from_bytes(btext)
-                    self.add_spell_word(fieldname, spellword)
-                    lastspell = spellterm
+                # spellterm = (fieldname, btext)
+                # # There can be duplicates of spelling terms, so only add a spell
+                # # term if it's greater than the last one
+                # if lastspell is None or spellterm > lastspell:
+                #     spellword = fieldobj.from_bytes(btext)
+                #     self.add_spell_word(fieldname, spellword)
+                #     lastspell = spellterm
                 continue
 
             # If this term is different from the term in the previous posting,
@@ -292,9 +285,27 @@ class PostingsWriter(object):
 
 # Reader classes
 
+class FieldCursor(object):
+    def first(self):
+        raise NotImplementedError
+
+    def find(self, string):
+        raise NotImplementedError
+
+    def next(self):
+        raise NotImplementedError
+
+    def term(self):
+        raise NotImplementedError
+
+
 class TermsReader(object):
     @abstractmethod
     def __contains__(self, term):
+        raise NotImplementedError
+
+    @abstractmethod
+    def cursor(self, fieldname, fieldobj):
         raise NotImplementedError
 
     @abstractmethod
@@ -337,6 +348,35 @@ class TermsReader(object):
         pass
 
 
+class Automata(object):
+    @staticmethod
+    def levenshtein_dfa(uterm, maxdist, prefix=0):
+        return lev.levenshtein_automaton(uterm, maxdist, prefix).to_dfa()
+
+    @staticmethod
+    def find_matches(dfa, cur):
+        unull = unichr(0)
+
+        term = cur.text()
+        if term is None:
+            return
+
+        match = dfa.next_valid_string(term)
+        while match:
+            cur.find(match)
+            term = cur.text()
+            if term is None:
+                return
+            if match == term:
+                yield match
+                term += unull
+            match = dfa.next_valid_string(term)
+
+    def terms_within(self, fieldcur, uterm, maxdist, prefix=0):
+        dfa = self.levenshtein_dfa(uterm, maxdist, prefix)
+        return self.find_matches(dfa, fieldcur)
+
+
 # Per-doc value reader
 
 class PerDocumentReader(object):
@@ -366,7 +406,8 @@ class PerDocumentReader(object):
         raise NotImplementedError
 
     def all_doc_ids(self):
-        """Returns an iterator of all (undeleted) document IDs in the reader.
+        """
+        Returns an iterator of all (undeleted) document IDs in the reader.
         """
 
         is_deleted = self.is_deleted
@@ -431,8 +472,7 @@ class PerDocumentReader(object):
         raise NotImplementedError
 
     def all_stored_fields(self):
-        # Must yield stored fields for deleted documents too
-        for docnum in xrange(self.doc_count_all()):
+        for docnum in self.all_doc_ids():
             yield self.stored_fields(docnum)
 
 
@@ -781,64 +821,23 @@ class PerDocWriterWithColumns(PerDocumentWriter):
         self._get_column(fieldname).add(self._docnum, value)
 
 
-class CodecWithGraph(Codec):
-    FST_EXT = ".fst"  # FSA/FST graph file
+# FieldCursor implementations
 
-    def supports_graph(self):
-        return True
+class EmptyCursor(FieldCursor):
+    def first(self):
+        return None
 
-    def graph_reader(self, storage, segment):
-        from whoosh.automata.fst import GraphReader
-        from whoosh.reading import NoGraphError
+    def find(self, term):
+        return None
 
-        filename = segment.make_filename(self.FST_EXT)
-        if not storage.file_exists(filename):
-            raise NoGraphError
-        return GraphReader(storage.open_file(filename))
+    def next(self):
+        return None
 
+    def text(self):
+        return None
 
-class FieldWriterWithGraph(FieldWriter):
-    def __init__(self):
-        FieldWriter.__init__(self)
-        # Implementations need to set these attributes
-        self._storage = None
-        self._segment = None
-        self._fieldname = None
-        self._fieldobj = None
+    def term_info(self):
+        return None
 
-    FST_EXT = CodecWithGraph.FST_EXT
-
-    def _prep_graph(self):
-        from whoosh.automata.fst import GraphWriter
-
-        gf = self._segment.create_file(self._storage, self.FST_EXT)
-        self._gwriter = GraphWriter(gf)
-
-    def _start_graph_field(self, fieldname, fieldobj):
-        spelling = fieldobj.spelling
-        separate = fieldobj.separate_spelling()
-        self._needs_graph = spelling or separate
-        self._auto_graph = spelling and not separate
-
-        if self._needs_graph:
-            if not hasattr(self, "_gwriter") or self._gwriter is None:
-                self._prep_graph()
-            self._gwriter.start_field(fieldname)
-
-    def _insert_graph_key(self, btext):
-        if self._auto_graph:
-            key = self._fieldobj.from_bytes(btext)
-            self.add_spell_word(self._fieldname, key)
-
-    def add_spell_word(self, fieldname, word):
-        assert fieldname == self._fieldname
-        assert isinstance(word, text_type)
-        self._gwriter.insert(word)
-
-    def _finish_graph_field(self):
-        if self._needs_graph:
-            self._gwriter.finish_field()
-
-    def _close_graph(self):
-        if hasattr(self, "_gwriter") and self._gwriter:
-            self._gwriter.close()
+    def is_valid(self):
+        return False

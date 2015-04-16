@@ -814,7 +814,8 @@ def test_sort_text_field():
         with ix.searcher() as s:
             # Sort by title
             r = s.search(query.Every(), sortedby="title")
-            assert [hit["title"] for hit in r] == sorted_titles
+            titles = [hit["title"] for hit in r]
+            assert titles == sorted_titles
 
             # Sort by reverse title
             facet = sorting.FieldFacet("title", reverse=True)
@@ -837,24 +838,24 @@ def test_sort_text_field():
             assert [hit["title"] for hit in r] == target
 
     # Single segment
-    ix = RamStorage().create_index(schema)
-    with ix.writer() as w:
-        for title, num in domain:
-            w.add_document(title=u(title), num=num)
-    test(ix)
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            for title, num in domain:
+                w.add_document(title=u(title), num=num)
+        test(ix)
 
     # Multisegment
-    ix = RamStorage().create_index(schema)
-    # Segment 1
-    with ix.writer() as w:
-        for title, num in domain[:3]:
-            w.add_document(title=u(title), num=num)
-    # Segment 2
-    with ix.writer() as w:
-        for title, num in domain[3:]:
-            w.add_document(title=u(title), num=num)
-        w.merge = False
-    test(ix)
+    with TempIndex(schema) as ix:
+        # Segment 1
+        with ix.writer() as w:
+            for title, num in domain[:3]:
+                w.add_document(title=u(title), num=num)
+        # Segment 2
+        with ix.writer() as w:
+            for title, num in domain[3:]:
+                w.add_document(title=u(title), num=num)
+            w.merge = False
+        test(ix)
 
 
 def test_filtered_grouped():
@@ -875,6 +876,8 @@ def test_filtered_grouped():
 
 
 def test_add_sortable():
+    from whoosh import columns
+
     st = RamStorage()
     schema = fields.Schema(chapter=fields.ID(stored=True), price=fields.NUMERIC)
     ix = st.create_index(schema)
@@ -897,7 +900,7 @@ def test_add_sortable():
     with ix.writer() as w:
         sorting.add_sortable(w, "chapter", sorting.StoredFieldFacet("chapter"))
         sorting.add_sortable(w, "price", sorting.FieldFacet("price"))
-        w.schema.test = 100
+        w.merge = False
 
     with ix.reader() as r:
         assert r.has_column("chapter")
@@ -905,7 +908,21 @@ def test_add_sortable():
 
         chapr = r.column_reader("chapter")
         pricer = r.column_reader("price")
-        assert chapr[0] == "alfa"
+
+        assert chapr[0] == u"alfa"
+        assert pricer[0] == 100
+
+    ix.optimize()
+
+    with ix.reader() as r:
+        assert r.has_column("chapter")
+        assert r.has_column("price")
+
+        chapr = r.column_reader("chapter")
+        pricer = r.column_reader("price")
+
+        assert chapr[0] == u"alfa"
+        print(list(pricer))
         assert pricer[0] == 100
 
 

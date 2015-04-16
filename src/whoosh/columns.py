@@ -1032,7 +1032,7 @@ class MultiColumnReader(ColumnReader):
     one large column.
     """
 
-    def __init__(self, readers):
+    def __init__(self, readers, offsets=None):
         """
         :param readers: a sequence of column reader objects.
         """
@@ -1041,9 +1041,14 @@ class MultiColumnReader(ColumnReader):
 
         self._doc_offsets = []
         self._doccount = 0
-        for r in readers:
-            self._doc_offsets.append(self._doccount)
-            self._doccount += len(r)
+
+        if offsets is None:
+            for r in readers:
+                self._doc_offsets.append(self._doccount)
+                self._doccount += len(r)
+        else:
+            assert len(offsets) == len(readers)
+            self._doc_offsets = offsets
 
     def _document_reader(self, docnum):
         return max(0, bisect_right(self._doc_offsets, docnum) - 1)

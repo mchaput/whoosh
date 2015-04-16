@@ -391,7 +391,7 @@ def test_update_numeric():
 
 
 def test_reindex():
-    SAMPLE_DOCS = [
+    sample_docs = [
         {'id': u('test1'),
          'text': u('This is a document. Awesome, is it not?')},
         {'id': u('test2'), 'text': u('Another document. Astounding!')},
@@ -405,14 +405,14 @@ def test_reindex():
     with TempIndex(schema, "reindex") as ix:
         def reindex():
             writer = ix.writer()
-            for doc in SAMPLE_DOCS:
+            for doc in sample_docs:
                 writer.update_document(**doc)
             writer.commit()
 
         reindex()
-        assert ix.doc_count_all() == 3
+        assert ix.doc_count() == 3
         reindex()
-        assert ix.doc_count_all() == 3
+        assert ix.doc_count() == 3
 
 
 def test_noscorables1():

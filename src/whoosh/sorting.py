@@ -159,7 +159,7 @@ class Categorizer(object):
 # General field facet
 
 class FieldFacet(FacetType):
-    """Sorts/facest by the contents of a field.
+    """Sorts/facets by the contents of a field.
 
     For example, to sort by the contents of the "path" field in reverse order,
     and facet by the contents of the "tag" field::

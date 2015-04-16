@@ -76,11 +76,6 @@ def _do_basic(writerclass):
             # Check the doc count
             assert r.doc_count_all() == len(docs)
 
-            # Check the word graph
-            assert r.has_word_graph("text")
-            flat = [w.decode("latin1") for w in r.word_graph("text").flatten()]
-            assert flat == words
-
             # Check there are lengths
             total = sum(r.doc_field_length(docnum, "text", 0)
                         for docnum in xrange(r.doc_count_all()))

@@ -819,9 +819,10 @@ class Searcher(object):
 
         collector.run()
 
-    def correct_query(self, q, qstring, correctors=None, allfields=False,
-                      terms=None, prefix=0, maxdist=2):
-        """Returns a corrected version of the given user query using a default
+    def correct_query(self, q, qstring, correctors=None, terms=None, maxdist=2,
+                      prefix=0, aliases=None):
+        """
+        Returns a corrected version of the given user query using a default
         :class:`whoosh.spelling.ReaderCorrector`.
 
         The default:
@@ -848,9 +849,9 @@ class Searcher(object):
 
         >>> from whoosh import qparser, highlight
         >>> qtext = 'mary "litle lamb"'
-        >>> q = qparser.QueryParser(qtext, myindex.schema)
+        >>> q = qparser.QueryParser("text", myindex.schema)
         >>> mysearcher = myindex.searcher()
-        >>> correction = mysearcher.correct_query(q, qtext)
+        >>> correction = mysearcher().correct_query(q, qtext)
         >>> correction.query
         <query.And ...>
         >>> correction.string
@@ -876,39 +877,46 @@ class Searcher(object):
             query. You can use this argument to "override" some fields with a
             different correct, for example a
             :class:`whoosh.spelling.GraphCorrector`.
-        :param allfields: if True, automatically spell check all fields, not
-            just fields with the ``spelling`` attribute.
         :param terms: a sequence of ``("fieldname", "text")`` tuples to correct
             in the query. By default, this method corrects terms that don't
             appear in the index. You can use this argument to override that
             behavior and explicitly specify the terms that should be corrected.
+        :param maxdist: the maximum number of "edits" (insertions, deletions,
+            subsitutions, or transpositions of letters) allowed between the
+            original word and any suggestion. Values higher than ``2`` may be
+            slow.
         :param prefix: suggested replacement words must share this number of
             initial characters with the original word. Increasing this even to
             just ``1`` can dramatically speed up suggestions, and may be
             justifiable since spellling mistakes rarely involve the first
             letter of a word.
-        :param maxdist: the maximum number of "edits" (insertions, deletions,
-            subsitutions, or transpositions of letters) allowed between the
-            original word and any suggestion. Values higher than ``2`` may be
-            slow.
+        :param aliases: an optional dictionary mapping field names in the query
+            to different field names to use as the source of spelling
+            suggestions. The mappings in ``correctors`` are applied after this.
         :rtype: :class:`whoosh.spelling.Correction`
         """
 
         reader = self.reader()
 
+        # Dictionary of field name alias mappings
+        if aliases is None:
+            aliases = {}
         # Dictionary of custom per-field correctors
         if correctors is None:
             correctors = {}
 
-        if allfields:
-            fieldnames = self.schema.names()
-        else:
-            fieldnames = [name for name, field in self.schema.items()
-                          if field.spelling]
+        # Remap correctors dict according to aliases
+        d = {}
+        for fieldname, corr in iteritems(correctors):
+            fieldname = aliases.get(fieldname, fieldname)
+            d[fieldname] = corr
+        correctors = d
 
         # Fill in default corrector objects for fields that don't have a custom
         # one in the "correctors" dictionary
+        fieldnames = self.schema.names()
         for fieldname in fieldnames:
+            fieldname = aliases.get(fieldname, fieldname)
             if fieldname not in correctors:
                 correctors[fieldname] = self.reader().corrector(fieldname)
 
@@ -916,15 +924,16 @@ class Searcher(object):
         if terms is None:
             terms = []
             for token in q.all_tokens():
-                fieldname = token.fieldname
+                aname = aliases.get(token.fieldname, token.fieldname)
                 text = token.text
-                if fieldname in correctors and (fieldname, text) not in reader:
+                if aname in correctors and (aname, text) not in reader:
+                    # Note that we use the original, not aliases fieldname here
+                    # so if we correct the query we know what it was
                     terms.append((token.fieldname, token.text))
 
         # Make q query corrector
         from whoosh import spelling
-
-        sqc = spelling.SimpleQueryCorrector(correctors, terms)
+        sqc = spelling.SimpleQueryCorrector(correctors, terms, aliases)
         return sqc.correct_query(q, qstring)
 
 

@@ -36,7 +36,7 @@ def test_addfield_spelling():
         w.add_document(id=u("c"), content=u("charlie"))
         w.commit()
 
-        ix.add_field("added", fields.KEYWORD(stored=True, spelling=True))
+        ix.add_field("added", fields.KEYWORD(stored=True))
 
         w = ix.writer()
         w.add_document(id=u("d"), content=u("delta"), added=u("fourth"))

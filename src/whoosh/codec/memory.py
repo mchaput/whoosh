@@ -41,7 +41,7 @@ class MemWriter(SegmentWriter):
         self._finalize_segment()
 
 
-class MemoryCodec(base.CodecWithGraph):
+class MemoryCodec(base.Codec):
     def __init__(self):
         from whoosh.filedb.filestore import RamStorage
 
@@ -70,9 +70,6 @@ class MemoryCodec(base.CodecWithGraph):
 
     def new_segment(self, storage, indexname):
         return self.segment
-
-    def graph_reader(self, storage, segment):
-        return base.CodecWithGraph.graph_reader(self, self.storage, self.segment)
 
 
 class MemPerDocWriter(base.PerDocWriterWithColumns):
@@ -189,7 +186,7 @@ class MemPerDocReader(base.PerDocumentReader):
         pass
 
 
-class MemFieldWriter(base.FieldWriterWithGraph):
+class MemFieldWriter(base.FieldWriter):
     def __init__(self, storage, segment):
         self._storage = storage
         self._segment = segment
@@ -209,8 +206,6 @@ class MemFieldWriter(base.FieldWriterWithGraph):
         self._fieldname = fieldname
         self._fieldobj = fieldobj
 
-        self._start_graph_field(fieldname, fieldobj)
-
     def start_term(self, btext):
         if self._btext is not None:
             raise Exception("Called start_term in a term")
@@ -228,8 +223,6 @@ class MemFieldWriter(base.FieldWriterWithGraph):
         self._postings = fielddict[btext]
         self._terminfo = terminfos[fieldname, btext]
         self._btext = btext
-
-        self._insert_graph_key(btext)
 
     def add(self, docnum, weight, vbytes, length):
         self._postings.append((docnum, weight, vbytes))
@@ -249,10 +242,7 @@ class MemFieldWriter(base.FieldWriterWithGraph):
         self._fieldname = None
         self._fieldobj = None
 
-        self._finish_graph_field()
-
     def close(self):
-        self._close_graph()
         self.is_closed = True
 
 

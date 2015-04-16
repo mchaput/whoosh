@@ -279,7 +279,7 @@ class NestedChildren(WrappingQuery):
         def __init__(self, parent_comb, wanted_parent_matcher, limit,
                      is_deleted, boost=1.0):
             self.parent_comb = parent_comb
-            self.wanted_parent_matcher = wanted_parent_matcher
+            self.child = wanted_parent_matcher
             self.limit = limit
             self.is_deleted = is_deleted
             self.boost = boost
@@ -290,7 +290,7 @@ class NestedChildren(WrappingQuery):
         def __repr__(self):
             return "%s(%r, %r)" % (self.__class__.__name__,
                                    self.parent_comb,
-                                   self.wanted_parent_matcher)
+                                   self.child)
 
         def reset(self):
             self.child.reset()
@@ -304,14 +304,14 @@ class NestedChildren(WrappingQuery):
         def is_active(self):
             return self._nextchild < self._nextparent
 
-        def replace(self, minscore):
+        def replace(self, minquality=0):
             return self
 
         def _find_next_children(self):
             # "comb" contains the doc IDs of all parent documents
             comb = self.parent_comb
             # "m" is the matcher for "wanted" parents
-            m = self.wanted_parent_matcher
+            m = self.child
             # Last doc ID + 1
             limit = self.limit
             # A function that returns True if a doc ID is deleted
@@ -376,7 +376,7 @@ class NestedChildren(WrappingQuery):
 
         def skip_to(self, docid):
             comb = self.parent_comb
-            wpm = self.wanted_parent_matcher
+            wanted = self.child
 
             # self._nextchild is the "current" matching child ID
             if docid <= self._nextchild:
@@ -387,18 +387,20 @@ class NestedChildren(WrappingQuery):
                 # Just iterate
                 while self.is_active() and self.id() < docid:
                     self.next()
-            else:
+            elif wanted.is_active():
                 # Find the parent before the target ID
                 pid = comb.before(docid)
                 # Skip the parent matcher to that ID
-                wpm.skip_to(pid)
+                wanted.skip_to(pid)
                 # If that made the matcher inactive, then we're done
-                if not wpm.is_active():
+                if not wanted.is_active():
                     self._nextchild = self._nextparent = self.limit
                 else:
                     # Reestablish for the next child after the next matching
                     # parent
                     self._find_next_children()
+            else:
+                self._nextchild = self._nextparent = self.limit
 
         def value(self):
             raise NotImplementedError(self.__class__)

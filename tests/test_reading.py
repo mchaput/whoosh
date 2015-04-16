@@ -206,8 +206,7 @@ def test_all_stored_fields():
         assert s.doc_count_all() == 4
         assert s.doc_count() == 2
         sfs = list((sf["a"], sf["b"]) for sf in s.all_stored_fields())
-        assert sfs == [("alfa", "bravo"), ("apple", "bear"),
-                       ("alpaca", "beagle"), ("aim", "box")]
+        assert sfs == [("alfa", "bravo"), ("alpaca", "beagle")]
 
 
 def test_first_id():
@@ -311,10 +310,9 @@ def test_nonexclusive_read():
 def test_doc_count():
     schema = fields.Schema(id=fields.NUMERIC)
     ix = RamStorage().create_index(schema)
-    w = ix.writer()
-    for i in xrange(10):
-        w.add_document(id=i)
-    w.commit()
+    with ix.writer() as w:
+        for i in xrange(10):
+            w.add_document(id=i)
 
     r = ix.reader()
     assert r.doc_count() == 10
@@ -362,3 +360,38 @@ def test_reader_subclasses():
     check_abstract_methods(reading.IndexReader, SegmentReader)
     check_abstract_methods(reading.IndexReader, reading.MultiReader)
     check_abstract_methods(reading.IndexReader, reading.EmptyReader)
+
+
+def test_cursor():
+    schema = fields.Schema(text=fields.TEXT)
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            w.add_document(text=u"papa quebec romeo sierra tango")
+            w.add_document(text=u"foxtrot golf hotel india juliet")
+            w.add_document(text=u"alfa bravo charlie delta echo")
+            w.add_document(text=u"uniform victor whiskey x-ray")
+            w.add_document(text=u"kilo lima mike november oskar")
+            w.add_document(text=u"charlie alfa alfa bravo bravo bravo")
+
+        with ix.reader() as r:
+            cur = r.cursor("text")
+            assert cur.text() == "alfa"
+            assert cur.next() == "bravo"
+            assert cur.text() == "bravo"
+
+            assert cur.find(b"inc") == "india"
+            assert cur.text() == "india"
+
+            cur.first() == "alfa"
+            assert cur.text() == "alfa"
+
+            assert cur.find(b"zulu") is None
+            assert cur.text() is None
+            assert not cur.is_valid()
+
+            assert cur.find(b"a") == "alfa"
+            assert cur.term_info().weight() == 3
+            assert cur.next() == "bravo"
+            assert cur.term_info().weight() == 4
+            assert cur.next() == "charlie"
+            assert cur.term_info().weight() == 2

@@ -67,7 +67,7 @@ VECTOR_LEN_COLUMN = columns.NumericColumn("i")
 STORED_COLUMN = columns.PickleColumn(columns.CompressedBytesColumn())
 
 
-class W3Codec(base.CodecWithGraph):
+class W3Codec(base.Codec):
     # File extensions
     TERMS_EXT = ".trm"  # Term index
     POSTS_EXT = ".pst"  # Term postings
@@ -78,6 +78,8 @@ class W3Codec(base.CodecWithGraph):
         self._blocklimit = blocklimit
         self._compression = compression
         self._inlinelimit = inlinelimit
+
+    # def automata(self):
 
     # Per-document value writer
     def per_document_writer(self, storage, segment):
@@ -266,7 +268,7 @@ class W3PerDocWriter(base.PerDocWriterWithColumns):
         self.is_closed = True
 
 
-class W3FieldWriter(base.FieldWriterWithGraph):
+class W3FieldWriter(base.FieldWriter):
     def __init__(self, codec, storage, segment):
         self._codec = codec
         self._storage = storage
@@ -304,8 +306,6 @@ class W3FieldWriter(base.FieldWriterWithGraph):
         self._format = fieldobj.format
         self._infield = True
 
-        # Set up graph for this field if necessary
-        self._start_graph_field(fieldname, fieldobj)
         # Start a new postwriter for this field
         self._postwriter = self._codec.postings_writer(self._postfile)
 
@@ -314,8 +314,6 @@ class W3FieldWriter(base.FieldWriterWithGraph):
             raise Exception("Called start_term before start_field")
         self._btext = btext
         self._postwriter.start_postings(self._fieldobj.format,  W3TermInfo())
-        # Add the word to the graph if necessary
-        self._insert_graph_key(btext)
 
     def add(self, docnum, weight, vbytes, length):
         self._postwriter.add_posting(docnum, weight, vbytes, length)
@@ -335,12 +333,10 @@ class W3FieldWriter(base.FieldWriterWithGraph):
             raise Exception("Called finish_field before start_field")
         self._infield = False
         self._postwriter = None
-        self._finish_graph_field()
 
     def close(self):
         self._tindex.close()
         self._postfile.close()
-        self._close_graph()
         self.is_closed = True
 
 
@@ -492,6 +488,64 @@ class W3PerDocReader(base.PerDocumentReader):
         return v
 
 
+class W3FieldCursor(base.FieldCursor):
+    def __init__(self, tindex, fieldname, keycoder, keydecoder, fieldobj):
+        self._tindex = tindex
+        self._fieldname = fieldname
+        self._keycoder = keycoder
+        self._keydecoder = keydecoder
+        self._fieldobj = fieldobj
+
+        prefixbytes = keycoder(fieldname, b'')
+        self._startpos = self._tindex.closest_key_pos(prefixbytes)
+
+        self._pos = self._startpos
+        self._text = None
+        self._datapos = None
+        self._datalen = None
+        self.next()
+
+    def first(self):
+        self._pos = self._startpos
+        return self.next()
+
+    def find(self, term):
+        if not isinstance(term, bytes_type):
+            term = self._fieldobj.to_bytes(term)
+        key = self._keycoder(self._fieldname, term)
+        self._pos = self._tindex.closest_key_pos(key)
+        return self.next()
+
+    def next(self):
+        if self._pos is not None:
+            keyrng = self._tindex.key_and_range_at(self._pos)
+            if keyrng is not None:
+                keybytes, datapos, datalen = keyrng
+                fname, text = self._keydecoder(keybytes)
+                if fname == self._fieldname:
+                    self._pos = datapos + datalen
+                    self._text = self._fieldobj.from_bytes(text)
+                    self._datapos = datapos
+                    self._datalen = datalen
+                    return self._text
+
+        self._text = self._pos = self._datapos = self._datalen = None
+        return None
+
+    def text(self):
+        return self._text
+
+    def term_info(self):
+        if self._pos is None:
+            return None
+
+        databytes = self._tindex.dbfile.get(self._datapos, self._datalen)
+        return W3TermInfo.from_bytes(databytes)
+
+    def is_valid(self):
+        return self._pos is not None
+
+
 class W3TermsReader(base.TermsReader):
     def __init__(self, codec, dbfile, length, postfile):
         self._codec = codec
@@ -521,6 +575,12 @@ class W3TermsReader(base.TermsReader):
 
     def indexed_field_names(self):
         return self._fieldmap.keys()
+
+    def cursor(self, fieldname, fieldobj):
+        tindex = self._tindex
+        coder = self._keycoder
+        decoder = self._keydecoder
+        return W3FieldCursor(tindex, fieldname, coder, decoder, fieldobj)
 
     def terms(self):
         keydecoder = self._keydecoder

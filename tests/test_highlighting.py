@@ -7,7 +7,7 @@ import pytest
 from whoosh import analysis, highlight, fields, qparser, query
 from whoosh.compat import u
 from whoosh.filedb.filestore import RamStorage
-from whoosh.util.testing import TempStorage
+from whoosh.util.testing import TempIndex
 
 
 _doc = u("alfa bravo charlie delta echo foxtrot golf hotel india juliet " +
@@ -169,16 +169,18 @@ def test_multifilter():
     iwf_for_query = analysis.IntraWordFilter(mergewords=False, mergenums=False)
     mf = analysis.MultiFilter(index=iwf_for_index, query=iwf_for_query)
     ana = analysis.RegexTokenizer() | mf | analysis.LowercaseFilter()
-    schema = fields.Schema(text=fields.TEXT(analyzer=ana, stored=True))
-    ix = RamStorage().create_index(schema)
-    w = ix.writer()
-    w.add_document(text=u("Our BabbleTron5000 is great"))
-    w.commit()
 
-    with ix.searcher() as s:
-        assert ("text", "5000") in s.reader()
-        hit = s.search(query.Term("text", "5000"))[0]
-        assert hit.highlights("text") == 'Our BabbleTron<b class="match term0">5000</b> is great'
+    schema = fields.Schema(text=fields.TEXT(analyzer=ana, stored=True))
+    with TempIndex(schema) as ix:
+        w = ix.writer()
+        w.add_document(text=u("Our BabbleTron5000 is great"))
+        w.commit()
+
+        with ix.searcher() as s:
+            assert ("text", "5000") in s.reader()
+            hit = s.search(query.Term("text", "5000"))[0]
+            assert (hit.highlights("text")
+                    == 'Our BabbleTron<b class="match term0">5000</b> is great')
 
 
 def test_pinpoint():
@@ -198,14 +200,17 @@ def test_pinpoint():
         hi.formatter = highlight.UppercaseFormatter()
 
         assert not hi.can_load_chars(r, "text")
-        assert hi.highlight_hit(hit, "text") == "golf hotel india JULIET kilo lima mike november"
+        assert (hi.highlight_hit(hit, "text")
+                == "golf hotel india JULIET kilo lima mike november")
 
         hi.fragmenter = highlight.PinpointFragmenter()
         assert hi.can_load_chars(r, "text")
-        assert hi.highlight_hit(hit, "text") == "ot golf hotel india JULIET kilo lima mike nove"
+        assert (hi.highlight_hit(hit, "text")
+                == "ot golf hotel india JULIET kilo lima mike nove")
 
         hi.fragmenter.autotrim = True
-        assert hi.highlight_hit(hit, "text") == "golf hotel india JULIET kilo lima mike"
+        assert (hi.highlight_hit(hit, "text")
+                == "golf hotel india JULIET kilo lima mike")
 
 
 def test_highlight_wildcards():

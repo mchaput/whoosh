@@ -647,19 +647,6 @@ class SegmentWriter(IndexWriter):
         for item in items:
             add_post(item)
 
-        # For fields with separate spelling, copy the words from the graph into
-        # the posting pool
-        for fieldname, fieldobj in self.schema.items():
-            if (fieldobj.separate_spelling()
-                and reader.has_word_graph(fieldname)):
-
-                gr = reader._get_graph()
-                cursor = gr.cursor(fieldname)
-                for word in cursor.flatten():
-                    # Adding a post where docnum=None marks it as a separate
-                    # spelling word
-                    add_post((fieldname, word, -1, -1, emptybytes))
-
     def write_postings(self, lengths, items, startdoc, docmap):
         items = self._process_posts(items, startdoc, docmap)
         self.fieldwriter.add_postings(self.schema, lengths, items)
@@ -767,14 +754,11 @@ class SegmentWriter(IndexWriter):
                     add_post((fieldname, tbytes, docnum, weight, vbytes))
 
             if field.separate_spelling():
-                # For fields which use different morphemes for spelling,
-                # insert fake postings for the spellable words, where
-                # docnum=-1 means "this is a spelling word"
-
-                # TODO: think of something less hacktacular
+                spellfield = field.spelling_fieldname(fieldname)
                 for word in field.spellable_words(value):
                     word = utf8encode(word)[0]
-                    add_post((fieldname, word, -1, -1, emptybytes))
+                    # item = (fieldname, tbytes, docnum, weight, vbytes)
+                    add_post((spellfield, word, 0, 1, vbytes))
 
             vformat = field.vector
             if vformat:
@@ -1107,9 +1091,8 @@ def add_spelling(ix, fieldnames, commit=True):
 # Buffered writer class
 
 class BufferedWriter(IndexWriter):
-    """Convenience class that acts like a writer but buffers added documents to
-    a buffer before dumping the buffered documents as a batch into the actual
-    index.
+    """Convenience class that acts like a writer but buffers added documents
+    before dumping the buffered documents as a batch into the actual index.
 
     In scenarios where you are continuously adding single documents very
     rapidly (for example a web application where lots of users are adding
@@ -1243,6 +1226,8 @@ class BufferedWriter(IndexWriter):
         self.writer.commit(**self.commitargs)
         self.bufferedcount = 0
 
+        print(list(self.index.reader().all_stored_fields()))
+
         if restart:
             self.writer = self.index.writer(**self.writerargs)
             if self.period:
@@ -1282,7 +1267,7 @@ class BufferedWriter(IndexWriter):
         if docnum < base:
             return self.writer.is_deleted(docnum)
         else:
-            return self._get_ram_writer().is_deleted(docnum - base)
+            return self._get_ram_reader().is_deleted(docnum - base)
 
 
 # Backwards compatibility with old name
