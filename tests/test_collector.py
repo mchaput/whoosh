@@ -169,3 +169,61 @@ def test_reverse_collapse():
         assert [hit["path"] for hit in r] == ["/a", "/b", "/d"]
 
 
+def test_termdocs():
+    schema = fields.Schema(key=fields.TEXT, city=fields.ID)
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(key="ant", city="london")
+        w.add_document(key="anteater", city="roma")
+        w.add_document(key="bear", city="london")
+        w.add_document(key="bees", city="roma")
+        w.add_document(key="anorak", city="london")
+        w.add_document(key="antimatter", city="roma")
+        w.add_document(key="angora", city="london")
+        w.add_document(key="angels", city="roma")
+    
+    with ix.searcher() as s:
+        cond_q = query.Term("city", "london")
+        pref_q = query.Prefix("key", "an")
+        q = query.And([cond_q, pref_q]).normalize()
+        r = s.search(q, scored=False, terms=True)
+
+        field = s.schema["key"]
+        terms = [field.from_bytes(term) for fieldname, term in r.termdocs
+                 if fieldname == "key"]
+        assert sorted(terms) == ["angora", "anorak", "ant"]
+
+def test_termdocs2():
+    schema = fields.Schema(key=fields.TEXT, city=fields.ID)
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(key="ant", city="london")
+        w.add_document(key="anteater", city="roma")
+        w.add_document(key="bear", city="london")
+        w.add_document(key="bees", city="roma")
+        w.add_document(key="anorak", city="london")
+        w.add_document(key="antimatter", city="roma")
+        w.add_document(key="angora", city="london")
+        w.add_document(key="angels", city="roma")
+
+    with ix.searcher() as s:
+        # A query that matches the applicable documents
+        cond_q = query.Term("city", "london")
+        # Get a list of the documents that match the condition(s)
+        cond_docnums = set(cond_q.docs(s))
+        # Grab the suggestion field for later
+        field = s.schema["key"]
+
+        terms = []
+        # Expand the prefix
+        for term in s.reader().expand_prefix("key", "an"):
+            # Get the documents the term is in
+            for docnum in s.document_numbers(key=term):
+                # Check if it's in the set matching the condition(s)
+                if docnum in cond_docnums:
+                    # If so, decode the term from bytes and add it to the list,
+                    # then move on to the next term
+                    terms.append(field.from_bytes(term))
+                    break
+        assert terms == ["angora", "anorak", "ant"]
+

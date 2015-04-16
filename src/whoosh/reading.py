@@ -29,11 +29,10 @@
 """
 
 from math import log
-from bisect import bisect_left, bisect_right
+from bisect import bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
 
-from whoosh import columns, scoring
-from whoosh.automata import fst
+from whoosh import columns
 from whoosh.compat import abstractmethod
 from whoosh.compat import xrange, zip_, next, iteritems
 from whoosh.filedb.filestore import OverlayStorage
@@ -53,10 +52,6 @@ class ReaderClosed(Exception):
 
 
 class TermNotFound(Exception):
-    pass
-
-
-class NoGraphError(Exception):
     pass
 
 
@@ -347,12 +342,13 @@ class IndexReader(object):
         raise NotImplementedError
 
     def all_stored_fields(self):
-        """Yields the stored fields for all documents (including deleted
-        documents).
+        """Yields the stored fields for all non-deleted documents.
         """
 
+        is_deleted = self.is_deleted
         for docnum in xrange(self.doc_count_all()):
-            yield self.stored_fields(docnum)
+            if not is_deleted(docnum):
+                yield self.stored_fields(docnum)
 
     @abstractmethod
     def doc_count_all(self):
@@ -493,33 +489,20 @@ class IndexReader(object):
         """
 
         vec = self.vector(docnum, fieldname)
+        print("vec=", vec)
         if astype == "weight":
             while vec.is_active():
                 yield (vec.id(), vec.weight())
                 vec.next()
         else:
             format_ = self.schema[fieldname].format
+            print("format_=", format_)
             decoder = format_.decoder(astype)
+            print("decoder=", decoder)
             while vec.is_active():
+                print("id=", vec.id(), "val=", vec.value())
                 yield (vec.id(), decoder(vec.value()))
                 vec.next()
-
-    def has_word_graph(self, fieldname):
-        """Returns True if the given field has a "word graph" associated with
-        it, allowing suggestions for correcting mis-typed words and fast fuzzy
-        term searching.
-        """
-
-        return False
-
-    def word_graph(self, fieldname):
-        """Returns the root :class:`whoosh.fst.Node` for the given
-        field, if the field has a stored word graph (otherwise raises an
-        exception). You can check whether a field has a word graph using
-        :meth:`IndexReader.has_word_graph`.
-        """
-
-        raise KeyError
 
     def corrector(self, fieldname):
         """Returns a :class:`whoosh.spelling.Corrector` object that suggests
@@ -528,10 +511,12 @@ class IndexReader(object):
 
         from whoosh.spelling import ReaderCorrector
 
-        return ReaderCorrector(self, fieldname)
+        fieldobj = self.schema[fieldname]
+        return ReaderCorrector(self, fieldname, fieldobj)
 
     def terms_within(self, fieldname, text, maxdist, prefix=0):
-        """Returns a generator of words in the given field within ``maxdist``
+        """
+        Returns a generator of words in the given field within ``maxdist``
         Damerau-Levenshtein edit distance of the given text.
 
         Important: the terms are returned in **no particular order**. The only
@@ -637,12 +622,6 @@ class SegmentReader(IndexReader):
         self._codec = codec if codec else segment.codec()
         self._terms = self._codec.terms_reader(self._storage, segment)
         self._perdoc = self._codec.per_document_reader(self._storage, segment)
-        self._graph = None  # Lazy open with self._get_graph()
-
-    def _get_graph(self):
-        if not self._graph:
-            self._graph = self._codec.graph_reader(self._storage, self._segment)
-        return self._graph
 
     def codec(self):
         return self._codec
@@ -694,8 +673,6 @@ class SegmentReader(IndexReader):
             raise ReaderClosed("Reader already closed")
         self._terms.close()
         self._perdoc.close()
-        if self._graph:
-            self._graph.close()
 
         # It's possible some weird codec that doesn't use storage might have
         # passed None instead of a storage object
@@ -857,41 +834,19 @@ class SegmentReader(IndexReader):
             raise Exception("No vectors are stored for field %r" % fieldname)
         return self._perdoc.vector(docnum, fieldname, vformat)
 
-    # Graph methods
-
-    def has_word_graph(self, fieldname):
-        if self.is_closed:
-            raise ReaderClosed
-        if fieldname not in self.schema:
-            return False
-        if not self.schema[fieldname].spelling:
-            return False
-
-        try:
-            gr = self._get_graph()
-        except NoGraphError:
-            return False
-
-        return gr.has_root(fieldname)
-
-    def word_graph(self, fieldname):
-        if self.is_closed:
-            raise ReaderClosed
-        if not self.has_word_graph(fieldname):
-            raise KeyError("No word graph for field %r" % fieldname)
-        gr = self._get_graph()
-        return fst.Node(gr, gr.root(fieldname))
+    def cursor(self, fieldname):
+        fieldobj = self.schema[fieldname]
+        return self._terms.cursor(fieldname, fieldobj)
 
     def terms_within(self, fieldname, text, maxdist, prefix=0):
-        if self.is_closed:
-            raise ReaderClosed
-        if not self.has_word_graph(fieldname):
-            # This reader doesn't have a graph stored, use the slow method
-            return IndexReader.terms_within(self, fieldname, text, maxdist,
-                                            prefix=prefix)
-        gr = self._get_graph()
-        return fst.within(gr, text, k=maxdist, prefix=prefix,
-                          address=self._graph.root(fieldname))
+        # Replaces the horribly inefficient base implementation with one based
+        # on skipping through the word list efficiently using a DFA
+
+        fieldobj = self.schema[fieldname]
+        spellfield = fieldobj.spelling_fieldname(fieldname)
+        auto = self._codec.automata(self._storage, self._segment)
+        fieldcur = self.cursor(spellfield)
+        return auto.terms_within(fieldcur, text, maxdist, prefix)
 
     # Column methods
 
@@ -942,6 +897,11 @@ class EmptyReader(IndexReader):
 
     def __iter__(self):
         return iter([])
+
+    def cursor(self, fieldname):
+        from whoosh.codec.base import EmptyCursor
+
+        return EmptyCursor()
 
     def indexed_field_names(self):
         return []
@@ -1045,6 +1005,9 @@ class MultiReader(IndexReader):
         offset = self.doc_offsets[segmentnum]
         return segmentnum, docnum - offset
 
+    def cursor(self, fieldname):
+        return MultiCursor([r.cursor(fieldname) for r in self.readers])
+
     def is_atomic(self):
         return False
 
@@ -1131,7 +1094,7 @@ class MultiReader(IndexReader):
 
     def indexed_field_names(self):
         names = set()
-        for r in self.reader():
+        for r in self.readers:
             names.update(r.indexed_field_names())
         return iter(names)
 
@@ -1153,24 +1116,8 @@ class MultiReader(IndexReader):
         # added
         if not tis:
             raise TermNotFound(term)
-        elif len(tis) == 1:
-            ti, offset = tis[0]
-            ti._minid += offset
-            ti._maxid += offset
-            return ti
 
-        # Combine the various statistics
-        w = sum(ti.weight() for ti, _ in tis)
-        df = sum(ti.doc_frequency() for ti, _ in tis)
-        ml = min(ti.min_length() for ti, _ in tis)
-        xl = max(ti.max_length() for ti, _ in tis)
-        xw = max(ti.max_weight() for ti, _ in tis)
-
-        # For min and max ID, we need to add the doc offsets
-        mid = min(ti.min_id() + offset for ti, offset in tis)
-        xid = max(ti.max_id() + offset for ti, offset in tis)
-
-        return TermInfo(w, df, ml, xl, xw, mid, xid)
+        return combine_terminfos(tis)
 
     def frequency(self, fieldname, text):
         return sum(r.frequency(fieldname, text) for r in self.readers)
@@ -1224,6 +1171,23 @@ class MultiReader(IndexReader):
         segmentnum, segmentdoc = self._segment_and_docnum(docnum)
         return self.readers[segmentnum].stored_fields(segmentdoc)
 
+    # Columns
+
+    def has_column(self, fieldname):
+        return any(r.has_column(fieldname) for r in self.readers)
+
+    def column_reader(self, fieldname, column=None, reverse=False,
+                      translate=True):
+        crs = []
+        doc_offsets = []
+        for i, r in enumerate(self.readers):
+            if r.has_column(fieldname):
+                cr = r.column_reader(fieldname, column=column, reverse=reverse,
+                                     translate=translate)
+                crs.append(cr)
+                doc_offsets.append(self.doc_offsets[i])
+        return columns.MultiColumnReader(crs, doc_offsets)
+
     # Per doc methods
 
     def all_stored_fields(self):
@@ -1264,47 +1228,70 @@ class MultiReader(IndexReader):
         return self.readers[segmentnum].vector_as(astype, segmentdoc,
                                                   fieldname)
 
-    # Graph methods
 
-    def has_word_graph(self, fieldname):
-        return any(r.has_word_graph(fieldname) for r in self.readers)
+def combine_terminfos(tis):
+    if len(tis) == 1:
+        ti, offset = tis[0]
+        ti._minid += offset
+        ti._maxid += offset
+        return ti
 
-    def word_graph(self, fieldname):
-        from whoosh.automata.fst import UnionNode
-        from whoosh.util import make_binary_tree
+    # Combine the various statistics
+    w = sum(ti.weight() for ti, _ in tis)
+    df = sum(ti.doc_frequency() for ti, _ in tis)
+    ml = min(ti.min_length() for ti, _ in tis)
+    xl = max(ti.max_length() for ti, _ in tis)
+    xw = max(ti.max_weight() for ti, _ in tis)
 
-        if not self.has_word_graph(fieldname):
-            raise Exception("No word graph for field %r" % fieldname)
+    # For min and max ID, we need to add the doc offsets
+    mid = min(ti.min_id() + offset for ti, offset in tis)
+    xid = max(ti.max_id() + offset for ti, offset in tis)
 
-        graphs = [r.word_graph(fieldname) for r in self.readers
-                  if r.has_word_graph(fieldname)]
-        if len(graphs) == 0:
-            raise KeyError("No readers have graph for %r" % fieldname)
-        if len(graphs) == 1:
-            return graphs[0]
-        return make_binary_tree(UnionNode, graphs)
+    return TermInfo(w, df, ml, xl, xw, mid, xid)
 
-    def terms_within(self, fieldname, text, maxdist, prefix=0):
-        tset = set()
-        for r in self.readers:
-            tset.update(r.terms_within(fieldname, text, maxdist,
-                                       prefix=prefix))
-        return tset
 
-    # Column methods
+class MultiCursor(object):
+    def __init__(self, cursors):
+        self._cursors = [c for c in cursors if c.is_valid()]
+        self._low = []
+        self._text = None
+        self.next()
 
-    def has_column(self, fieldname):
-        return any(r.has_column(fieldname) for r in self.readers)
+    def _find_low(self):
+        low = []
+        lowterm = None
 
-    def column_reader(self, fieldname, column=None, reverse=False,
-                      translate=True):
-        column = column or self.schema[fieldname].column_type
-        if not column:
-            raise Exception("Field %r has no column type" % (fieldname,))
+        for c in self._cursors:
+            if c.is_valid():
+                cterm = c.term()
+                if low and cterm == lowterm:
+                    low.append(c)
+                elif low and cterm < lowterm:
+                    low = [c]
+                    lowterm = cterm
 
-        creaders = []
-        for r in self.readers:
-            cr = r.column_reader(fieldname, column=column, reverse=reverse,
-                                 translate=translate)
-            creaders.append(cr)
-        return columns.MultiColumnReader(creaders)
+        self._low = low
+        self._text = lowterm
+        return lowterm
+
+    def first(self):
+        for c in self._cursors:
+            c.first()
+        return self._find_low()
+
+    def find(self, term):
+        for c in self._cursors:
+            c.find(term)
+        return self._find_low()
+
+    def next(self):
+        for c in self._cursors:
+            c.next()
+        return self._find_low()
+
+    def term_info(self):
+        tis = [c.term_info() for c in self._low]
+        return combine_terminfos(tis) if tis else None
+
+    def is_valid(self):
+        return any(c.is_valid() for c in self._cursors)

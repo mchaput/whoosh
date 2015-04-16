@@ -289,36 +289,43 @@ def test_custom_tokens():
 def test_copyfield():
     qp = qparser.QueryParser("a", None)
     qp.add_plugin(plugins.CopyFieldPlugin({"b": "c"}, None))
-    assert text_type(qp.parse("hello b:matt")) == "(a:hello AND b:matt AND c:matt)"
+    assert (text_type(qp.parse("hello b:matt"))
+            == "(a:hello AND b:matt AND c:matt)")
 
     qp = qparser.QueryParser("a", None)
     qp.add_plugin(plugins.CopyFieldPlugin({"b": "c"}, syntax.AndMaybeGroup))
-    assert text_type(qp.parse("hello b:matt")) == "(a:hello AND (b:matt ANDMAYBE c:matt))"
+    assert (text_type(qp.parse("hello b:matt"))
+            == "(a:hello AND (b:matt ANDMAYBE c:matt))")
 
     qp = qparser.QueryParser("a", None)
     qp.add_plugin(plugins.CopyFieldPlugin({"b": "c"}, syntax.RequireGroup))
-    assert text_type(qp.parse("hello (there OR b:matt)")) == "(a:hello AND (a:there OR (b:matt REQUIRE c:matt)))"
+    assert (text_type(qp.parse("hello (there OR b:matt)"))
+            == "(a:hello AND (a:there OR (b:matt REQUIRE c:matt)))")
 
     qp = qparser.QueryParser("a", None)
     qp.add_plugin(plugins.CopyFieldPlugin({"a": "c"}, syntax.OrGroup))
-    assert text_type(qp.parse("hello there")) == "((a:hello OR c:hello) AND (a:there OR c:there))"
+    assert (text_type(qp.parse("hello there"))
+            == "((a:hello OR c:hello) AND (a:there OR c:there))")
 
     qp = qparser.QueryParser("a", None)
     qp.add_plugin(plugins.CopyFieldPlugin({"b": "c"}, mirror=True))
-    assert text_type(qp.parse("hello c:matt")) == "(a:hello AND (c:matt OR b:matt))"
+    assert (text_type(qp.parse("hello c:matt"))
+            == "(a:hello AND (c:matt OR b:matt))")
 
     qp = qparser.QueryParser("a", None)
     qp.add_plugin(plugins.CopyFieldPlugin({"c": "a"}, mirror=True))
-    assert text_type(qp.parse("hello c:matt")) == "((a:hello OR c:hello) AND (c:matt OR a:matt))"
+    assert (text_type(qp.parse("hello c:matt"))
+            == "((a:hello OR c:hello) AND (c:matt OR a:matt))")
 
     ana = analysis.RegexAnalyzer(r"\w+") | analysis.DoubleMetaphoneFilter()
     fmt = formats.Frequency()
-    schema = fields.Schema(name=fields.KEYWORD,
-                           name_phone=fields.FieldType(fmt, ana,
-                                                       multitoken_query="or"))
+    ft = fields.FieldType(fmt, ana, multitoken_query="or")
+    schema = fields.Schema(name=fields.KEYWORD, name_phone=ft)
     qp = qparser.QueryParser("name", schema)
     qp.add_plugin(plugins.CopyFieldPlugin({"name": "name_phone"}))
-    assert text_type(qp.parse(u("spruce view"))) == "((name:spruce OR name_phone:SPRS) AND (name:view OR name_phone:F OR name_phone:FF))"
+    target = ("((name:spruce OR name_phone:SPRS) "
+              "AND (name:view OR name_phone:F OR name_phone:FF))")
+    assert text_type(qp.parse(u("spruce view"))) == target
 
 
 def test_gtlt():
@@ -477,7 +484,7 @@ def test_fuzzy_prefix():
         w.add_document(title=u("Fifth"),
                        content=u("The fire is beautiful"))
 
-    from whoosh.qparser import QueryParser, FuzzyTermPlugin #, BoundedFuzzyTermPlugin
+    from whoosh.qparser import QueryParser, FuzzyTermPlugin
     parser = QueryParser("content", ix.schema)
     parser.add_plugin(FuzzyTermPlugin())
     q = parser.parse("first~2/3 OR zeroth", debug=False)
@@ -491,7 +498,8 @@ def test_fuzzy_prefix():
     with ix.searcher(weighting=scoring.TF_IDF()) as searcher:
         results = searcher.search(q)
         assert len(results) == 4
-        assert " ".join(hit["title"] for hit in results) == "Fourth First Third Fifth"
+        assert (" ".join(sorted(hit["title"] for hit in results))
+                == "Fifth First Fourth Third")
 
 
 def test_function_plugin():

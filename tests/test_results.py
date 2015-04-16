@@ -521,8 +521,7 @@ def test_hit_column():
 def test_closed_searcher():
     from whoosh.reading import ReaderClosed
 
-    schema = fields.Schema(key=fields.KEYWORD(stored=True, sortable=True,
-                                              spelling=True))
+    schema = fields.Schema(key=fields.KEYWORD(stored=True, sortable=True))
 
     with TempStorage() as st:
         ix = st.create_index(schema)
@@ -542,8 +541,6 @@ def test_closed_searcher():
         with pytest.raises(ReaderClosed):
             s.reader().column_reader("key")
         with pytest.raises(ReaderClosed):
-            s.reader().has_word_graph("key")
-        with pytest.raises(ReaderClosed):
             s.suggest("key", "brovo")
 
         s = ix.searcher()
@@ -552,7 +549,6 @@ def test_closed_searcher():
         assert r[0]["key"] == "bravo"
         c = s.reader().column_reader("key")
         assert c[1] == "bravo"
-        assert s.reader().has_word_graph("key")
         assert s.suggest("key", "brovo") == ["bravo"]
 
 

@@ -49,6 +49,14 @@ def random_name(size=28):
     return "".join(random.choice(IDCHARS) for _ in xrange(size))
 
 
+def random_bytes(size=28):
+    gen = (random.randint(0, 255) for _ in xrange(size))
+    if sys.version_info[0] >= 3:
+        return bytes(gen)
+    else:
+        return array("B", gen).tostring()
+
+
 def make_binary_tree(fn, args, **kwargs):
     """Takes a function/class that takes two positional arguments and a list of
     arguments and returns a binary tree of results/instances.
@@ -119,3 +127,16 @@ def synchronized(func):
             return func(self, *args, **kwargs)
 
     return synchronized_wrapper
+
+
+def unclosed(method):
+    """
+    Decorator to check if the object is closed.
+    """
+
+    @wraps(method)
+    def unclosed_wrapper(self, *args, **kwargs):
+        if self.closed:
+            raise ValueError("Operation on a closed object")
+        return method(self, *args, **kwargs)
+    return unclosed_wrapper

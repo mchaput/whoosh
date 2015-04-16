@@ -299,12 +299,26 @@ class HashReader(object):
         self.dbfile.close()
         self.is_closed = True
 
-    def _key_at(self, pos):
+    def key_at(self, pos):
         # Returns the key bytes at the given position
 
         dbfile = self.dbfile
         keylen = dbfile.get_uint(pos)
         return dbfile.get(pos + _lengths.size, keylen)
+
+    def key_and_range_at(self, pos):
+        # Returns a (keybytes, datapos, datalen) tuple for the key at the given
+        # position
+        dbfile = self.dbfile
+        lenssize = _lengths.size
+
+        if pos >= self.endofdata:
+            return None
+
+        keylen, datalen = _lengths.unpack(dbfile.get(pos, lenssize))
+        keybytes = dbfile.get(pos + lenssize, keylen)
+        datapos = pos + lenssize + keylen
+        return keybytes, datapos, datalen
 
     def _ranges(self, pos=None, eod=None):
         # Yields a series of (keypos, keylength, datapos, datalength) tuples
@@ -458,24 +472,24 @@ class OrderedHashWriter(HashWriter):
         index.to_file(dbfile)
 
 
-class OrderedBase(HashReader):
+class OrderedHashReader(HashReader):
     def closest_key(self, key):
         """Returns the closest key equal to or greater than the given key. If
         there is no key in the file equal to or greater than the given key,
         returns None.
         """
 
-        pos = self._closest_key_pos(key)
+        pos = self.closest_key_pos(key)
         if pos is None:
             return None
-        return self._key_at(pos)
+        return self.key_at(pos)
 
     def ranges_from(self, key):
         """Yields a series of ``(keypos, keylen, datapos, datalen)`` tuples
         for the ordered series of keys equal or greater than the given key.
         """
 
-        pos = self._closest_key_pos(key)
+        pos = self.closest_key_pos(key)
         if pos is None:
             return
 
@@ -500,8 +514,6 @@ class OrderedBase(HashReader):
         for keypos, keylen, datapos, datalen in self.ranges_from(key):
             yield (dbfile.get(keypos, keylen), dbfile.get(datapos, datalen))
 
-
-class OrderedHashReader(OrderedBase):
     def _read_extras(self):
         dbfile = self.dbfile
 
@@ -527,7 +539,7 @@ class OrderedHashReader(OrderedBase):
         else:
             raise Exception("Unknown index type %r" % indextype)
 
-    def _closest_key_pos(self, key):
+    def closest_key_pos(self, key):
         # Given a key, return the position of that key OR the next highest key
         # if the given key does not exist
         if not isinstance(key, bytes_type):
@@ -535,7 +547,7 @@ class OrderedHashReader(OrderedBase):
 
         indexbase = self.indexbase
         indexsize = self.indexsize
-        _key_at = self._key_at
+        key_at = self.key_at
         _get_pos = self._get_pos
 
         # Do a binary search of the positions in the index array
@@ -543,7 +555,7 @@ class OrderedHashReader(OrderedBase):
         hi = self.indexlen
         while lo < hi:
             mid = (lo + hi) // 2
-            midkey = _key_at(_get_pos(indexbase + mid * indexsize))
+            midkey = key_at(_get_pos(indexbase + mid * indexsize))
             if midkey < key:
                 lo = mid + 1
             else:
@@ -605,6 +617,9 @@ class FieldedOrderedHashReader(HashReader):
             startpos, ixpos, ixsize, ixtype = self.fieldmap[fieldname]
             self.fieldlist.append((fieldname, startpos, ixpos))
 
+    def field_start(self, fieldname):
+        return self.fieldmap[fieldname][0]
+
     def fielded_ranges(self, pos=None, eod=None):
         flist = self.fieldlist
         fpos = 0
@@ -650,14 +665,14 @@ class FieldedOrderedHashReader(HashReader):
         except KeyError:
             return default
 
-    def _closest_term_pos(self, fieldname, key):
+    def closest_term_pos(self, fieldname, key):
         # Given a key, return the position of that key OR the next highest key
         # if the given key does not exist
         if not isinstance(key, bytes_type):
             raise TypeError("Key %r should be bytes" % key)
 
         dbfile = self.dbfile
-        _key_at = self._key_at
+        key_at = self.key_at
         startpos, ixpos, ixsize, ixtype = self.fieldmap[fieldname]
 
         if ixtype == "B":
@@ -678,7 +693,7 @@ class FieldedOrderedHashReader(HashReader):
         hi = ixsize
         while lo < hi:
             mid = (lo + hi) // 2
-            midkey = _key_at(startpos + get_pos(ixpos + mid * ixsize))
+            midkey = key_at(startpos + get_pos(ixpos + mid * ixsize))
             if midkey < key:
                 lo = mid + 1
             else:
@@ -691,13 +706,13 @@ class FieldedOrderedHashReader(HashReader):
         return startpos + get_pos(ixpos + lo * ixsize)
 
     def closest_term(self, fieldname, btext):
-        pos = self._closest_term_pos(fieldname, btext)
+        pos = self.closest_term_pos(fieldname, btext)
         if pos is None:
             return None
-        return self._key_at(pos)
+        return self.key_at(pos)
 
     def term_ranges_from(self, fieldname, btext):
-        pos = self._closest_term_pos(fieldname, btext)
+        pos = self.closest_term_pos(fieldname, btext)
         if pos is None:
             return
 

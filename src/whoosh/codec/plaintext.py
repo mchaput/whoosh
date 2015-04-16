@@ -56,21 +56,25 @@ class LineWriter(object):
 
 
 class LineReader(object):
+    def __init__(self, dbfile):
+        self._dbfile = dbfile
+
     def _reset(self):
         self._dbfile.seek(0)
 
     def _find_line(self, indent, command, **kwargs):
-        here = self._dbfile.tell()
-        self._dbfile.seek(here)
+        for largs in self._find_lines(indent, command, **kwargs):
+            return largs
 
+    def _find_lines(self, indent, command, **kwargs):
         while True:
             line = self._dbfile.readline()
             if not line:
-                return None
+                return
 
             c = self._parse_line(line)
             if c is None:
-                return None
+                return
 
             lindent, lcommand, largs = c
             if lindent == indent and lcommand == command:
@@ -80,10 +84,11 @@ class LineReader(object):
                         if kwargs[k] != largs.get(k):
                             matched = False
                             break
+
                 if matched:
-                    return largs
+                    yield largs
             elif lindent < indent:
-                return None
+                return
 
     def _parse_line(self, line):
         line = line.decode("latin1")
@@ -129,9 +134,6 @@ class PlainTextCodec(base.Codec):
 
     def new_segment(self, storage, indexname):
         return PlainSegment(indexname)
-
-    def supports_graphs(self):
-        return False
 
 
 class PlainPerDocWriter(base.PerDocumentWriter, LineWriter):
@@ -205,9 +207,8 @@ class PlainPerDocReader(base.PerDocumentReader, LineReader):
             c = self._find_line(1, "DOC")
 
     def _iter_docfields(self, fieldname):
-        for c in self._iter_docs():
-            c = self._find_line(2, "DOCFIELD")
-            if c is not None:
+        for _ in self._iter_docs():
+            for c in self._find_lines(2, "DOCFIELD", fn=fieldname):
                 yield c
 
     def _iter_lengths(self, fieldname):
@@ -216,11 +217,13 @@ class PlainPerDocReader(base.PerDocumentReader, LineReader):
     def doc_field_length(self, docnum, fieldname, default=0):
         for dn in self._iter_docs():
             if dn == docnum:
-                c = self._find_line(2, "DOCFIELD")
+
+                c = self._find_line(2, "DOCFIELD", fn=fieldname)
                 if c is not None:
                     return c.get("len", default)
             elif dn > docnum:
                 break
+
         return default
 
     def _column_values(self, fieldname):

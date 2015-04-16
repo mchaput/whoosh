@@ -6,7 +6,7 @@ import operator
 from array import array
 from bisect import bisect_left, bisect_right, insort
 
-from whoosh.compat import integer_types, izip, izip_longest, xrange
+from whoosh.compat import integer_types, izip, izip_longest, next, xrange
 from whoosh.util.numeric import bytes_for_bits
 
 
@@ -49,7 +49,7 @@ class DocIdSet(object):
     def __iter__(self):
         raise NotImplementedError
 
-    def __contains__(self):
+    def __contains__(self, i):
         raise NotImplementedError
 
     def __or__(self, other):
@@ -71,8 +71,9 @@ class DocIdSet(object):
         raise NotImplementedError
 
     def update(self, other):
-        for n in other:
-            self.add(n)
+        add = self.add
+        for i in other:
+            add(i)
 
     def intersection_update(self, other):
         for n in self:
@@ -124,12 +125,12 @@ class DocIdSet(object):
                 return False
         return True
 
-    def before(self):
+    def before(self, i):
         """Returns the previous integer in the set before ``i``, or None.
         """
         raise NotImplementedError
 
-    def after(self):
+    def after(self, i):
         """Returns the next integer in the set after ``i``, or None.
         """
         raise NotImplementedError
@@ -397,9 +398,7 @@ class BitSet(BaseBitSet):
 
     def update(self, iterable):
         self._resize_to_other(iterable)
-        add = self.add
-        for i in iterable:
-            add(i)
+        DocIdSet.update(self, iterable)
 
     def intersection_update(self, other):
         if isinstance(other, BitSet):
@@ -444,15 +443,16 @@ class SortedIntSet(DocIdSet):
     """A DocIdSet backed by a sorted array of integers.
     """
 
-    def __init__(self, source=None):
+    def __init__(self, source=None, typecode="I"):
         if source:
-            self.data = array("I", sorted(source))
+            self.data = array(typecode, sorted(source))
         else:
-            self.data = array("I")
+            self.data = array(typecode)
+        self.typecode = typecode
 
     def copy(self):
         sis = SortedIntSet()
-        sis.data = array("I", self.data)
+        sis.data = array(self.typecode, self.data)
         return sis
 
     def size(self):
@@ -507,18 +507,14 @@ class SortedIntSet(DocIdSet):
             data.pop(pos)
 
     def clear(self):
-        self.data = array("I")
-
-    def update(self, other):
-        add = self.add
-        for i in other:
-            add(i)
+        self.data = array(self.typecode)
 
     def intersection_update(self, other):
-        self.data = array("I", (num for num in self if num in other))
+        self.data = array(self.typecode, (num for num in self if num in other))
 
     def difference_update(self, other):
-        self.data = array("I", (num for num in self if num not in other))
+        self.data = array(self.typecode,
+                          (num for num in self if num not in other))
 
     def intersection(self, other):
         return SortedIntSet((num for num in self if num in other))
@@ -549,6 +545,122 @@ class SortedIntSet(DocIdSet):
 
         pos = bisect_right(data, i)
         return data[pos]
+
+
+class ReverseIdSet(DocIdSet):
+    """
+    Wraps a DocIdSet object and reverses its semantics, so docs in the wrapped
+    set are not in this set, and vice-versa.
+    """
+
+    def __init__(self, idset, limit):
+        """
+        :param idset: the DocIdSet object to wrap.
+        :param limit: the highest possible ID plus one.
+        """
+
+        self.idset = idset
+        self.limit = limit
+
+    def __len__(self):
+        return self.limit - len(self.idset)
+
+    def __contains__(self, i):
+        return i not in self.idset
+
+    def __iter__(self):
+        ids = iter(self.idset)
+        try:
+            nx = next(ids)
+        except StopIteration:
+            nx = -1
+
+        for i in xrange(self.limit):
+            if i == nx:
+                try:
+                    nx = next(ids)
+                except StopIteration:
+                    nx = -1
+            else:
+                yield i
+
+    def add(self, n):
+        self.idset.discard(n)
+
+    def discard(self, n):
+        self.idset.add(n)
+
+    def first(self):
+        for i in self:
+            return i
+
+    def last(self):
+        idset = self.idset
+        maxid = self.limit - 1
+        if idset.last() < maxid - 1:
+            return maxid
+
+        for i in xrange(maxid, -1, -1):
+            if i not in idset:
+                return i
+
+ROARING_CUTOFF = 1 << 12
+
+
+class RoaringIdSet(DocIdSet):
+    """
+    Separates IDs into ranges of 2^16 bits, and stores each range in the most
+    efficient type of doc set, either a BitSet (if the range has >= 2^12 IDs)
+    or a sorted ID set of 16-bit shorts.
+    """
+
+    cutoff = 2**12
+
+    def __init__(self, source=None):
+        self.idsets = []
+        if source:
+            self.update(source)
+
+    def __len__(self):
+        if not self.idsets:
+            return 0
+
+        return sum(len(idset) for idset in self.idsets)
+
+    def __contains__(self, n):
+        bucket = n >> 16
+        if bucket >= len(self.idsets):
+            return False
+        return (n - (bucket << 16)) in self.idsets[bucket]
+
+    def __iter__(self):
+        for i, idset in self.idsets:
+            floor = i << 16
+            for n in idset:
+                yield floor + n
+
+    def _find(self, n):
+        bucket = n >> 16
+        floor = n << 16
+        if bucket >= len(self.idsets):
+            self.idsets.extend([SortedIntSet() for _
+                                in xrange(len(self.idsets), bucket + 1)])
+        idset = self.idsets[bucket]
+        return bucket, floor, idset
+
+    def add(self, n):
+        bucket, floor, idset = self._find(n)
+        oldlen = len(idset)
+        idset.add(n - floor)
+        if oldlen <= ROARING_CUTOFF < len(idset):
+            self.idsets[bucket] = BitSet(idset)
+
+    def discard(self, n):
+        bucket, floor, idset = self._find(n)
+        oldlen = len(idset)
+        idset.discard(n - floor)
+        if oldlen > ROARING_CUTOFF >= len(idset):
+            self.idsets[bucket] = SortedIntSet(idset)
 
 
 class MultiIdSet(DocIdSet):

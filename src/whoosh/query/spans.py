@@ -268,12 +268,6 @@ class SpanQuery(Query):
     def _subm(self, s, context=None):
         return self.q.matcher(s, context)
 
-    def __getattr__(self, name):
-        try:
-            return super(Query, self).__getattr__(self.q, name)
-        except AttributeError:
-            raise AttributeError("No attribute %r on %r" % (name, self))
-
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.q)
 
