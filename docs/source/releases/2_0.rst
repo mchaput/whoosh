@@ -2,6 +2,21 @@
 Whoosh 2.x release notes
 ========================
 
+Whoosh 2.6
+==========
+
+* Removed on-disk word graph implementation of spell checking in favor of much
+  simpler and faster FSA implementation over the term file.
+
+* Many bug fixes.
+
+* Removed backwards compatibility with indexes created by versions prior to
+  2.5. You may need to re-index if you are using an old index that hasn't been
+  updated.
+
+* This is the last 2.x release before a major overhaul that will break backwards
+  compatibility.
+
 
 Whoosh 2.5
 ==========
