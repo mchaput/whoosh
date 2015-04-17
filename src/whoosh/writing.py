@@ -1226,8 +1226,6 @@ class BufferedWriter(IndexWriter):
         self.writer.commit(**self.commitargs)
         self.bufferedcount = 0
 
-        print(list(self.index.reader().all_stored_fields()))
-
         if restart:
             self.writer = self.index.writer(**self.writerargs)
             if self.period:

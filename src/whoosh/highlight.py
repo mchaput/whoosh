@@ -356,7 +356,6 @@ class ContextFragmenter(Fragmenter):
         currentlen = 0
 
         for t in tokens:
-            print("t=", t, "first=", first)
             startchar = t.startchar
             endchar = t.endchar
             tlength = endchar - startchar

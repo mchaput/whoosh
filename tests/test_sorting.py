@@ -922,7 +922,6 @@ def test_add_sortable():
         pricer = r.column_reader("price")
 
         assert chapr[0] == u"alfa"
-        print(list(pricer))
         assert pricer[0] == 100
 
 

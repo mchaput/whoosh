@@ -552,7 +552,6 @@ class SortingCollector(Collector):
 
     def prepare(self, top_searcher, q, context):
         self.categorizer = self.sortfacet.categorizer(top_searcher)
-        print("cat=", self.categorizer, "from=", self.sortfacet)
         # If the categorizer requires a valid matcher, then tell the child
         # collector that we need it
         rm = context.needs_current or self.categorizer.needs_current

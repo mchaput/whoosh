@@ -95,8 +95,6 @@ class FSA(object):
 
     def accept(self, string, debug=False):
         state = self.start()
-        if debug:
-            print("INIT:", state)
 
         for label in string:
             if debug:
@@ -106,8 +104,6 @@ class FSA(object):
             if not state:
                 break
 
-        if debug:
-            print(" END:", state, self.is_final(state))
         return self.is_final(state)
 
     def append(self, fsa):
@@ -134,7 +130,6 @@ class NFA(FSA):
             for label in xs:
                 dests = xs[label]
                 end = "||" if self.is_final(dests) else ""
-                print("    ->", label, "->", dests, end, file=stream)
 
     def start(self):
         return frozenset(self._expand(set([self.initial])))
@@ -243,8 +238,6 @@ class DFA(FSA):
             for label in sorted(xs):
                 dest = xs[label]
                 end = "||" if self.is_final(dest) else ""
-                print("    ->", label, "->", dest, end, file=stream)
-        print("DEF", self.defaults)
 
     def start(self):
         return self.initial

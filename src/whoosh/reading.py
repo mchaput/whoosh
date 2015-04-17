@@ -489,18 +489,14 @@ class IndexReader(object):
         """
 
         vec = self.vector(docnum, fieldname)
-        print("vec=", vec)
         if astype == "weight":
             while vec.is_active():
                 yield (vec.id(), vec.weight())
                 vec.next()
         else:
             format_ = self.schema[fieldname].format
-            print("format_=", format_)
             decoder = format_.decoder(astype)
-            print("decoder=", decoder)
             while vec.is_active():
-                print("id=", vec.id(), "val=", vec.value())
                 yield (vec.id(), decoder(vec.value()))
                 vec.next()
 
