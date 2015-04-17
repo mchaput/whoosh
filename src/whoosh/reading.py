@@ -831,6 +831,8 @@ class SegmentReader(IndexReader):
         return self._perdoc.vector(docnum, fieldname, vformat)
 
     def cursor(self, fieldname):
+        if self.is_closed:
+            raise ReaderClosed
         fieldobj = self.schema[fieldname]
         return self._terms.cursor(fieldname, fieldobj)
 

@@ -526,11 +526,11 @@ def test_closed_searcher():
     with TempStorage() as st:
         ix = st.create_index(schema)
         with ix.writer() as w:
-            w.add_document(key=u("alfa"))
-            w.add_document(key=u("bravo"))
-            w.add_document(key=u("charlie"))
-            w.add_document(key=u("delta"))
-            w.add_document(key=u("echo"))
+            w.add_document(key=u"alfa")
+            w.add_document(key=u"bravo")
+            w.add_document(key=u"charlie")
+            w.add_document(key=u"delta")
+            w.add_document(key=u"echo")
 
         s = ix.searcher()
         r = s.search(query.TermRange("key", "b", "d"))

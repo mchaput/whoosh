@@ -173,38 +173,38 @@ def test_termdocs():
     schema = fields.Schema(key=fields.TEXT, city=fields.ID)
     ix = RamStorage().create_index(schema)
     with ix.writer() as w:
-        w.add_document(key="ant", city="london")
-        w.add_document(key="anteater", city="roma")
-        w.add_document(key="bear", city="london")
-        w.add_document(key="bees", city="roma")
-        w.add_document(key="anorak", city="london")
-        w.add_document(key="antimatter", city="roma")
-        w.add_document(key="angora", city="london")
-        w.add_document(key="angels", city="roma")
+        w.add_document(key=u"ant", city=u"london")
+        w.add_document(key=u"anteater", city=u"roma")
+        w.add_document(key=u"bear", city=u"london")
+        w.add_document(key=u"bees", city=u"roma")
+        w.add_document(key=u"anorak", city=u"london")
+        w.add_document(key=u"antimatter", city=u"roma")
+        w.add_document(key=u"angora", city=u"london")
+        w.add_document(key=u"angels", city=u"roma")
     
     with ix.searcher() as s:
-        cond_q = query.Term("city", "london")
-        pref_q = query.Prefix("key", "an")
+        cond_q = query.Term("city", u"london")
+        pref_q = query.Prefix("key", u"an")
         q = query.And([cond_q, pref_q]).normalize()
         r = s.search(q, scored=False, terms=True)
 
         field = s.schema["key"]
         terms = [field.from_bytes(term) for fieldname, term in r.termdocs
                  if fieldname == "key"]
-        assert sorted(terms) == ["angora", "anorak", "ant"]
+        assert sorted(terms) == [u"angora", u"anorak", u"ant"]
 
 def test_termdocs2():
     schema = fields.Schema(key=fields.TEXT, city=fields.ID)
     ix = RamStorage().create_index(schema)
     with ix.writer() as w:
-        w.add_document(key="ant", city="london")
-        w.add_document(key="anteater", city="roma")
-        w.add_document(key="bear", city="london")
-        w.add_document(key="bees", city="roma")
-        w.add_document(key="anorak", city="london")
-        w.add_document(key="antimatter", city="roma")
-        w.add_document(key="angora", city="london")
-        w.add_document(key="angels", city="roma")
+        w.add_document(key=u"ant", city=u"london")
+        w.add_document(key=u"anteater", city=u"roma")
+        w.add_document(key=u"bear", city=u"london")
+        w.add_document(key=u"bees", city=u"roma")
+        w.add_document(key=u"anorak", city=u"london")
+        w.add_document(key=u"antimatter", city=u"roma")
+        w.add_document(key=u"angora", city=u"london")
+        w.add_document(key=u"angels", city=u"roma")
 
     with ix.searcher() as s:
         # A query that matches the applicable documents

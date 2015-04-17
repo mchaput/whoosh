@@ -323,11 +323,11 @@ def test_nested_skip():
     )
 
     domain = [
-        ("book_1", "The Dark Knight Returns", "book"),
-        ("chapter_1", "The Dark Knight Returns", "chapter"),
-        ("chapter_2", "The Dark Knight Triumphant", "chapter"),
-        ("chapter_3", "Hunt the Dark Knight", "chapter"),
-        ("chapter_4", "The Dark Knight Falls", "chapter")
+        (u"book_1", u"The Dark Knight Returns", u"book"),
+        (u"chapter_1", u"The Dark Knight Returns", u"chapter"),
+        (u"chapter_2", u"The Dark Knight Triumphant", u"chapter"),
+        (u"chapter_3", u"Hunt the Dark Knight", u"chapter"),
+        (u"chapter_4", u"The Dark Knight Falls", u"chapter")
     ]
 
     with TempIndex(schema) as ix:
