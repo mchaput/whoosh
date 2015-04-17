@@ -2,12 +2,6 @@
 "Did you mean... ?" Correcting errors in user queries
 =====================================================
 
-.. note::
-    In Whoosh 1.9 the old spelling system based on a separate N-gram index was
-    replaced with this significantly more convenient and powerful
-    implementation.
-
-
 Overview
 ========
 
@@ -32,25 +26,19 @@ There are two main strategies for correcting words:
 
 *   Use the terms from an index field.
 
-*   Use words from a word list file.
+*   Use words from a word list.
 
 
 Pulling suggestions from an indexed field
 =========================================
 
-To enable spell checking on the contents of a field, use the
-``spelling=True`` keyword argument on the field in the schema
-definition::
+In Whoosh 2.7 and later, spelling suggestions are available on all fields.
+However, if you have an analyzer that modifies the indexed words (such as
+stemming), you can add ``spelling=True`` to a field to have it store separate
+unmodified versions of the terms for spelling suggestions::
 
-    schema = Schema(text=TEXT(spelling=True))
-
-(If you have an existing index you want to enable spelling for, you can
-alter the schema in-place using the :func:`whoosh.writing.add_spelling`
-function to create the missing word graph files.)
-
-.. tip::
-    You can get suggestions for fields without the ``spelling`` attribute, but
-    calculating the suggestions will be slower.
+    ana = analysis.StemmingAnalyzer()
+    schema = fields.Schema(text=TEXT(analyzer=ana, spelling=True))
 
 You can then use the :meth:`whoosh.searching.Searcher.corrector` method
 to get a corrector for a field::
@@ -73,24 +61,12 @@ populate the spelling dictionary.
 (In the following examples, ``word_list`` can be a list of unicode
 strings, or a file object with one word on each line.)
 
-To create a :class:`whoosh.spelling.Corrector` object from a word list::
+To create a :class:`whoosh.spelling.Corrector` object from a sorted word list::
 
-    from whoosh.spelling import GraphCorrector
+    from whoosh.spelling import ListCorrector
 
-    corrector = GraphCorrector.from_word_list(word_list)
-
-Creating a corrector directly from a word list can be slow for large
-word lists, so you can save a corrector's graph to a more efficient
-on-disk form like this::
-
-    graphfile = myindex.storage.create_file("words.graph")
-    # to_file() automatically closes the file when it's finished
-    corrector.to_file(graphfile)
-
-To open the graph file again very quickly::
-
-    graphfile = myindex.storage.open_file("words.graph")
-    corrector = GraphCorrector.from_graph_file(graphfile)
+    # word_list must be a sorted list of unicocde strings
+    corrector = ListCorrector(word_list)
 
 
 Merging two or more correctors
@@ -101,7 +77,7 @@ of an index field and a word list) using a
 :class:`whoosh.spelling.MultiCorrector`::
 
     c1 = searcher.corrector("content")
-    c2 = GraphCorrector.from_graph_file(wordfile)
+    c2 = spelling.ListCorrector(word_list)
     corrector = MultiCorrector([c1, c2])
 
 
@@ -152,10 +128,3 @@ as HTML::
 See the documentation for
 :meth:`whoosh.searching.Searcher.correct_query` for information on the
 defaults and arguments.
-
-
-
-
-
-
-
