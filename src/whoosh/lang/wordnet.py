@@ -240,19 +240,3 @@ class Thesaurus(object):
             return self.searcher.document(word=word)["syns"]
         else:
             return synonyms(self.w2n, self.n2w, word)
-
-
-if __name__ == "__main__":
-    from whoosh.filedb.filestore import FileStorage
-    st = FileStorage("c:/testindex")
-
-#    th = Thesaurus.from_filename("c:/wordnet/wn_s.pl")
-#
-#    th.to_storage(st)
-#
-#    t = clock()
-#    print th.synonyms("light")
-#    print(clock() - t)
-
-    th = Thesaurus.from_storage(st)
-    print(th.synonyms("hail"))

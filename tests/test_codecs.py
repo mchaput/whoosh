@@ -525,7 +525,7 @@ def test_plaintext_codec():
         for fname in storage.list():
             if fname.endswith(".dcs"):
                 f = storage.open_file(fname)
-                print(f.read().decode("utf8"))
+                # print(f.read().decode("utf8"))
 
         assert reader.doc_field_length(0, "a") == 3
         assert reader.doc_field_length(2, "a") == 3

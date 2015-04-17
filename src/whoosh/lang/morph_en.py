@@ -931,11 +931,3 @@ def variations(word):
             return set(out)
 
     return [word]
-
-
-if __name__ == '__main__':
-    import time
-    t = time.clock()
-    s = variations("rendering")
-    print(time.clock() - t)
-    print(len(s))

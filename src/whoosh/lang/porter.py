@@ -173,6 +173,3 @@ def stem(w):
         w = "y" + w[1:]
 
     return w
-
-if __name__ == '__main__':
-    print(stem("fundamentally"))

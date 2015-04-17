@@ -318,10 +318,8 @@ class SimpleQueryCorrector(QueryCorrector):
         # Note we can't put these in a set, because we must preserve WHERE
         # in the query each token occured so we can format them later
         for token in q.all_tokens():
-            print("token=", token)
             fname = token.fieldname
             aname = aliases.get(fname, fname)
-            print("fname=", fname, "aname=", aname)
 
             # If this is one of the words we're supposed to correct...
             if (fname, token.text) in termset:
