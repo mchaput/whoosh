@@ -556,7 +556,7 @@ def test_numeric_filter():
 
     # Add a single document with status = -2
     with ix.writer() as w:
-        w.add_document(status=-2, tags="alfa bravo")
+        w.add_document(status=-2, tags=u"alfa bravo")
 
     with ix.searcher() as s:
         # No document should match the filter
@@ -565,7 +565,7 @@ def test_numeric_filter():
         assert fr.scored_length() == 0
 
         # Make sure the query would otherwise match
-        q = query.Term("tags", "alfa")
+        q = query.Term("tags", u"alfa")
         r = s.search(q)
         assert r.scored_length() == 1
 

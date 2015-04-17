@@ -65,12 +65,12 @@ def test_vector_unicode():
     schema = fields.Schema(id=fields.NUMERIC, text=cf)
     with TempIndex(schema) as ix:
         with ix.writer() as w:
-            w.add_document(id=0, text="\u13a0\u13a1\u13a2 \u13a3\u13a4\u13a5")
-            w.add_document(id=1, text="\u13a6\u13a7\u13a8 \u13a9\u13aa\u13ab")
+            w.add_document(id=0, text=u"\u13a0\u13a1\u13a2 \u13a3\u13a4\u13a5")
+            w.add_document(id=1, text=u"\u13a6\u13a7\u13a8 \u13a9\u13aa\u13ab")
 
         with ix.writer() as w:
-            w.add_document(id=2, text="\u13ac\u13ad\u13ae \u13af\u13b0\u13b1")
-            w.add_document(id=3, text="\u13b2\u13b3\u13b4 \u13b5\u13b6\u13b7")
+            w.add_document(id=2, text=u"\u13ac\u13ad\u13ae \u13af\u13b0\u13b1")
+            w.add_document(id=3, text=u"\u13b2\u13b3\u13b4 \u13b5\u13b6\u13b7")
 
         with ix.searcher() as s:
             docnum = s.document_number(id=2)
