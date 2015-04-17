@@ -2,7 +2,7 @@
 Whoosh 2.x release notes
 ========================
 
-Whoosh 2.6
+Whoosh 2.7
 ==========
 
 * Removed on-disk word graph implementation of spell checking in favor of much
