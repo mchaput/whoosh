@@ -170,6 +170,13 @@ def test_roundtrip():
     c = columns.PickleColumn(columns.VarBytesColumn())
     _rt(c, [None, True, False, 100, -7, "hello"], None)
 
+    c = columns.VarBytesListColumn()
+    _rt(c, [[b('garnet'), b('amethyst')], [b('pearl')]], [])
+    c = columns.VarBytesListColumn()
+
+    c = columns.FixedBytesListColumn(4)
+    _rt(c, [[b('garn'), b('amet')], [b('pear')]], [])
+
 
 def test_multivalue():
     schema = fields.Schema(s=fields.TEXT(sortable=True),
