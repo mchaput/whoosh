@@ -1290,6 +1290,7 @@ class Results(object):
             if item[1] not in docs:
                 self.top_n.append(item)
         self.docset = docs | results.docs()
+        self._total = len(self.docset)
 
     def filter(self, results):
         """Removes any hits that are not also in the other results object.

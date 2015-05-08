@@ -131,6 +131,46 @@ def test_results_filter():
         check(r, "4")
 
 
+def test_sorted_extend():
+    from whoosh import sorting
+
+    schema = fields.Schema(title=fields.TEXT(stored=True),
+                           keywords=fields.TEXT,
+                           num=fields.NUMERIC(stored=True, sortable=True))
+    domain = u"alfa bravo charlie delta echo foxtrot golf hotel india".split()
+    keys = u"juliet kilo lima november oskar papa quebec romeo".split()
+
+    combined = 0
+    tcount = 0
+    kcount = 0
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            for i, words in enumerate(permutations(domain, 3)):
+                key = keys[i % (len(domain) - 1)]
+                if "bravo" in words:
+                    tcount += 1
+                if key == "kilo":
+                    kcount += 1
+                if "bravo" in words or key == "kilo":
+                    combined += 1
+
+                w.add_document(title=u" ".join(words), keywords=key, num=i)
+
+        with ix.searcher() as s:
+            facet = sorting.MultiFacet([sorting.FieldFacet("num", reverse=True),
+                                        sorting.ScoreFacet()])
+
+            r1 = s.search(query.Term("title", "bravo"), limit=None,
+                          sortedby=facet)
+            r2 = s.search(query.Term("keywords", "kilo"), limit=None,
+                          sortedby=facet)
+
+            assert len(r1) == tcount
+            assert len(r2) == kcount
+            r1.extend(r2)
+            assert len(r1) == combined
+
+
 def test_extend_empty():
     schema = fields.Schema(id=fields.STORED, words=fields.KEYWORD)
     ix = RamStorage().create_index(schema)
