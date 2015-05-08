@@ -65,7 +65,7 @@ from whoosh.system import emptybytes
 from whoosh.util.cache import lru_cache
 from whoosh.util.numeric import typecode_max, typecode_min
 from whoosh.util.numlists import GrowableArray
-from whoosh.util.varints import varint
+from whoosh.util.varints import varint, read_varint
 
 
 # Utility functions
@@ -1250,15 +1250,18 @@ class VarBytesListColumn(ListColumn):
                 assert isinstance(v, bytes_type)
                 out.append(varint(len(v)))
                 out.append(v)
-            self._child.add(emptybytes.join(out))
+            self._child.add(docnum, emptybytes.join(out))
 
-    class Reader(WrappedColumnReader, ListColumnReader):
+    class Reader(ListColumnReader, WrappedColumnReader):
         def __getitem__(self, docnum):
-            bio = BytesIO(self._child[docnum])
-            count = bio.read_varint()
+            data = self._child[docnum]
+            if not data:
+                return []
+            bio = BytesIO(data)
+            count = read_varint(bio.read)
             out = []
             for _ in xrange(count):
-                vlen = bio.read_varint()
+                vlen = read_varint(bio.read)
                 v = bio.read(vlen)
                 out.append(v)
             return out
@@ -1290,7 +1293,7 @@ class FixedBytesListColumn(ListColumn):
             b = emptybytes.join(out)
             self._child.add(docnum, b)
 
-    class Reader(WrappedColumnReader, ListColumnReader):
+    class Reader(ListColumnReader, WrappedColumnReader):
         def __init__(self, child, fixedlen):
             self._child = child
             self._fixedlen = fixedlen
