@@ -5,7 +5,7 @@ from collections import deque
 import pytest
 
 from whoosh import fields, query
-from whoosh.compat import u, izip, xrange, permutations
+from whoosh.compat import u, izip, xrange, permutations, text_type
 from whoosh.util.numeric import length_to_byte, byte_to_length
 from whoosh.util.testing import TempIndex
 
@@ -271,7 +271,7 @@ def test_finish_segment():
         w = MpWriter(ix, procs=2, batchsize=1, multisegment=False,
                      limitmb=0.00001)
 
-        for i in range(9):
-            w.add_document(a=u(chr(65 + i) * 50))
+        for i in range(100):
+            w.add_document(a=text_type(i) * 10)
 
         w.commit()

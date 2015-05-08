@@ -29,7 +29,7 @@ from __future__ import with_statement
 import os
 from multiprocessing import Process, Queue, cpu_count
 
-from whoosh.compat import xrange, iteritems, pickle
+from whoosh.compat import queue, xrange, iteritems, pickle
 from whoosh.codec import base
 from whoosh.writing import PostingPool, SegmentWriter
 from whoosh.externalsort import imerge
@@ -111,6 +111,7 @@ class SubWriterTask(Process):
             # number_of_docs_in_file). Pass those two pieces of information as
             # arguments to _process_file().
             self._process_file(*jobinfo)
+            # jobqueue.task_done()
 
         if not self.running:
             # I was cancelled, so I'll cancel my underlying writer
@@ -273,8 +274,11 @@ class MpWriter(SegmentWriter):
         # Pull a (run_file_name, fieldnames, segment) tuple off the result
         # queue for each sub-task, representing the final results of the task
         results = []
-        for task in self.tasks:
-            results.append(self.resultqueue.get(timeout=5))
+        for _ in self.tasks:
+            try:
+                results.append(self.resultqueue.get(timeout=1))
+            except queue.Empty:
+                pass
 
         if self.multisegment:
             # If we're not merging the segments, we don't care about the runname
