@@ -495,6 +495,7 @@ class IDLIST(FieldType):
         """
 
         expression = expression or re.compile(r"[^\r\n\t ,;]+")
+        self.analyzer = analysis.RegexAnalyzer(expression=expression)
         # Don't store any information other than the doc ID
         self.format = formats.Existence(field_boost=field_boost)
         self.stored = stored

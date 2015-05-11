@@ -576,6 +576,23 @@ def test_boolean_multifield():
         assert len(r) == 2
 
 
+def test_idlist():
+    schema = fields.Schema(paths=fields.IDLIST(stored=True))
+    ix = RamStorage().create_index(schema)
+
+    with ix.writer() as w:
+        w.add_document(paths=u('here there everywhere'))
+        w.add_document(paths=u('here'))
+        w.add_document(paths=u('there'))
+
+    with ix.searcher() as s:
+        qp = qparser.QueryParser('paths', schema)
+        q = qp.parse(u('here'))
+
+        r = s.search(q)
+        assert sorted(hit['paths'] for hit in r) == ['here', 'here there everywhere']
+
+
 def test_missing_field():
     schema = fields.Schema()
     ix = RamStorage().create_index(schema)
