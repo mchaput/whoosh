@@ -699,4 +699,32 @@ def test_index_decimals():
         w.add_document(name=u("hello"), num=Decimal("3.2"))
 
 
+def test_stored_tuple():
+    schema = fields.Schema(a=fields.STORED, b=fields.ID)
 
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            w.add_document(a=("foo", 20))
+
+        with ix.searcher() as s:
+            assert s.stored_fields(0) == {
+                "a": ("foo", 20)
+            }
+
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            w.add_document(a=("alfa", 1), b=u"a")
+            w.add_document(a=("bravo", 2), b=u"b")
+            w.add_document(a=("charlie", 3), b=u"c")
+            w.add_document(a=("delta", 4), b=u"d")
+
+        with ix.writer() as w:
+            w.add_document(a=("echo", 5), b=u"e")
+            w.add_document(a=("foxtrot", 6), b=u"f")
+            w.add_document(a=("golf", 7), b=u"g")
+            w.add_document(a=("hotel", 8), b=u"h")
+            w.merge = False
+
+        with ix.searcher() as s:
+            doc = s.document(b=u"f")
+            assert doc["a"] == ("foxtrot", 6)
