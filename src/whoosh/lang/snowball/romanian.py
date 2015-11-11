@@ -224,23 +224,27 @@ class RomanianStemmer(_StandardStemmer):
         # STEP 3: Removal of verb suffixes
         if not step1_success and not step2_success:
             for suffix in self.__step3_suffixes:
-                if word.endswith(suffix):
-                    if suffix in rv:
-                        if suffix in (u('seser\u0103\u0163i'), u('seser\u0103m'),
-                                      u('ser\u0103\u0163i'), u('sese\u015Fi'),
-                                      u('seser\u0103'), u('ser\u0103m'), 'sesem',
-                                      u('se\u015Fi'), u('ser\u0103'), 'sese',
-                                      u('a\u0163i'), u('e\u0163i'), u('i\u0163i'),
-                                      u('\xE2\u0163i'), 'sei', u('\u0103m'),
-                                      'em', 'im', '\xE2m', 'se'):
-                            word = word[:-len(suffix)]
-                            rv = rv[:-len(suffix)]
-                        else:
-                            if (not rv.startswith(suffix) and
-                                rv[rv.index(suffix) - 1] not in
-                                "aeio\u0103\xE2\xEE"):
+                try:
+                    if word.endswith(suffix):
+                        if suffix in rv:
+                            if suffix in (u('seser\u0103\u0163i'), u('seser\u0103m'),
+                                          u('ser\u0103\u0163i'), u('sese\u015Fi'),
+                                          u('seser\u0103'), u('ser\u0103m'), 'sesem',
+                                          u('se\u015Fi'), u('ser\u0103'), 'sese',
+                                          u('a\u0163i'), u('e\u0163i'), u('i\u0163i'),
+                                          u('\xE2\u0163i'), 'sei', u('\u0103m'),
+                                          'em', 'im', '\xE2m', 'se'):
                                 word = word[:-len(suffix)]
-                        break
+                                rv = rv[:-len(suffix)]
+                            else:
+                                if (not rv.startswith(suffix) and
+                                    rv[rv.index(suffix) - 1] not in
+                                    "aeio\u0103\xE2\xEE"):
+                                    word = word[:-len(suffix)]
+                            break
+                except UnicodeDecodeError:
+                    # The word is unicode, but suffix is not
+                    continue
 
         # STEP 4: Removal of final vowel
         for suffix in ("ie", "a", "e", "i", "\u0103"):
