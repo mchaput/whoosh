@@ -236,7 +236,7 @@ class SpanishStemmer(_StandardStemmer):
                     word = word[:-len(suffix)]
                     rv = rv[:-len(suffix)]
 
-                    if word[-2:] == "gu" and rv[-1] == "u":
+                    if len(word) >= 2 and word[-2:] == "gu" and rv[-1] == "u":
                         word = word[:-1]
                 else:
                     word = word[:-len(suffix)]
