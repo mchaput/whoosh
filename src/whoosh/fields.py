@@ -1024,7 +1024,7 @@ class KEYWORD(FieldType):
         """
         :param stored: Whether to store the value of the field with the
             document.
-        :param comma: Whether this is a comma-separated field. If this is False
+        :param commas: Whether this is a comma-separated field. If this is False
             (the default), it is treated as a space-separated field.
         :param scorable: Whether this field is scorable.
         """
