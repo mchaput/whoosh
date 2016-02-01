@@ -293,7 +293,6 @@ class VarBytesColumn(Column):
             lengthsbase = endoflens - (itemsize * doccount)
             self._lengths = dbfile.get_array(lengthsbase, typecode, doccount)
 
-        @lru_cache()
         def __getitem__(self, docnum):
             length = self._lengths[docnum]
             if not length:
