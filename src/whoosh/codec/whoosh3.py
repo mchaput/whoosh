@@ -222,6 +222,10 @@ class W3PerDocWriter(base.PerDocWriterWithColumns):
             self._fieldlengths[fieldname] += length
 
     def add_vector_items(self, fieldname, fieldobj, items):
+        if not items:
+            # Don't do anything if the list of items is empty
+            return
+
         if self._vpostfile is None:
             self._prep_vectors()
 
