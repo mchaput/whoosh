@@ -1733,5 +1733,3 @@ def test_find_decimals():
         r = s.search(q)
         names = " ".join(sorted(hit["name"] for hit in r))
         assert names == "delta foxtrot"
-
-
