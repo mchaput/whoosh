@@ -443,7 +443,6 @@ class Searcher(object):
                 delset.add(docnum)
         return delset
 
-    @lru_cache(20)
     def _query_to_comb(self, fq):
         return BitSet(self.docs_for_query(fq), size=self.doc_count_all())
 
