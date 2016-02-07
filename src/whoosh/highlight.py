@@ -886,6 +886,8 @@ class Highlighter(object):
             else:
                 yield token
                 token = None
+                # t was not merged, also has to be yielded
+                yield t
 
         if token is not None:
             yield token
