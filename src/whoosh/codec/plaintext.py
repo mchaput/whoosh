@@ -147,7 +147,7 @@ class PlainPerDocWriter(base.PerDocumentWriter, LineWriter):
 
     def add_field(self, fieldname, fieldobj, value, length):
         if value is not None:
-            value = dumps(value, -1)
+            value = dumps(value, 2)
         self._print_line(2, "DOCFIELD", fn=fieldname, v=value, len=length)
 
     def add_column_value(self, fieldname, columnobj, value):

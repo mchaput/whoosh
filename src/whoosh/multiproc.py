@@ -202,7 +202,7 @@ class MpWriter(SegmentWriter):
         filename = "%s.doclist" % random_name()
         with self.temp_storage().create_file(filename).raw_file() as f:
             for item in docbuffer:
-                dump(item, f, -1)
+                dump(item, f, 2)
 
         if len(self.tasks) < self.procs:
             self._new_task()

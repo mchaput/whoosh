@@ -159,7 +159,7 @@ class SortingPool(object):
 
     def _write_run(self, f, items):
         for item in items:
-            dump(item, f, -1)
+            dump(item, f, 2)
         f.close()
 
     def _add_run(self, filename):
