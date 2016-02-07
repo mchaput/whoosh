@@ -114,7 +114,8 @@ class NestedParent(WrappingQuery):
             return matching.NullMatcher
 
         return self.NestedParentMatcher(bits, m, self.per_parent_limit,
-                                        searcher.doc_count_all())
+                                        searcher.doc_count_all(),
+                                        self.score_fn)
 
     def deletion_docs(self, searcher):
         bits = searcher._filter_to_comb(self.parents)
@@ -132,11 +133,12 @@ class NestedParent(WrappingQuery):
             m.skip_to(nextparent)
 
     class NestedParentMatcher(matching.Matcher):
-        def __init__(self, comb, child, per_parent_limit, maxdoc):
+        def __init__(self, comb, child, per_parent_limit, maxdoc, score_fn):
             self.comb = comb
             self.child = child
             self.per_parent_limit = per_parent_limit
             self.maxdoc = maxdoc
+            self.score_fn = score_fn
 
             self._nextdoc = None
             if self.child.is_active():
@@ -163,16 +165,17 @@ class NestedParent(WrappingQuery):
 
             # Sum the scores of all matching documents under the parent
             count = 1
-            score = 0
+            scores = []
             while child.is_active() and child.id() < nextparent:
                 if pplimit and count > pplimit:
                     child.skip_to(nextparent)
                     break
 
-                score += child.score()
+                scores.append(child.score())
                 child.next()
                 count += 1
 
+            score = self.score_fn(scores) if scores else 0
             self._nextscore = score
 
         def id(self):
