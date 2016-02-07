@@ -208,7 +208,8 @@ class MultiTerm(qcore.Query):
         constantscore = self.constantscore
 
         reader = searcher.reader()
-        qs = [Term(fieldname, word) for word in self._btexts(reader)]
+        qs = [Term(fieldname, word) for word in self._btexts(reader)
+              if word]
         if not qs:
             return matching.NullMatcher()
 
