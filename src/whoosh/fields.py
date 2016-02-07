@@ -1400,6 +1400,11 @@ class Schema(object):
         except KeyError:
             return False
 
+    def __setstate__(self, state):
+        if "_subfields" not in state:
+            state["_subfields"] = {}
+        self.__dict__.update(state)
+
     def to_bytes(self, fieldname, value):
         return self[fieldname].to_bytes(value)
 
