@@ -553,6 +553,15 @@ class SpanNear2(SpanQuery):
             h ^= hash(q)
         return h
 
+    def _and_query(self):
+        return q.And(self.qs)
+
+    def estimate_size(self, ixreader):
+        return self._and_query().estimate_size(ixreader)
+
+    def estimate_min_size(self, ixreader):
+        return self._and_query().estimate_min_size(ixreader)
+
     def is_leaf(self):
         return False
 
