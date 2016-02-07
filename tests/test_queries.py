@@ -1,4 +1,4 @@
-from __future__ import with_statement
+from __future__ import with_statement, unicode_literals
 import copy
 
 import pytest
@@ -572,3 +572,29 @@ def test_numeric_filter():
         # Check the query doesn't match with the filter
         r = s.search(q, filter=fq)
         assert r.scored_length() == 0
+
+
+def test_andnot_reverse():
+    # Bitbucket issue 419
+    docs = ['ruby', 'sapphire', 'ruby + sapphire']
+    schema = fields.Schema(name=fields.TEXT(stored=True))
+    q = query.AndNot(query.Term('name', 'ruby'), query.Term('name', 'sapphire'))
+
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            for name in docs:
+                w.add_document(name=name)
+
+        with ix.searcher() as s:
+            names_fw = [hit["name"] for hit in s.search(q, limit=None)]
+
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            for name in reversed(docs):
+                w.add_document(name=name)
+
+        with ix.searcher() as s:
+            names_rv = [hit["name"] for hit in s.search(q, limit=None)]
+
+    assert len(names_fw) == len(names_rv) == 1
+    assert names_fw == names_rv

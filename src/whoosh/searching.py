@@ -833,11 +833,6 @@ class Searcher(object):
           dictionary mapping field names to :class:`whoosh.spelling.Corrector`
           objects.
 
-        * ONLY CORRECTS FIELDS THAT HAVE THE ``spelling`` ATTRIBUTE in the
-          schema (or for which you pass a custom corrector). To automatically
-          check all fields, use ``allfields=True``. Spell checking fields
-          without ``spelling`` is slower.
-
         Expert users who want more sophisticated correction behavior can create
         a custom :class:`whoosh.spelling.QueryCorrector` and use that instead
         of this method.
