@@ -50,7 +50,7 @@ or ``pip`` to download and install Whoosh automatically::
 Learning more
 =============
 
-* Read the online documentation at http://packages.python.org/Whoosh/
+* Read the online documentation at https://whoosh.readthedocs.org/en/latest/
 
 * Join the Whoosh mailing list at http://groups.google.com/group/whoosh
 
