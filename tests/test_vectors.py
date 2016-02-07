@@ -61,7 +61,9 @@ def test_vector_merge():
 
 
 def test_vector_unicode():
-    cf = fields.TEXT(vector=True)
+    from whoosh import analysis
+
+    cf = fields.TEXT(analyzer=analysis.RegexTokenizer(), vector=True)
     schema = fields.Schema(id=fields.NUMERIC, text=cf)
     with TempIndex(schema) as ix:
         with ix.writer() as w:
