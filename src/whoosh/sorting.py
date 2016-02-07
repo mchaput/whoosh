@@ -717,7 +717,7 @@ class StoredFieldFacet(FacetType):
 
         self.fieldname = fieldname
         self.allow_overlap = allow_overlap
-        self.split_fn = None
+        self.split_fn = split_fn
         self.maptype = maptype
 
     def default_name(self):
