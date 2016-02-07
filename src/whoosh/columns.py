@@ -1200,7 +1200,7 @@ class PickleColumn(WrappedColumn):
             if v is None:
                 v = emptybytes
             else:
-                v = dumps(v, -1)
+                v = dumps(v, 2)
             self._child.add(docnum, v)
 
     class Reader(WrappedColumnReader):
