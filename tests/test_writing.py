@@ -428,3 +428,29 @@ def test_zero_procs():
 
     with ix.writer(procs=1) as w:
         assert isinstance(w, writing.IndexWriter)
+
+
+def test_delete_by_term_has_del():
+    schema = fields.Schema(key=fields.KEYWORD)
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            w.add_document(key=u"alfa")
+            w.add_document(key=u"bravo")
+            w.add_document(key=u"charlie")
+
+        with ix.writer() as w:
+            w.add_document(key=u"delta")
+            w.add_document(key=u"echo")
+            w.add_document(key=u"foxtrot")
+            w.merge = False
+
+        with ix.reader() as r:
+            assert not r.has_deletions()
+
+        with ix.writer() as w:
+            w.delete_by_term("key", u"bravo")
+            w.optimize = True
+
+        with ix.reader() as r:
+            assert not r.has_deletions()
+
