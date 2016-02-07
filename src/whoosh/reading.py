@@ -237,6 +237,7 @@ class IndexReader(object):
         """Yields terms in the given field that start with the given prefix.
         """
 
+        prefix = self._text_to_bytes(fieldname, prefix)
         for fn, text in self.terms_from(fieldname, prefix):
             if fn != fieldname or not text.startswith(prefix):
                 return

@@ -88,31 +88,56 @@ def test_readers():
 def test_term_inspection():
     schema = fields.Schema(title=fields.TEXT(stored=True),
                            content=fields.TEXT)
-    st = RamStorage()
-    ix = st.create_index(schema)
-    writer = ix.writer()
-    writer.add_document(title=u("My document"),
-                        content=u("AA AA BB BB CC AA AA AA BB BB CC DD EE EE"))
-    writer.add_document(title=u("My other document"),
-                        content=u("AA AB BB CC EE EE AX AX DD"))
-    writer.commit()
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            w.add_document(
+                title=u("My document"),
+                content=u("AA AA BB BB CC AA AA AA BB BB CC DD EE EE")
+            )
+            w.add_document(
+                title=u("My other document"),
+                content=u("AA AB BB CC EE EE AX AX DD")
+            )
 
-    reader = ix.reader()
-    assert " ".join(reader.field_terms("content")) == "aa ab ax bb cc dd ee"
-    assert list(reader.expand_prefix("content", "a")) == [b('aa'), b('ab'), b('ax')]
-    assert set(reader.all_terms()) == set([('content', b('aa')), ('content', b('ab')),
-                                           ('content', b('ax')), ('content', b('bb')),
-                                           ('content', b('cc')), ('content', b('dd')),
-                                           ('content', b('ee')), ('title', b('document')),
-                                           ('title', b('my')), ('title', b('other'))])
-    # (text, doc_freq, index_freq)
-    assert _fstats(reader.iter_field("content")) == [(b('aa'), 2, 6), (b('ab'), 1, 1), (b('ax'), 1, 2),
-                                                     (b('bb'), 2, 5), (b('cc'), 2, 3), (b('dd'), 2, 2),
-                                                     (b('ee'), 2, 4)]
-    assert _fstats(reader.iter_field("content", prefix="c")) == [(b('cc'), 2, 3), (b('dd'), 2, 2), (b('ee'), 2, 4)]
-    assert list(reader.most_frequent_terms("content")) == [(6, b('aa')), (5, b('bb')), (4, b('ee')), (3, b('cc')), (2, b('dd'))]
-    assert list(reader.most_frequent_terms("content", prefix="a")) == [(6, b('aa')), (2, b('ax')), (1, b('ab'))]
-    assert list(reader.most_distinctive_terms("content", 3)) == [(1.3862943611198906, b('ax')), (0.6931471805599453, b('ab')), (0.0, b('ee'))]
+        with ix.reader() as r:
+            cterms = " ".join(r.field_terms("content"))
+            assert cterms == "aa ab ax bb cc dd ee"
+
+            a_exp = list(r.expand_prefix("content", "a"))
+            assert a_exp == [b('aa'), b('ab'), b('ax')]
+
+            assert set(r.all_terms()) == set([
+                ('content', b('aa')), ('content', b('ab')),
+                ('content', b('ax')), ('content', b('bb')),
+                ('content', b('cc')), ('content', b('dd')),
+                ('content', b('ee')), ('title', b('document')),
+                ('title', b('my')), ('title', b('other'))
+            ])
+
+            # (text, doc_freq, index_freq)
+            cstats = _fstats(r.iter_field("content"))
+            assert cstats == [
+                (b('aa'), 2, 6), (b('ab'), 1, 1), (b('ax'), 1, 2),
+                (b('bb'), 2, 5), (b('cc'), 2, 3), (b('dd'), 2, 2),
+                (b('ee'), 2, 4)
+            ]
+
+            prestats = _fstats(r.iter_field("content", prefix="c"))
+            assert prestats == [
+                (b('cc'), 2, 3), (b('dd'), 2, 2), (b('ee'), 2, 4)
+            ]
+
+            assert list(r.most_frequent_terms("content")) == [
+                (6, b('aa')), (5, b('bb')), (4, b('ee')), (3, b('cc')),
+                (2, b('dd'))
+            ]
+            assert list(r.most_frequent_terms("content", prefix="a")) == [
+                (6, b('aa')), (2, b('ax')), (1, b('ab'))
+            ]
+            assert list(r.most_distinctive_terms("content", 3)) == [
+                (1.3862943611198906, b('ax')), (0.6931471805599453, b('ab')),
+                (0.0, b('ee'))
+            ]
 
 
 def test_vector_postings():
@@ -395,3 +420,81 @@ def test_cursor():
             assert cur.term_info().weight() == 4
             assert cur.next() == "charlie"
             assert cur.term_info().weight() == 2
+
+
+def _check_inspection_results(ix):
+    AE = u'aé'.encode('utf-8')
+    AU = u'aú'.encode('utf-8')
+
+    with ix.reader() as r:
+        cterms = " ".join(r.field_terms("content"))
+        assert cterms == u"aa aé aú bb cc dd ee"
+
+        a_exp = list(r.expand_prefix("content", "a"))
+        assert a_exp == [b('aa'), AE, AU]
+
+        tset = set(r.all_terms())
+        assert tset == set([
+            ('content', b('aa')), ('content', AE),
+            ('content', AU), ('content', b('bb')),
+            ('content', b('cc')), ('content', b('dd')),
+            ('content', b('ee')), ('title', b('document')),
+            ('title', b('my')), ('title', b('other'))
+        ])
+
+        # (text, doc_freq, index_freq)
+        assert _fstats(r.iter_field("content")) == [
+            (b('aa'), 2, 6), (AE, 1, 1), (AU, 1, 2), (b('bb'), 2, 5),
+            (b('cc'), 2, 3), (b('dd'), 2, 2), (b('ee'), 2, 4)
+        ]
+        assert _fstats(r.iter_field("content", prefix="c")) == [
+            (b('cc'), 2, 3), (b('dd'), 2, 2), (b('ee'), 2, 4)
+        ]
+
+        assert list(r.most_frequent_terms("content")) == [
+            (6, b('aa')), (5, b('bb')), (4, b('ee')), (3, b('cc')),
+            (2, b('dd'))
+        ]
+        assert list(r.most_frequent_terms("content", prefix="a")) == [
+            (6, b('aa')), (2, AU), (1, AE)
+        ]
+        assert list(r.most_distinctive_terms("content", 3)) == [
+            (1.3862943611198906, AU), (0.6931471805599453, AE), (0.0, b('ee'))
+        ]
+
+
+def test_term_inspection_segment_reader():
+    schema = fields.Schema(title=fields.TEXT(stored=True),
+                           content=fields.TEXT)
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            w.add_document(
+                title=u"My document",
+                content=u"AA AA BB BB CC AA AA AA BB BB CC DD EE EE"
+            )
+            w.add_document(
+                title=u"My other document",
+                content=u"AA AÉ BB CC EE EE Aú AÚ DD"
+            )
+
+        _check_inspection_results(ix)
+
+
+def test_term_inspection_multi_reader():
+    schema = fields.Schema(title=fields.TEXT(stored=True),
+                           content=fields.TEXT)
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            w.add_document(
+                title=u"My document",
+                content=u"AA AA BB BB CC AA AA AA BB BB CC DD EE EE"
+            )
+
+        with ix.writer() as w:
+            w.add_document(
+                title=u"My other document",
+                content=u"AA AÉ BB CC EE EE Aú AÚ DD"
+            )
+            w.merge = False
+
+        _check_inspection_results(ix)
