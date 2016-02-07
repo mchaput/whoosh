@@ -260,6 +260,45 @@ def test_no_parents():
         assert r.is_empty()
 
 
+def test_parent_score_fn():
+    from whoosh.scoring import Frequency
+
+    schema = fields.Schema(name=fields.ID(unique=True, stored=True),
+                           keys=fields.TEXT,
+                           type=fields.ID)
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            w.add_document(name=u"p1", type=u"parent")
+            w.add_document(name=u"c1.1", type=u"child", keys=u"key key")
+            w.add_document(name=u"c1.2", type=u"child", keys=u"key key key")
+            w.add_document(name=u"c1.3", type=u"child", keys=u"key key")
+
+            w.add_document(name=u"p2", type=u"parent")
+            w.add_document(name=u"c2.1", type=u"child", keys=u"")
+            w.add_document(name=u"c2.2", type=u"child", keys=u"key key key key")
+            w.add_document(name=u"c2.3", type=u"child", keys=u"key")
+
+        with ix.searcher(weighting=Frequency()) as s:
+            parents = query.Term("type", u"parent")
+            children = query.Term("keys", u"key")
+            q = query.NestedParent(parents, children, score_fn=max)
+            print(list(q.docs(s)))
+            r = s.search(q)
+            assert r.scored_length() == 2
+            assert r[0]["name"] == u"p2"
+            assert r[0].score == 4
+            assert r[1]["name"] == u"p1"
+            assert r[1].score == 3
+
+            q = query.NestedParent(parents, children, score_fn=min)
+            r = s.search(q)
+            assert r.scored_length() == 2
+            assert r[0]["name"] == u"p1"
+            assert r[0].score == 2
+            assert r[1]["name"] == u"p2"
+            assert r[1].score == 1
+
+
 def test_nested_children():
     schema = fields.Schema(t=fields.ID(stored=True),
                            track=fields.NUMERIC(stored=True),
@@ -359,3 +398,5 @@ def test_nested_skip():
             r3 = s.search(complex_query)
             assert r3.scored_length() == 1
             assert [hit["id"] for hit in r3] == ["chapter_3"]
+
+
