@@ -713,15 +713,17 @@ class FilterCollector(WrappingCollector):
         _restrict = self._restrict
 
         for global_docnum in child.all_ids():
-            if ((_allow and global_docnum not in _allow)
-                or (_restrict and global_docnum in _restrict)):
+            if (
+                (_allow and global_docnum not in _allow) or
+                (_restrict and global_docnum in _restrict)
+            ):
                     continue
             yield global_docnum
 
     def count(self):
         child = self.child
         if child.computes_count():
-            return child.count() - self.filtered_count
+            return child.count()
         else:
             return ilen(self.all_ids())
 
@@ -747,6 +749,7 @@ class FilterCollector(WrappingCollector):
 
     def results(self):
         r = self.child.results()
+        r.collector = self
         r.filtered_count = self.filtered_count
         r.allowed = self.allow
         r.restricted = self.restrict

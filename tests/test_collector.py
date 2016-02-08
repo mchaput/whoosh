@@ -227,3 +227,24 @@ def test_termdocs2():
                     break
         assert terms == ["angora", "anorak", "ant"]
 
+
+def test_filter_results_count():
+    schema = fields.Schema(id=fields.STORED, django_ct=fields.ID(stored=True),
+                           text=fields.TEXT)
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            w.add_document(id=1, django_ct="app.model1",
+                           text=u("alfa bravo charlie"))
+            w.add_document(id=2, django_ct="app.model1",
+                           text=u("alfa bravo delta"))
+            w.add_document(id=3, django_ct="app.model2",
+                           text=u("alfa charlie echo"))
+
+        with ix.searcher() as s:
+            q = query.Term("django_ct", u("app.model1"))
+            r1 = s.search(q, limit=None)
+            assert len(r1) == 2
+
+            q = query.Term("text", u("alfa"))
+            r2 = s.search(q, filter=r1, limit=1)
+            assert len(r2) == 2
