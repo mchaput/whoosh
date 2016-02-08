@@ -1320,7 +1320,7 @@ class Schema(object):
 
     def __init__(self, **fields):
         """
-         All keyword arguments to the constructor are treated as fieldname =
+        All keyword arguments to the constructor are treated as fieldname =
         fieldtype pairs. The fieldtype can be an instantiated FieldType object,
         or a FieldType sub-class (in which case the Schema will instantiate it
         with the default constructor before adding it).
@@ -1563,6 +1563,7 @@ class SchemaClass(with_metaclass(MetaSchema, Schema)):
     >>> s = MySchema()
     >>> type(s)
     <class 'whoosh.fields.Schema'>
+    
     """
 
     def __new__(cls, *args, **kwargs):

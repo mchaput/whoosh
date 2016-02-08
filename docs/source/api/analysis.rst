@@ -7,16 +7,16 @@
 Analyzers
 =========
 
-.. autoclass:: IDAnalyzer
-.. autoclass:: KeywordAnalyzer
-.. autoclass:: RegexAnalyzer
-.. autoclass:: SimpleAnalyzer
-.. autoclass:: StandardAnalyzer
-.. autoclass:: StemmingAnalyzer
-.. autoclass:: FancyAnalyzer
-.. autoclass:: NgramAnalyzer
-.. autoclass:: NgramWordAnalyzer
-.. autoclass:: LanguageAnalyzer
+.. autofunction:: IDAnalyzer
+.. autofunction:: KeywordAnalyzer
+.. autofunction:: RegexAnalyzer
+.. autofunction:: SimpleAnalyzer
+.. autofunction:: StandardAnalyzer
+.. autofunction:: StemmingAnalyzer
+.. autofunction:: FancyAnalyzer
+.. autofunction:: NgramAnalyzer
+.. autofunction:: NgramWordAnalyzer
+.. autofunction:: LanguageAnalyzer
 
 
 Tokenizers
@@ -25,8 +25,8 @@ Tokenizers
 .. autoclass:: IDTokenizer
 .. autoclass:: RegexTokenizer
 .. autoclass:: CharsetTokenizer
-.. autoclass:: SpaceSeparatedTokenizer
-.. autoclass:: CommaSeparatedTokenizer
+.. autofunction:: SpaceSeparatedTokenizer
+.. autofunction:: CommaSeparatedTokenizer
 .. autoclass:: NgramTokenizer
 .. autoclass:: PathTokenizer
 
