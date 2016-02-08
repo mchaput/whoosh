@@ -456,8 +456,14 @@ class FileStorage(Storage):
 
         # Remove all files
         self.clean()
-        # Try to remove the directory
-        os.rmdir(self.folder)
+        try:
+            # Try to remove the directory
+            os.rmdir(self.folder)
+        except IOError, e:
+            if e.errno == errno.ENOENT:
+                pass
+            else:
+                raise e
 
     def create_file(self, name, excl=False, mode="wb", **kwargs):
         """Creates a file with the given name in this storage.
