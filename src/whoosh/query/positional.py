@@ -27,13 +27,18 @@
 
 from __future__ import division
 import copy
+from typing import Iterable, List, Tuple
 
-from whoosh import matching
-from whoosh.analysis import Token
-from whoosh.compat import u
-from whoosh.query import qcore, terms, compound
+from whoosh import collectors
+from whoosh.compat import string_type, text_type
+from whoosh.ifaces import analysis, matchers, queries, readers, searchers
+from whoosh.query import terms, compound
 
 
+__all__ = ("Sequence", "Ordered", "Phrase")
+
+
+@collectors.register("sequence")
 class Sequence(compound.CompoundQuery):
     """Matches documents containing a list of sub-queries in adjacent
     positions.
@@ -42,7 +47,7 @@ class Sequence(compound.CompoundQuery):
     different fields.
     """
 
-    JOINT = " NEAR "
+    joint = " NEAR "
     intersect_merge = True
 
     def __init__(self, subqueries, slop=1, ordered=True, boost=1.0):
@@ -78,50 +83,64 @@ class Sequence(compound.CompoundQuery):
             h ^= hash(q)
         return h
 
-    def normalize(self):
+    def normalize(self) -> queries.Query:
         # Because the subqueries are in sequence, we can't do the fancy merging
         # that CompoundQuery does
         return self.__class__([q.normalize() for q in self.subqueries],
                               self.slop, self.ordered, self.boost)
 
-    def _and_query(self):
+    def _and_query(self) -> queries.Query:
         return compound.And(self.subqueries)
 
-    def estimate_size(self, ixreader):
+    def estimate_size(self, ixreader: 'readers.IndexReader') -> int:
         return self._and_query().estimate_size(ixreader)
 
-    def estimate_min_size(self, ixreader):
-        return self._and_query().estimate_min_size(ixreader)
+    def simplify(self, reader: 'readers.IndexReader') -> queries.Query:
+        # Rewrite the sequence as a SpanNear query
+        from whoosh.query import SpanNear
 
-    def _matcher(self, subs, searcher, context):
-        from whoosh.query.spans import SpanNear
+        return SpanNear(self.subqueries, slop=self.slop, ordered=self.ordered,
+                        mindist=0)
 
-        # Tell the sub-queries this matcher will need the current match to get
-        # spans
-        context = context.set(needs_current=True)
-        m = self._tree_matcher(subs, SpanNear.SpanNearMatcher, searcher,
-                               context, None, slop=self.slop,
-                               ordered=self.ordered)
+    def matcher(self, searcher: 'searchers.Searcher',
+                context: 'searchers.SearchContext') -> 'matchers.Matcher':
+        from whoosh.matching.wrappers import WrappingMatcher
+
+        q = self.simplify(searcher.reader())
+        m = q.matcher(searcher, context)
+
+        if self.boost != 1.0:
+            m = WrappingMatcher(m, boost=self.boost)
         return m
 
 
+@collectors.register("before")
 class Ordered(Sequence):
-    """Matches documents containing a list of sub-queries in the given order.
+    """
+    Matches documents containing a list of sub-queries in the given order.
     """
 
     JOINT = " BEFORE "
 
-    def _matcher(self, subs, searcher, context):
+    def matcher(self, searcher: 'searchers.Searcher',
+                context: 'searchers.SearchContext') -> 'matchers.Matcher':
+        from whoosh.matching.wrappers import WrappingMatcher
         from whoosh.query.spans import SpanBefore
 
-        return self._tree_matcher(subs, SpanBefore._Matcher, searcher,
-                                  context, None)
+        m = self._tree_matcher(self.subqueries, SpanBefore._Matcher, searcher,
+                               context, None)
+        if self.boost != 1.0:
+            m = WrappingMatcher(m, boost=self.boost)
+        return m
 
 
-class Phrase(qcore.Query):
-    """Matches documents containing a given phrase."""
+@collectors.register("phrase")
+class Phrase(queries.Query):
+    """
+    Matches documents containing a given phrase."""
 
-    def __init__(self, fieldname, words, slop=1, boost=1.0, char_ranges=None):
+    def __init__(self, fieldname: str, words: List[text_type], slop: int=0,
+                 boost: float=1.0, char_ranges: List[Tuple[int, int]]=None):
         """
         :param fieldname: the field to search.
         :param words: a list of words (unicode strings) in the phrase.
@@ -153,7 +172,7 @@ class Phrase(qcore.Query):
                                                   self.slop, self.boost)
 
     def __unicode__(self):
-        return u('%s:"%s"') % (self.fieldname, u(" ").join(self.words))
+        return u'%s:"%s"' % (self.fieldname, u" ".join(self.words))
 
     __str__ = __unicode__
 
@@ -163,28 +182,64 @@ class Phrase(qcore.Query):
             h ^= hash(w)
         return h
 
+    @classmethod
+    def combine_collector(cls, collector: 'collectors.Collector',
+                          args, kwargs) -> 'collectors.Collector':
+        fieldname = args[0]
+        words = args[1]
+        schema = collector.searcher.schema
+        field = schema[fieldname]
+        if isinstance(words, string_type):
+            words = field.tokenize(words)
+        q = cls(fieldname, words, *args[2:], **kwargs)
+        return collector.with_query(q)
+
     def has_terms(self):
         return True
 
-    def terms(self, phrases=False):
-        if phrases and self.field():
-            for word in self.words:
-                yield (self.field(), word)
+    def replace(self, fieldname: str, oldtext: text_type,
+                newtext: text_type) -> 'Phrase':
+        q = self.copy()
+        for i, text in enumerate(q.words):
+            if text == oldtext:
+                q.words[i] = newtext
+        return q
 
-    def tokens(self, boost=1.0):
+    def _terms(self, reader: 'readers.IndexReader'=None,
+               phrases: bool=True) -> Iterable[Tuple[str, text_type]]:
+        fieldname = self.field()
+        if not (phrases and fieldname):
+            return
+
+        for word in self.words:
+            if reader:
+                if (fieldname, word) not in reader:
+                    continue
+                fieldobj = reader.schema[fieldname]
+                word = fieldobj.to_bytes(word)
+
+            yield fieldname, word
+
+    def _tokens(self, reader: 'readers.IndexReader'=None, phrases: bool=True,
+                boost=1.0) -> 'Iterable[analysis.Token]':
+        fieldname = self.field()
+        if not (phrases and fieldname):
+            return
+
         char_ranges = self.char_ranges
         startchar = endchar = None
         for i, word in enumerate(self.words):
             if char_ranges:
                 startchar, endchar = char_ranges[i]
 
-            yield Token(fieldname=self.fieldname, text=word,
-                        boost=boost * self.boost, startchar=startchar,
-                        endchar=endchar, chars=True)
+            yield analysis.Token(fieldname=fieldname, text=word,
+                                 boost=boost * self.boost, startchar=startchar,
+                                 endchar=endchar, chars=True)
 
-    def normalize(self):
+    def normalize(self) -> queries.Query:
         if not self.words:
-            return qcore.NullQuery
+            return queries.NullQuery()
+
         if len(self.words) == 1:
             t = terms.Term(self.fieldname, self.words[0])
             if self.char_ranges:
@@ -194,6 +249,34 @@ class Phrase(qcore.Query):
         words = [w for w in self.words if w is not None]
         return self.__class__(self.fieldname, words, slop=self.slop,
                               boost=self.boost, char_ranges=self.char_ranges)
+
+    def simplify(self, reader: 'readers.IndexReader') -> queries.Query:
+        # Rewrite the phrase as a SpanNear query
+        from whoosh.query import Term, SpanNear
+
+        fieldname = self.fieldname
+        if fieldname not in reader.schema:
+            return queries.NullQuery()
+
+        field = reader.schema[fieldname]
+        if not field.format or not field.format.supports("positions"):
+            raise queries.QueryError("Phrase search: %r field has no positions"
+                                     % self.fieldname)
+
+        terms = []
+        # Build a list of Term queries from the words in the phrase
+        for word in self.words:
+            try:
+                word = field.to_bytes(word)
+            except ValueError:
+                return matchers.NullMatcher()
+
+            if (fieldname, word) not in reader:
+                # Shortcut the query if one of the words doesn't exist.
+                return matchers.NullMatcher()
+            terms.append(Term(fieldname, word))
+
+        return SpanNear(terms, slop=self.slop, ordered=True, mindist=0)
 
     def replace(self, fieldname, oldtext, newtext):
         q = copy.copy(self)
@@ -207,43 +290,16 @@ class Phrase(qcore.Query):
         return compound.And([terms.Term(self.fieldname, word)
                              for word in self.words])
 
-    def estimate_size(self, ixreader):
+    def estimate_size(self, ixreader: 'readers.IndexReader') -> int:
         return self._and_query().estimate_size(ixreader)
 
-    def estimate_min_size(self, ixreader):
-        return self._and_query().estimate_min_size(ixreader)
+    def matcher(self, searcher: 'searchers.Searcher',
+                context: 'searchers.SearchContext'=None) -> 'matchers.Matcher':
+        from whoosh.matching.wrappers import WrappingMatcher
 
-    def matcher(self, searcher, context=None):
-        from whoosh.query import Term, SpanNear2
-
-        fieldname = self.fieldname
-        if fieldname not in searcher.schema:
-            return matching.NullMatcher()
-
-        field = searcher.schema[fieldname]
-        if not field.format or not field.format.supports("positions"):
-            raise qcore.QueryError("Phrase search: %r field has no positions"
-                                   % self.fieldname)
-
-        terms = []
-        # Build a list of Term queries from the words in the phrase
-        reader = searcher.reader()
-        for word in self.words:
-            try:
-                word = field.to_bytes(word)
-            except ValueError:
-                return matching.NullMatcher()
-
-            if (fieldname, word) not in reader:
-                # Shortcut the query if one of the words doesn't exist.
-                return matching.NullMatcher()
-            terms.append(Term(fieldname, word))
-
-        # Create the equivalent SpanNear2 query from the terms
-        q = SpanNear2(terms, slop=self.slop, ordered=True, mindist=1)
-        # Get the matcher
+        q = self.simplify(searcher.reader())
         m = q.matcher(searcher, context)
 
         if self.boost != 1.0:
-            m = matching.WrappingMatcher(m, boost=self.boost)
+            m = WrappingMatcher(m, boost=self.boost)
         return m

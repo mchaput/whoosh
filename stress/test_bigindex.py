@@ -18,7 +18,7 @@ def test_20000_single():
         for i in xrange(20000):
             w = ix.writer()
             w.add_document(id=text_type(i),
-                           text=u(" ").join(random.sample(domain, 5)))
+                           text=u" ".join(random.sample(domain, 5)))
             w.commit()
         print("Write single:", now() - t)
 
@@ -39,7 +39,7 @@ def test_20000_buffered():
         w = BufferedWriter(ix, limit=100, period=None)
         for i in xrange(20000):
             w.add_document(id=text_type(i),
-                           text=u(" ").join(random.sample(domain, 5)))
+                           text=u" ".join(random.sample(domain, 5)))
         w.close()
         print("Write buffered:", now() - t)
 
@@ -58,7 +58,7 @@ def test_20000_batch():
         w = ix.writer()
         for i in xrange(20000):
             w.add_document(id=text_type(i),
-                           text=u(" ").join(random.sample(domain, 5)))
+                           text=u" ".join(random.sample(domain, 5)))
             if not i % 100:
                 w.commit()
                 w = ix.writer()

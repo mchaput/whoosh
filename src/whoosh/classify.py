@@ -30,17 +30,19 @@ documents.
 """
 
 from __future__ import division
-import random
 from collections import defaultdict
 from math import log
+from typing import Sequence, Set, Tuple, Union
 
-from whoosh.compat import xrange, iteritems
+from whoosh import idsets, postings, results
+from whoosh.compat import iteritems, text_type, xrange
+from whoosh.ifaces import queries, searchers
 
 
 # Expansion models
 
 class ExpansionModel(object):
-    def __init__(self, doc_count, field_length):
+    def __init__(self, doc_count: int, field_length: int):
         self.N = doc_count
         self.collection_total = field_length
 
@@ -49,152 +51,175 @@ class ExpansionModel(object):
         else:
             self.mean_length = 0
 
-    def normalizer(self, maxweight, top_total):
+    def __call__(self, doc_count: int, field_length: int):
+        self.N = doc_count
+        self.collection_total = field_length
+
+    def normalizer(self, maxweight: float, top_total: int) -> float:
         raise NotImplementedError
 
-    def score(self, weight_in_top, weight_in_collection, top_total):
+    def score(self, weight_in_top: float, weight_in_collection: float,
+              top_total: int) -> float:
         raise NotImplementedError
 
 
 class Bo1Model(ExpansionModel):
-    def normalizer(self, maxweight, top_total):
+    def normalizer(self, maxweight: float, top_total: int) -> float:
         f = maxweight / self.N
         return (maxweight * log((1.0 + f) / f) + log(1.0 + f)) / log(2.0)
 
-    def score(self, weight_in_top, weight_in_collection, top_total):
+    def score(self, weight_in_top: float, weight_in_collection: float,
+              top_total: int) -> float:
         f = weight_in_collection / self.N
         return weight_in_top * log((1.0 + f) / f, 2) + log(1.0 + f, 2)
 
 
 class Bo2Model(ExpansionModel):
-    def normalizer(self, maxweight, top_total):
+    def normalizer(self, maxweight: float, top_total: int) -> float:
         f = maxweight * self.N / self.collection_total
         return maxweight * log((1.0 + f) / f, 2) + log(1.0 + f, 2)
 
-    def score(self, weight_in_top, weight_in_collection, top_total):
+    def score(self, weight_in_top: float, weight_in_collection: float,
+              top_total: int) -> float:
         f = weight_in_top * top_total / self.collection_total
         return weight_in_top * log((1.0 + f) / f, 2) + log(1.0 + f, 2)
 
 
 class KLModel(ExpansionModel):
-    def normalizer(self, maxweight, top_total):
-        return (maxweight * log(self.collection_total / top_total) / log(2.0)
-                * top_total)
+    def normalizer(self, maxweight: float, top_total: int) -> float:
+        return (maxweight * log(self.collection_total / top_total) / log(2.0) *
+                top_total)
 
-    def score(self, weight_in_top, weight_in_collection, top_total):
+    def score(self, weight_in_top: float, weight_in_collection: float,
+              top_total: int) -> float:
         wit_over_tt = weight_in_top / top_total
         wic_over_ct = weight_in_collection / self.collection_total
 
         if wit_over_tt < wic_over_ct:
             return 0
         else:
-            return wit_over_tt * log(wit_over_tt
-                                     / (weight_in_top / self.collection_total),
-                                     2)
+            return wit_over_tt * log(wit_over_tt /
+                                     (weight_in_top / self.collection_total), 2)
 
 
-class Expander(object):
-    """Uses an ExpansionModel to expand the set of query terms based on the top
-    N result documents.
-    """
+# "More like this" object
 
-    def __init__(self, ixreader, fieldname, model=Bo1Model):
-        """
-        :param reader: A :class:whoosh.reading.IndexReader object.
-        :param fieldname: The name of the field in which to search.
-        :param model: (classify.ExpansionModel) The model to use for expanding
-            the query terms. If you omit this parameter, the expander uses
-            :class:`Bo1Model` by default.
-        """
-
-        self.ixreader = ixreader
+class MoreLike(object):
+    def __init__(self, searcher: 'searchers.Searcher', fieldname: str,
+                 modelclass: ExpansionModel=None, minweight: float=0.0,
+                 maxterms: int=25):
+        self.searcher = searcher
         self.fieldname = fieldname
-        doccount =  self.ixreader.doc_count_all()
-        fieldlen = self.ixreader.field_length(fieldname)
+        self.minweight = minweight
+        self.maxterms = maxterms
 
-        if type(model) is type:
-            model = model(doccount, fieldlen)
-        self.model = model
+        modelclass = modelclass or Bo1Model
+        self.model = modelclass(self.searcher.doc_count(),
+                                self.searcher.field_length(self.fieldname))
 
-        # Maps words to their weight in the top N documents.
-        self.topN_weight = defaultdict(float)
+        self.words = defaultdict(float)  # Maps words to weight
+        self.total = 0
 
-        # Total weight of all terms in the top N documents.
-        self.top_total = 0
+    def like_query(self, q: 'queries.Query', limit: int=None
+                   ) -> 'results.Results':
+        idset = set(q.docs(self.searcher))
+        for docid in idset:
+            self.add_docid(docid)
+        return self.get_results(limit=limit, exclude=idset)
 
-    def add(self, vector):
-        """Adds forward-index information about one of the "top N" documents.
+    def like_doc_with_kw(self, limit: int=None, **kwargs) -> 'results.Results':
+        docid = self.searcher.document_number(**kwargs)
+        return self.like_docid(docid, limit=limit)
 
-        :param vector: A series of (text, weight) tuples, such as is
-            returned by Reader.vector_as("weight", docnum, fieldname).
-        """
+    def like_text(self, text: text_type, limit: int=None) -> 'results.Results':
+        self.add_text(text)
+        return self.get_results(limit=limit)
 
-        total_weight = 0
-        topN_weight = self.topN_weight
-
-        for word, weight in vector:
-            total_weight += weight
-            topN_weight[word] += weight
-
-        self.top_total += total_weight
-
-    def add_document(self, docnum):
-        ixreader = self.ixreader
-        if self.ixreader.has_vector(docnum, self.fieldname):
-            self.add(ixreader.vector_as("weight", docnum, self.fieldname))
-        elif self.ixreader.schema[self.fieldname].stored:
-            self.add_text(ixreader.stored_fields(docnum).get(self.fieldname))
+    def like_docid(self, docid: int, text: text_type=None, limit: int=None
+                   ) -> 'results.Results':
+        if text:
+            self.add_text(text)
         else:
-            raise Exception("Field %r in document %s is not vectored or stored"
-                            % (self.fieldname, docnum))
+            self.add_docid(docid)
+        return self.get_results(limit=limit, exclude=set([docid]))
 
-    def add_text(self, string):
-        # Unfortunately since field.index() yields bytes texts, and we want
-        # unicode, we end up encoding and decoding unnecessarily.
-        #
-        # TODO: Find a way around this
+    #
 
-        field = self.ixreader.schema[self.fieldname]
-        from_bytes = field.from_bytes
-        self.add((from_bytes(text), weight) for text, _, weight, _
-                 in field.index(string))
+    def add_word(self, word: text_type, weight: float):
+        if weight >= self.minweight:
+            self.words[word] += weight
+            self.total += weight
 
-    def expanded_terms(self, number, normalize=True):
-        """Returns the N most important terms in the vectors added so far.
+    def add_text(self, text: text_type):
+        schema = self.searcher.schema
+        fieldobj = schema[self.fieldname]
+        from_bytes = fieldobj.from_bytes
+        add_word = self.add_word
 
-        :param number: The number of terms to return.
-        :param normalize: Whether to normalize the weights.
-        :returns: A list of ("term", weight) tuples.
-        """
+        length, posts = fieldobj.index(text)
+        for p in posts:
+            add_word(from_bytes(p[postings.TERMBYTES]), p[postings.WEIGHT])
 
-        model = self.model
-        fieldname = self.fieldname
-        ixreader = self.ixreader
-        field = ixreader.schema[fieldname]
-        tlist = []
-        maxweight = 0
+    def add_docid(self, docid: int):
+        reader = self.searcher.reader()
+        schema = self.searcher.schema
+        fieldobj = schema[self.fieldname]
+        from_bytes = fieldobj.from_bytes
+        add_word = self.add_word
 
-        # If no terms have been added, return an empty list
-        if not self.topN_weight:
+        if reader.has_vector(docid, self.fieldname):
+            v = reader.vector(docid, self.fieldname)
+            for termbytes, weight in v.terms_and_weights():
+                add_word(from_bytes(termbytes), weight)
+        elif fieldobj.stored:
+            stored = reader.stored_fields(docid)
+            text = stored[self.fieldname]
+            self.add_text(text)
+        else:
+            raise Exception("Document does not have vector or stored field")
+
+    def get_terms(self, n: int, normalize: bool=True
+                  ) -> Sequence[Tuple[text_type, float]]:
+        if not self.words:
             return []
 
-        for word, weight in iteritems(self.topN_weight):
-            btext = field.to_bytes(word)
-            if (fieldname, btext) in ixreader:
-                cf = ixreader.frequency(fieldname, btext)
-                score = model.score(weight, cf, self.top_total)
-                if score > maxweight:
-                    maxweight = score
-                tlist.append((score, word))
+        reader = self.searcher.reader()
+        fieldname = self.fieldname
+        model = self.model
+        total = self.total
+        maxscore = 0
+        scored = []
+        for word, weight in iteritems(self.words):
+            cf = reader.weight(fieldname, word)
+            if cf:
+                score = model.score(weight, cf, total)
+                if score > maxscore:
+                    maxscore = score
+                scored.append((score, word))
 
-        if normalize:
-            norm = model.normalizer(maxweight, self.top_total)
+        if not scored:
+            return []
+
+        if normalize and maxscore:
+            norm = model.normalizer(maxscore, total)
         else:
-            norm = maxweight
-        tlist = [(weight / norm, t) for weight, t in tlist]
-        tlist.sort(key=lambda x: (0 - x[0], x[1]))
+            norm = maxscore
+        normed = sorted((0 - (score / norm), t) for score, t in scored)
+        return [(word, 0 - score) for score, word in normed[:n]]
 
-        return [(t, weight) for weight, t in tlist[:number]]
+    def get_query(self, n: int, normalize: bool=True) -> 'queries.Query':
+        from whoosh.query.compound import Or
+        from whoosh.query.terms import Term
+
+        return Or([Term(self.fieldname, w, boost=score) for w, score
+                   in self.get_terms(n, normalize=normalize)])
+
+    def get_results(self, limit: int=None,
+                    exclude: 'Union[idsets.DocIdSet, Set]'=None,
+                    ) -> 'results.Results':
+        q = self.get_query(self.maxterms)
+        r = self.searcher.search(q, limit=limit, mask=exclude)
+        return r
 
 
 # Similarity functions
@@ -271,6 +296,8 @@ def kmeans(data, k, t=0.0001, distfun=None, maxiter=50, centers=None):
 
     # Adapted from a C version by Roger Zhang, <rogerz@cs.dal.ca>
     # http://cs.smu.ca/~r_zhang/code/kmeans.c
+
+    import random
 
     DOUBLE_MAX = 1.797693e308
     n = len(data)

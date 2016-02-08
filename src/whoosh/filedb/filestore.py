@@ -26,30 +26,71 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import with_statement
-import errno, os, sys, tempfile
+import errno
+import io
+import mmap
+import os
+import sys
+import tempfile
+from abc import abstractmethod
+from binascii import crc32
 from threading import Lock
+from typing import Any, Dict, Iterable, List
 
-from whoosh.compat import BytesIO, memoryview_
-from whoosh.filedb.structfile import BufferFile, StructFile
-from whoosh.index import _DEF_INDEX_NAME, EmptyIndexError
+import furl
+
+from whoosh import fields, index
+from whoosh.ifaces import storage
+from whoosh.compat import BytesIO
+from whoosh.filedb import datafile
+from whoosh.metadata import MetaData
+from whoosh.system import IS_LITTLE
 from whoosh.util import random_name
 from whoosh.util.filelock import FileLock
 
 
-# Exceptions
+# Type aliases
 
-class StorageError(Exception):
-    pass
+if sys.version_info[0] >= 3:
+    File = io.IOBase
+else:
+    File = file
 
 
-class ReadOnlyError(StorageError):
-    pass
+# TOC header
+
+class TocHeader(MetaData):
+    magic_bytes = b"Wtoc"
+    flags = "was_little"
+    field_order = "length checksum"
+
+    length = "i"
+    checksum = "I"
+
+
+# Session class
+
+class FileSession(storage.Session):
+    def __init__(self, store: 'BaseFileStorage', indexname: str,
+                 writable: bool):
+        super(FileSession, self).__init__(store, indexname, writable)
+        if writable:
+            self._lock = store.lock(indexname + "_LOCK")
+            if not self._lock.acquire():
+                raise Exception("Could not lock writable session")
+        else:
+            self._lock = None
+
+    def close(self):
+        if self._lock:
+            self._lock.release()
 
 
 # Base class
 
-class Storage(object):
-    """Abstract base class for storage objects.
+class BaseFileStorage(storage.Storage):
+    """
+    Abstract base class for storage objects.
 
     A storage object is a virtual flat filesystem, allowing the creation and
     retrieval of file-like objects
@@ -77,125 +118,100 @@ class Storage(object):
     readonly = False
     supports_mmap = False
 
-    def __iter__(self):
+    def __iter__(self) -> Iterable[str]:
         return iter(self.list())
 
     def __enter__(self):
         self.create()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, *_):
         self.close()
 
-    def create(self):
-        """Creates any required implementation-specific resources. For example,
-        a filesystem-based implementation might create a directory, while a
-        database implementation might create tables. For example::
+    # Implement index methods using files
 
-            from whoosh.filedb.filestore import FileStorage
-            # Create a storage object
-            st = FileStorage("indexdir")
-            # Create any necessary resources
-            st.create()
+    def open(self, indexname: str=None, writable: bool=False) -> FileSession:
+        indexname = indexname or index.DEFAULT_INDEX_NAME
+        return FileSession(self, indexname, writable)
 
-        This method returns ``self`` so you can also say::
+    def save_toc(self, session: 'storage.Session', toc: 'index.Toc'):
+        # This backend has no concept of a session, we just need the indexname
+        indexname = session.indexname
 
-            st = FileStorage("indexdir").create()
+        # Write the file with a temporary name so other processes don't notice
+        # it until it's done
+        real_filename = toc.make_filename(indexname, toc.generation)
+        temp_filename = toc.make_filename(indexname, toc.generation, ".tmp")
 
-        Storage implementations should be written so that calling create() a
-        second time on the same storage
+        tocbytes = toc.to_bytes()
+        toclen = len(tocbytes)
+        check = crc32(tocbytes)
+        headbytes = TocHeader(was_little=IS_LITTLE, length=toclen,
+                              checksum=check).encode()
 
-        :return: a :class:`Storage` instance.
-        """
+        with self.create_file(temp_filename) as f:
+            f.write(headbytes)
+            f.write(tocbytes)
+            f.write_uint_le(check)
 
-        return self
+        # Rename the file into place
+        self.rename_file(temp_filename, real_filename, safe=True)
 
-    def destroy(self, *args, **kwargs):
-        """Removes any implementation-specific resources related to this storage
-        object. For example, a filesystem-based implementation might delete a
-        directory, and a database implementation might drop tables.
+    def latest_generation(self, session: 'storage.Session'):
+        indexname = session.indexname
+        regex = index.Toc.toc_regex(indexname)
 
-        The arguments are implementation-specific.
-        """
+        mx = -2
+        for filename in self:
+            m = regex.match(filename)
+            if m:
+                mx = max(int(m.group(1)), mx)
 
-        pass
+        if mx == -2:
+            raise storage.TocNotFound(indexname)
 
-    def create_index(self, schema, indexname=_DEF_INDEX_NAME, indexclass=None):
-        """Creates a new index in this storage.
+        return mx
 
-        >>> from whoosh import fields
-        >>> from whoosh.filedb.filestore import FileStorage
-        >>> schema = fields.Schema(content=fields.TEXT)
-        >>> # Create the storage directory
-        >>> st = FileStorage.create("indexdir")
-        >>> # Create an index in the storage
-        >>> ix = st.create_index(schema)
+    def load_toc(self, session: 'storage.Session', generation: int=None,
+                 schema: 'fields.Schema'=None):
+        # This backend has no concept of a session, all we need from the object
+        # is the indexname
+        indexname = session.indexname
 
-        :param schema: the :class:`whoosh.fields.Schema` object to use for the
-            new index.
-        :param indexname: the name of the index within the storage object. You
-            can use this option to store multiple indexes in the same storage.
-        :param indexclass: an optional custom ``Index`` sub-class to use to
-            create the index files. The default is
-            :class:`whoosh.index.FileIndex`. This method will call the
-            ``create`` class method on the given class to create the index.
-        :return: a :class:`whoosh.index.Index` instance.
-        """
+        if generation is None:
+            generation = self.latest_generation(session)
 
-        if self.readonly:
-            raise ReadOnlyError
-        if indexclass is None:
-            import whoosh.index
-            indexclass = whoosh.index.FileIndex
-        return indexclass.create(self, schema, indexname)
-
-    def open_index(self, indexname=_DEF_INDEX_NAME, schema=None, indexclass=None):
-        """Opens an existing index (created using :meth:`create_index`) in this
-        storage.
-
-        >>> from whoosh.filedb.filestore import FileStorage
-        >>> st = FileStorage("indexdir")
-        >>> # Open an index in the storage
-        >>> ix = st.open_index()
-
-        :param indexname: the name of the index within the storage object. You
-            can use this option to store multiple indexes in the same storage.
-        :param schema: if you pass in a :class:`whoosh.fields.Schema` object
-            using this argument, it will override the schema that was stored
-            with the index.
-        :param indexclass: an optional custom ``Index`` sub-class to use to
-            open the index files. The default is
-            :class:`whoosh.index.FileIndex`. This method will instantiate the
-            class with this storage object.
-        :return: a :class:`whoosh.index.Index` instance.
-        """
-
-        if indexclass is None:
-            import whoosh.index
-            indexclass = whoosh.index.FileIndex
-        return indexclass(self, schema=schema, indexname=indexname)
-
-    def index_exists(self, indexname=None):
-        """Returns True if a non-empty index exists in this storage.
-
-        :param indexname: the name of the index within the storage object. You
-            can use this option to store multiple indexes in the same storage.
-        :rtype: bool
-        """
-
-        if indexname is None:
-            indexname = _DEF_INDEX_NAME
+        filename = index.Toc.make_filename(indexname, generation)
         try:
-            ix = self.open_index(indexname)
-            gen = ix.latest_generation()
-            ix.close()
-            return gen > -1
-        except EmptyIndexError:
-            pass
-        return False
+            with self.map_file(filename) as data:
+                # Read the header at the beginning of the file
+                head = TocHeader.decode(data)
+                start = TocHeader.get_size()
+                end = start + head.length
 
-    def create_file(self, name):
-        """Creates a file with the given name in this storage.
+                # Read the encoded TOC
+                tocbytes = bytes(data[start:end])
+                if len(tocbytes) != head.length:
+                    raise index.WhooshIndexError("Partial TOC error")
+
+                # Compare the checksums
+                check = crc32(tocbytes)
+                if check != head.checksum:
+                    raise index.WhooshIndexError("TOC checksum error")
+                if data.get_uint_le(end) != check:
+                    raise index.WhooshIndexError("TOC checksum error")
+
+                return index.Toc.from_bytes(tocbytes)
+        except FileNotFoundError:
+            raise storage.TocNotFound("Index %s generation %s not found" %
+                                      (indexname, generation))
+
+    # Specify more abstract methods for working with files
+
+    @abstractmethod
+    def create_file(self, name: str) -> datafile.OutputFile:
+        """
+        Creates a file with the given name in this storage.
 
         :param name: the name for the new file.
         :return: a :class:`whoosh.filedb.structfile.StructFile` instance.
@@ -203,8 +219,10 @@ class Storage(object):
 
         raise NotImplementedError
 
-    def open_file(self, name, *args, **kwargs):
-        """Opens a file with the given name in this storage.
+    @abstractmethod
+    def open_file(self, name: str) -> File:
+        """
+        Opens a file with the given name in this storage.
 
         :param name: the name for the new file.
         :return: a :class:`whoosh.filedb.structfile.StructFile` instance.
@@ -212,51 +230,73 @@ class Storage(object):
 
         raise NotImplementedError
 
-    def list(self):
-        """Returns a list of file names in this storage.
-
-        :return: a list of strings
+    @abstractmethod
+    def map_file(self, name, offset=0, length=0) -> datafile.Data:
         """
+        Opens a file as a memory map (or an fallback substitute) and returns a
+        bytes-like object.
+
+        :param name: the name of the file to open.
+        :param offset: the starting offset of the region to return.
+        :param length: the length of the region to return
+        :return:
+        """
+
         raise NotImplementedError
 
-    def file_exists(self, name):
-        """Returns True if the given file exists in this storage.
+    @abstractmethod
+    def list(self) -> List[str]:
+        """
+        Returns a list of file names in this storage.
+        """
+
+        raise NotImplementedError
+
+    @abstractmethod
+    def file_exists(self, name: str) -> bool:
+        """
+        Returns True if the given file exists in this storage.
 
         :param name: the name to check.
-        :rtype: bool
         """
 
         raise NotImplementedError
 
-    def file_modified(self, name):
-        """Returns the last-modified time of the given file in this storage (as
+    @abstractmethod
+    def file_modified(self, name: str) -> float:
+        """
+        Returns the last-modified time of the given file in this storage (as
         a "ctime" UNIX timestamp).
 
         :param name: the name to check.
-        :return: a "ctime" number.
         """
 
         raise NotImplementedError
 
-    def file_length(self, name):
-        """Returns the size (in bytes) of the given file in this storage.
+    @abstractmethod
+    def file_length(self, name: str) -> int:
+        """
+        Returns the size (in bytes) of the given file in this storage.
 
         :param name: the name to check.
-        :rtype: int
         """
 
         raise NotImplementedError
 
-    def delete_file(self, name):
-        """Removes the given file from this storage.
+    @abstractmethod
+    def delete_file(self, name: str):
+        """
+        Removes the given file from this storage.
 
         :param name: the name to delete.
         """
 
         raise NotImplementedError
 
-    def rename_file(self, frm, to, safe=False):
-        """Renames a file in this storage.
+    @abstractmethod
+    def rename_file(self, frm: str, to: str, safe: bool=False):
+        """
+        Renames a file in this storage.
 
         :param frm: The current name of the file.
         :param to: The new name for the file.
@@ -266,22 +306,23 @@ class Storage(object):
 
         raise NotImplementedError
 
-    def lock(self, name):
-        """Return a named lock object (implementing ``.acquire()`` and
-        ``.release()`` methods). Different storage implementations may use
-        different lock types with different guarantees. For example, the
-        RamStorage object uses Python thread locks, while the FileStorage
-        object uses filesystem-based locks that are valid across different
-        processes.
+    @abstractmethod
+    def temp_storage(self, name: str=None) -> 'BaseFileStorage':
+        """
+        Creates a new storage object for temporary files. You can call
+        :meth:`Storage.destroy` on the new storage when you're finished with
+        it.
 
-        :param name: a name for the lock.
-        :return: a lock-like object.
+        :param name: a name for the new storage. This may be optional or
+            required depending on the storage implementation.
+        :rtype: :class:`BaseFileStorage`
         """
 
         raise NotImplementedError
 
     def close(self):
-        """Closes any resources opened by this storage object. For some storage
+        """
+        Closes any resources opened by this storage object. For some storage
         implementations this will be a no-op, but for others it is necessary
         to release locks and/or prevent leaks, so it's a good idea to call it
         when you're done with a storage object.
@@ -290,32 +331,22 @@ class Storage(object):
         pass
 
     def optimize(self):
-        """Optimizes the storage object. The meaning and cost of "optimizing"
+        """
+        Optimizes the storage object. The meaning and cost of "optimizing"
         will vary by implementation. For example, a database implementation
         might run a garbage collection procedure on the underlying database.
         """
 
         pass
 
-    def temp_storage(self, name=None):
-        """Creates a new storage object for temporary files. You can call
-        :meth:`Storage.destroy` on the new storage when you're finished with
-        it.
 
-        :param name: a name for the new storage. This may be optional or
-            required depending on the storage implementation.
-        :rtype: :class:`Storage`
-        """
-
-        raise NotImplementedError
-
-
-class OverlayStorage(Storage):
-    """Overlays two storage objects. Reads are processed from the first if it
+class OverlayStorage(BaseFileStorage):
+    """
+    Overlays two storage objects. Reads are processed from the first if it
     has the named file, otherwise the second. Writes always go to the second.
     """
 
-    def __init__(self, a, b):
+    def __init__(self, a: BaseFileStorage, b: BaseFileStorage):
         self.a = a
         self.b = b
 
@@ -325,41 +356,50 @@ class OverlayStorage(Storage):
     def open_index(self, *args, **kwargs):
         self.a.open_index(*args, **kwargs)
 
-    def create_file(self, *args, **kwargs):
-        return self.b.create_file(*args, **kwargs)
+    def create_file(self, name: str) -> datafile.OutputFile:
+        return self.b.create_file(name)
 
-    def open_file(self, name, *args, **kwargs):
+    def open_file(self, name: str) -> File:
         if self.a.file_exists(name):
-            return self.a.open_file(name, *args, **kwargs)
+            return self.a.open_file(name)
         else:
-            return self.b.open_file(name, *args, **kwargs)
+            return self.b.open_file(name)
 
-    def list(self):
+    def map_file(self, name, offset=0, length=0) -> datafile.Data:
+        if self.a.file_exists(name):
+            return self.a.map_file(name, offset=offset, length=length)
+        else:
+            return self.b.map_file(name, offset=offset, length=length)
+
+    def list(self) -> List[str]:
         return list(set(self.a.list()) | set(self.b.list()))
 
-    def file_exists(self, name):
+    def file_exists(self, name: str) -> bool:
         return self.a.file_exists(name) or self.b.file_exists(name)
 
-    def file_modified(self, name):
+    def file_modified(self, name: str) -> float:
         if self.a.file_exists(name):
             return self.a.file_modified(name)
         else:
             return self.b.file_modified(name)
 
-    def file_length(self, name):
+    def file_length(self, name: str) -> int:
         if self.a.file_exists(name):
             return self.a.file_length(name)
         else:
             return self.b.file_length(name)
 
-    def delete_file(self, name):
+    def delete_file(self, name: str):
         return self.b.delete_file(name)
 
-    def rename_file(self, *args, **kwargs):
-        raise NotImplementedError
+    def rename_file(self, frm: str, to: str, safe: bool=False):
+        raise Exception("Can't rename files in an overlay storage")
 
-    def lock(self, name):
+    def lock(self, name: str) -> Any:
         return self.b.lock(name)
+
+    def temp_storage(self, name: str=None) -> BaseFileStorage:
+        return self.b.temp_storage(name=name)
 
     def close(self):
         self.a.close()
@@ -369,22 +409,18 @@ class OverlayStorage(Storage):
         self.a.optimize()
         self.b.optimize()
 
-    def temp_storage(self, name=None):
-        return self.b.temp_storage(name=name)
 
-
-class FileStorage(Storage):
-    """Storage object that stores the index as files in a directory on disk.
-
-    Prior to version 3, the initializer would raise an IOError if the directory
-    did not exist. As of version 3, the object does not check if the
-    directory exists at initialization. This change is to support using the
-    :meth:`FileStorage.create` method.
+@storage.url_handler
+class FileStorage(BaseFileStorage):
+    """
+    Storage object that stores the index as files in a directory on disk.
     """
 
+    url_scheme = "file"
     supports_mmap = True
 
-    def __init__(self, path, supports_mmap=True, readonly=False, debug=False):
+    def __init__(self, path: str, supports_mmap: bool=True,
+                 readonly: bool=False):
         """
         :param path: a path to a directory.
         :param supports_mmap: if True (the default), use the ``mmap`` module to
@@ -398,14 +434,28 @@ class FileStorage(Storage):
         self.folder = path
         self.supports_mmap = supports_mmap
         self.readonly = readonly
-        self._debug = debug
         self.locks = {}
 
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.folder)
 
+    @classmethod
+    def from_url(cls, url: str) -> 'FileStorage':
+        url = furl.furl(url)
+        assert url.scheme == cls.url_scheme
+
+        path = str(url.path)
+        supports_mmap = url.args.get("mmap") == "true"
+        readonly = url.args.get("readonly") == "true"
+        return cls(path, supports_mmap=supports_mmap, readonly=readonly)
+
+    def as_url(self) -> str:
+        args = {"mmap": self.supports_mmap, "readonly": self.readonly}
+        return furl.furl().set(scheme="file", path=self.folder, args=args).url
+
     def create(self):
-        """Creates this storage object's directory path using ``os.makedirs`` if
+        """
+        Creates this storage object's directory path using ``os.makedirs`` if
         it doesn't already exist.
 
         >>> from whoosh.filedb.filestore import FileStorage
@@ -456,27 +506,26 @@ class FileStorage(Storage):
 
         # Remove all files
         self.clean()
-        try:
-            # Try to remove the directory
-            os.rmdir(self.folder)
-        except IOError, e:
-            if e.errno == errno.ENOENT:
-                pass
-            else:
-                raise e
+        # Try to remove the directory
+        os.rmdir(self.folder)
 
-    def create_file(self, name, excl=False, mode="wb", **kwargs):
+    def _fpath(self, fname):
+        return os.path.abspath(os.path.join(self.folder, fname))
+
+    def create_file(self, name: str, excl: bool=False, mode: str="wb",
+                    **kwargs) -> datafile.OutputFile:
         """Creates a file with the given name in this storage.
 
         :param name: the name for the new file.
         :param excl: if True, try to open the file in "exclusive" mode.
         :param mode: the mode flags with which to open the file. The default is
             ``"wb"``.
-        :return: a :class:`whoosh.filedb.structfile.StructFile` instance.
+        :param kwargs: additional keyword arguments are passed to
+            ``OutputFile``.
         """
 
         if self.readonly:
-            raise ReadOnlyError
+            raise storage.ReadOnlyError
 
         path = self._fpath(name)
         if excl:
@@ -488,27 +537,66 @@ class FileStorage(Storage):
         else:
             fileobj = open(path, mode)
 
-        f = StructFile(fileobj, name=name, **kwargs)
+        f = datafile.OutputFile(fileobj, name=name, **kwargs)
         return f
 
-    def open_file(self, name, **kwargs):
-        """Opens an existing file in this storage.
+    def open_file(self, name) -> File:
+        return open(self._fpath(name), "rb")
+
+    def map_file(self, name, offset=0, length=0) -> datafile.Data:
+        """
+        Opens an existing file in this storage.
 
         :param name: the name of the file to open.
-        :param kwargs: additional keyword arguments are passed through to the
-            :class:`~whoosh.filedb.structfile.StructFile` initializer.
-        :return: a :class:`whoosh.filedb.structfile.StructFile` instance.
+        :param offset: the offset of the region to open.
+        :param length: the length of the region to open.
         """
 
-        f = StructFile(open(self._fpath(name), "rb"), name=name, **kwargs)
-        return f
+        filesize = self.file_length(name)
+        f = open(self._fpath(name), "rb")
+        dataobj = None
 
-    def _fpath(self, fname):
-        return os.path.abspath(os.path.join(self.folder, fname))
+        # Can we use mmap?
+        use_mmap = (
+            mmap and self.supports_mmap and hasattr(f, "fileno") and
+            filesize < sys.maxsize
+        )
+        # Check if this file is real. In some versions of Python, non-real
+        # files don't have a fileno method, but in others it exists but raises
+        # an exception.
+        fileno = -1
+        if use_mmap and hasattr(f, "fileno"):
+            try:
+                fileno = f.fileno()
+            except io.UnsupportedOperation:
+                use_mmap = False
 
-    def clean(self, ignore=False):
+        if use_mmap:
+            # Try to open the entire segment as a memory-map object
+            try:
+                mm = mmap.mmap(fileno, 0, access=mmap.ACCESS_READ)
+                dataobj = datafile.MemData(mm)
+            except (mmap.error, OSError):
+                e = sys.exc_info()[1]
+                # If we got an error because there wasn't enough memory to
+                # open the map, ignore it, we'll just use the (slower)
+                # "sub-file" implementation
+                if e.errno == errno.ENOMEM:
+                    pass
+                else:
+                    raise
+            else:
+                # If that worked, we can close the file handle we were given
+                f.close()
+
+        if dataobj is None:
+            # mmap isn't available, so fake it with the FileMap
+            dataobj = datafile.FileData(f, name, offset=offset, length=length)
+        return dataobj
+
+    def clean(self, ignore: bool=False):
         if self.readonly:
-            raise ReadOnlyError
+            raise storage.ReadOnlyError
 
         path = self.folder
         files = self.list()
@@ -519,7 +607,7 @@ class FileStorage(Storage):
                 if not ignore:
                     raise
 
-    def list(self):
+    def list(self) -> List[str]:
         try:
             files = os.listdir(self.folder)
         except IOError:
@@ -527,24 +615,24 @@ class FileStorage(Storage):
 
         return files
 
-    def file_exists(self, name):
+    def file_exists(self, name: str) -> bool:
         return os.path.exists(self._fpath(name))
 
-    def file_modified(self, name):
+    def file_modified(self, name: str) -> float:
         return os.path.getmtime(self._fpath(name))
 
-    def file_length(self, name):
+    def file_length(self, name: str) -> int:
         return os.path.getsize(self._fpath(name))
 
-    def delete_file(self, name):
+    def delete_file(self, name: str):
         if self.readonly:
-            raise ReadOnlyError
+            raise storage.ReadOnlyError
 
         os.remove(self._fpath(name))
 
-    def rename_file(self, oldname, newname, safe=False):
+    def rename_file(self, oldname: str, newname: str, safe: bool=False):
         if self.readonly:
-            raise ReadOnlyError
+            raise storage.ReadOnlyError
 
         if os.path.exists(self._fpath(newname)):
             if safe:
@@ -553,57 +641,58 @@ class FileStorage(Storage):
                 os.remove(self._fpath(newname))
         os.rename(self._fpath(oldname), self._fpath(newname))
 
-    def lock(self, name):
+    def lock(self, name: str) -> FileLock:
+        # TODO: lock name should include indexname to be unique across indexes
         return FileLock(self._fpath(name))
 
-    def temp_storage(self, name=None):
+    def temp_storage(self, name=None) -> BaseFileStorage:
         name = name or "%s.tmp" % random_name()
         path = os.path.join(self.folder, name)
         tempstore = FileStorage(path)
         return tempstore.create()
 
 
-class RamStorage(Storage):
-    """Storage object that keeps the index in memory.
+class RamStorage(BaseFileStorage):
+    """
+    Storage object that keeps the index in memory.
     """
 
     supports_mmap = False
 
     def __init__(self):
-        self.files = {}
-        self.locks = {}
-        self.folder = ''
+        self.files = {}  # type: Dict[str, bytes]
+        self.locks = {}  # type: Dict[str, Lock]
 
     def destroy(self):
         del self.files
         del self.locks
 
-    def list(self):
+    def list(self) -> List[str]:
         return list(self.files.keys())
 
     def clean(self):
         self.files = {}
 
-    def total_size(self):
+    def total_size(self) -> int:
         return sum(self.file_length(f) for f in self.list())
 
-    def file_exists(self, name):
+    def file_exists(self, name: str) -> bool:
         return name in self.files
 
-    def file_length(self, name):
+    def file_length(self, name: str) -> int:
         if name not in self.files:
             raise NameError(name)
         return len(self.files[name])
 
-    def file_modified(self, name):
+    def file_modified(self, name: str) -> float:
         return -1
 
-    def delete_file(self, name):
+    def delete_file(self, name: str):
         if name not in self.files:
             raise NameError(name)
         del self.files[name]
 
-    def rename_file(self, name, newname, safe=False):
+    def rename_file(self, name: str, newname: str, safe: bool=False):
         if name not in self.files:
             raise NameError(name)
         if safe and newname in self.files:
@@ -613,24 +702,30 @@ class RamStorage(Storage):
         del self.files[name]
         self.files[newname] = content
 
-    def create_file(self, name, **kwargs):
-        def onclose_fn(sfile):
-            self.files[name] = sfile.file.getvalue()
-        f = StructFile(BytesIO(), name=name, onclose=onclose_fn)
+    def create_file(self, name: str, **kwargs) -> datafile.OutputFile:
+        def _onclose(sfile):
+            self.files[name] = sfile._file.getvalue()
+        f = datafile.OutputFile(BytesIO(), name=name, onclose=_onclose)
         return f
 
-    def open_file(self, name, **kwargs):
+    def open_file(self, name: str, **kwargs) -> File:
         if name not in self.files:
             raise NameError(name)
-        buf = memoryview_(self.files[name])
-        return BufferFile(buf, name=name, **kwargs)
+        return BytesIO(memoryview(self.files[name]))
 
-    def lock(self, name):
+    def map_file(self, name: str, offset: int=0, length: int=0
+                 ) -> datafile.Data:
+        content = memoryview(self.files[name])
+        if offset or length:
+            content = content[offset:offset + length]
+        return datafile.MemData(content, name=name)
+
+    def lock(self, name: str) -> Lock:
         if name not in self.locks:
             self.locks[name] = Lock()
         return self.locks[name]
 
-    def temp_storage(self, name=None):
+    def temp_storage(self, name: str=None) -> BaseFileStorage:
         tdir = tempfile.gettempdir()
         name = name or "%s.tmp" % random_name()
         path = os.path.join(tdir, name)
@@ -638,24 +733,3 @@ class RamStorage(Storage):
         return tempstore.create()
 
 
-def copy_storage(sourcestore, deststore):
-    """Copies the files from the source storage object to the destination
-    storage object using ``shutil.copyfileobj``.
-    """
-    from shutil import copyfileobj
-
-    for name in sourcestore.list():
-        with sourcestore.open_file(name) as source:
-            with deststore.create_file(name) as dest:
-                copyfileobj(source, dest)
-
-
-def copy_to_ram(storage):
-    """Copies the given FileStorage object into a new RamStorage object.
-
-    :rtype: :class:`RamStorage`
-    """
-
-    ram = RamStorage()
-    copy_storage(storage, ram)
-    return ram

@@ -27,14 +27,16 @@
 
 import re
 from collections import deque
+from typing import Iterable
 
+from whoosh.ifaces import analysis
 from whoosh.compat import u, text_type
 from whoosh.compat import xrange
-from whoosh.analysis.filters import Filter
 
 
-class CompoundWordFilter(Filter):
-    """Given a set of words (or any object with a ``__contains__`` method),
+class CompoundWordFilter(analysis.Filter):
+    """
+    Given a set of words (or any object with a ``__contains__`` method),
     break any tokens in the stream that are composites of words in the word set
     into their individual parts.
 
@@ -45,6 +47,8 @@ class CompoundWordFilter(Filter):
     The ``keep_compound`` argument lets you decide whether to keep the
     compound word in the token stream along with the word segments.
 
+    >>> from whoosh.analysis.tokenizers import RegexTokenizer
+    >>> wordset = set("green eggs".split())
     >>> cwf = CompoundWordFilter(wordset, keep_compound=True)
     >>> analyzer = RegexTokenizer(r"\S+") | cwf
     >>> [t.text for t in analyzer("I do not like greeneggs and ham")
@@ -83,7 +87,8 @@ class CompoundWordFilter(Filter):
 
         return None
 
-    def __call__(self, tokens):
+    def filter(self, tokens: Iterable[analysis.Token]
+               ) -> Iterable[analysis.Token]:
         keep_compound = self.keep_compound
         memo = {}
         subwords = self.subwords
@@ -99,8 +104,9 @@ class CompoundWordFilter(Filter):
                 yield t
 
 
-class BiWordFilter(Filter):
-    """Merges adjacent tokens into "bi-word" tokens, so that for example::
+class BiWordFilter(analysis.Filter):
+    """
+    Merges adjacent tokens into "bi-word" tokens, so that for example::
 
         "the", "sign", "of", "four"
 
@@ -120,7 +126,8 @@ class BiWordFilter(Filter):
     def __init__(self, sep="-"):
         self.sep = sep
 
-    def __call__(self, tokens):
+    def filter(self, tokens: Iterable[analysis.Token]
+               ) -> Iterable[analysis.Token]:
         sep = self.sep
         prev_text = None
         prev_startchar = None
@@ -167,8 +174,9 @@ class BiWordFilter(Filter):
             yield token
 
 
-class ShingleFilter(Filter):
-    """Merges a certain number of adjacent tokens into multi-word tokens, so
+class ShingleFilter(analysis.Filter):
+    """
+    Merges a certain number of adjacent tokens into multi-word tokens, so
     that for example::
 
         "better", "a", "witty", "fool", "than", "a", "foolish", "wit"
@@ -192,7 +200,8 @@ class ShingleFilter(Filter):
         self.size = size
         self.sep = sep
 
-    def __call__(self, tokens):
+    def filter(self, tokens: Iterable[analysis.Token]
+               ) -> Iterable[analysis.Token]:
         size = self.size
         sep = self.sep
         buf = deque()
@@ -220,8 +229,9 @@ class ShingleFilter(Filter):
             yield make_token()
 
 
-class IntraWordFilter(Filter):
-    """Splits words into subwords and performs optional transformations on
+class IntraWordFilter(analysis.Filter):
+    """
+    Splits words into subwords and performs optional transformations on
     subword groups. This filter is funtionally based on yonik's
     WordDelimiterFilter in Solr, but shares no code with it.
 
@@ -257,6 +267,8 @@ class IntraWordFilter(Filter):
     this filter can see them, and put this filter before any use of
     LowercaseFilter.
 
+    >>> from whoosh.analysis.tokenizers import RegexTokenizer
+    >>> from whoosh.analysis.filters import LowercaseFilter
     >>> rt = RegexTokenizer(r"\\S+")
     >>> iwf = IntraWordFilter()
     >>> lcf = LowercaseFilter()
@@ -269,6 +281,7 @@ class IntraWordFilter(Filter):
     for indexing, and mergewords=False / mergenums=False in the analyzer used
     for querying.
 
+    >>> from whoosh.analysis.filters import MultiFilter
     >>> iwf_i = IntraWordFilter(mergewords=True, mergenums=True)
     >>> iwf_q = IntraWordFilter(mergewords=False, mergenums=False)
     >>> iwf = MultiFilter(index=iwf_i, query=iwf_q)
@@ -302,24 +315,24 @@ class IntraWordFilter(Filter):
         self.delims = re.escape(delims)
 
         # Expression for text between delimiter characters
-        self.between = re.compile(u("[^%s]+") % (self.delims,), re.UNICODE)
+        self.between = re.compile(u"[^%s]+" % (self.delims,), re.UNICODE)
         # Expression for removing "'s" from the end of sub-words
-        dispat = u("(?<=[%s%s])'[Ss](?=$|[%s])") % (lowercase, uppercase,
+        dispat = u"(?<=[%s%s])'[Ss](?=$|[%s])" % (lowercase, uppercase,
                                                     self.delims)
         self.possessive = re.compile(dispat, re.UNICODE)
 
         # Expression for finding case and letter-number transitions
-        lower2upper = u("[%s][%s]") % (lowercase, uppercase)
-        letter2digit = u("[%s%s][%s]") % (lowercase, uppercase, digits)
-        digit2letter = u("[%s][%s%s]") % (digits, lowercase, uppercase)
+        lower2upper = u"[%s][%s]" % (lowercase, uppercase)
+        letter2digit = u"[%s%s][%s]" % (lowercase, uppercase, digits)
+        digit2letter = u"[%s][%s%s]" % (digits, lowercase, uppercase)
         if splitwords and splitnums:
-            splitpat = u("(%s|%s|%s)") % (lower2upper, letter2digit,
+            splitpat = u"(%s|%s|%s)" % (lower2upper, letter2digit,
                                           digit2letter)
             self.boundary = re.compile(splitpat, re.UNICODE)
         elif splitwords:
             self.boundary = re.compile(text_type(lower2upper), re.UNICODE)
         elif splitnums:
-            numpat = u("(%s|%s)") % (letter2digit, digit2letter)
+            numpat = u"(%s|%s)" % (letter2digit, digit2letter)
             self.boundary = re.compile(numpat, re.UNICODE)
 
         self.splitting = splitwords or splitnums
@@ -436,7 +449,8 @@ class IntraWordFilter(Filter):
         if len(buf) > 1:
             insert_item(buf, len(parts), pos)
 
-    def __call__(self, tokens):
+    def filter(self, tokens: Iterable[analysis.Token]
+               ) -> Iterable[analysis.Token]:
         mergewords = self.mergewords
         mergenums = self.mergenums
 

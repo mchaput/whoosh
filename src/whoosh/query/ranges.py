@@ -26,12 +26,18 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import division
+from typing import Iterable
 
-from whoosh.compat import b, u
-from whoosh.query import qcore, terms, compound, wrappers
+from whoosh import collectors, searching
+from whoosh.ifaces import matchers, queries, readers, searchers
+from whoosh.query import terms, compound, wrappers
 from whoosh.util.times import datetime_to_long
 
 
+__all__ = ("TermRange", "NumericRange", "DateRange", "Every")
+
+
+@collectors.register("range")
 class RangeMixin(object):
     # Contains methods shared by TermRange and NumericRange
 
@@ -46,7 +52,7 @@ class RangeMixin(object):
         endchar = "}" if self.endexcl else "]"
         start = '' if self.start is None else self.start
         end = '' if self.end is None else self.end
-        return u("%s:%s%s TO %s%s") % (self.fieldname, startchar, start, end,
+        return u"%s:%s%s TO %s%s" % (self.fieldname, startchar, start, end,
                                      endchar)
 
     __str__ = __unicode__
@@ -61,25 +67,42 @@ class RangeMixin(object):
                 and self.constantscore == other.constantscore)
 
     def __hash__(self):
-        return (hash(self.fieldname) ^ hash(self.start) ^ hash(self.startexcl)
-                ^ hash(self.end) ^ hash(self.endexcl) ^ hash(self.boost))
+        return (hash(self.fieldname) ^ hash(self.start) ^ hash(self.startexcl) ^
+                hash(self.end) ^ hash(self.endexcl) ^ hash(self.boost))
+
+    @classmethod
+    def combine_collector(cls, collector: 'collectors.Collector',
+                          args, kwargs) -> 'collectors.Collector':
+        from whoosh import fields
+
+        schema = collector.searcher.schema
+        fieldname = args[0]
+        field = schema[fieldname]
+        if isinstance(field, fields.DateTime):
+            qcls = DateRange
+        elif isinstance(field, fields.Numeric):
+            qcls = NumericRange
+        else:
+            qcls = TermRange
+
+        return collector.with_query(qcls(*args, **kwargs))
 
     def is_range(self):
         return True
 
     def _comparable_start(self):
         if self.start is None:
-            return (qcore.Lowest, 0)
+            return queries.Lowest, 0
         else:
             second = 1 if self.startexcl else 0
-            return (self.start, second)
+            return self.start, second
 
     def _comparable_end(self):
         if self.end is None:
-            return (qcore.Highest, 0)
+            return queries.Highest, 0
         else:
             second = -1 if self.endexcl else 0
-            return (self.end, second)
+            return self.end, second
 
     def overlaps(self, other):
         if not isinstance(other, TermRange):
@@ -118,9 +141,9 @@ class RangeMixin(object):
             start = min(start1, start2)
             end = max(end1, end2)
 
-        startval = None if start[0] is qcore.Lowest else start[0]
+        startval = None if start[0] is queries.Lowest else start[0]
         startexcl = start[1] == 1
-        endval = None if end[0] is qcore.Highest else end[0]
+        endval = None if end[0] is queries.Highest else end[0]
         endexcl = end[1] == -1
 
         boost = max(self.boost, other.boost)
@@ -131,6 +154,7 @@ class RangeMixin(object):
                               constantscore=constantscore)
 
 
+@collectors.register("term_range")
 class TermRange(RangeMixin, terms.MultiTerm):
     """Matches documents containing any terms in a given range.
 
@@ -162,17 +186,18 @@ class TermRange(RangeMixin, terms.MultiTerm):
         self.constantscore = constantscore
 
     def normalize(self):
-        if self.start in ('', None) and self.end in (u('\uffff'), None):
-            from whoosh.query import Every
+        from whoosh.query import Every
+
+        if self.start in ('', None) and self.end in (u'\uffff', None):
             return Every(self.fieldname, boost=self.boost)
         elif self.start == self.end:
             if self.startexcl or self.endexcl:
-                return qcore.NullQuery
+                return queries.NullQuery()
             return terms.Term(self.fieldname, self.start, boost=self.boost)
         else:
             return TermRange(self.fieldname, self.start, self.end,
                              self.startexcl, self.endexcl,
-                             boost=self.boost)
+                             boost=self.boost, constantscore=self.constantscore)
 
     #def replace(self, fieldname, oldtext, newtext):
     #    q = self.copy()
@@ -183,41 +208,42 @@ class TermRange(RangeMixin, terms.MultiTerm):
     #            q.end = newtext
     #    return q
 
-    def _btexts(self, ixreader):
+    def _btexts(self, ixreader: 'readers.IndexReader') -> Iterable[bytes]:
         fieldname = self.fieldname
         field = ixreader.schema[fieldname]
         startexcl = self.startexcl
         endexcl = self.endexcl
 
-        if self.start is None:
-            start = b("")
-        else:
+        start = self.start
+        if start is None:
+            start = b""
+        elif not isinstance(start, bytes):
             try:
-                start = field.to_bytes(self.start)
+                start = field.to_bytes(start)
             except ValueError:
                 return
 
-        if self.end is None:
-            end = b("\xFF\xFF\xFF\xFF")
-        else:
+        end = self.end
+        if end is not None and not isinstance(end, bytes):
             try:
-                end = field.to_bytes(self.end)
+                end = field.to_bytes(end)
             except ValueError:
                 return
 
-        for fname, t in ixreader.terms_from(fieldname, start):
-            if fname != fieldname:
-                break
-            if t == start and startexcl:
+        # We call term_range with end=None here and manually check the end,
+        # because if you give term_range an end term it yields terms up to but
+        # not including the end term
+        for termbytes in ixreader.term_range(fieldname, start, None):
+            if startexcl and termbytes == start:
                 continue
-            if t == end and endexcl:
+            if endexcl and termbytes == end:
                 break
-            if t > end:
+            if end is not None and termbytes > end:
                 break
-            yield t
+            yield termbytes
 
 
-class NumericRange(RangeMixin, qcore.Query):
+class NumericRange(RangeMixin, queries.Query):
     """A range query for NUMERIC fields. Takes advantage of tiered indexing
     to speed up large ranges by matching at a high resolution at the edges of
     the range and a low resolution in the middle.
@@ -255,41 +281,56 @@ class NumericRange(RangeMixin, qcore.Query):
         self.boost = boost
         self.constantscore = constantscore
 
-    def simplify(self, ixreader):
-        return self._compile_query(ixreader).simplify(ixreader)
-
     def estimate_size(self, ixreader):
         return self._compile_query(ixreader).estimate_size(ixreader)
 
     def estimate_min_size(self, ixreader):
         return self._compile_query(ixreader).estimate_min_size(ixreader)
 
-    def docs(self, searcher):
-        q = self._compile_query(searcher.reader())
-        return q.docs(searcher)
+    def docs(self, searcher: 'searchers.Searcher',
+             deleting: bool=False) -> Iterable[int]:
+        reader = searcher.reader()
+        return self.simplify(reader).docs(searcher, deleting)
 
-    def _compile_query(self, ixreader):
-        from whoosh.fields import NUMERIC
-        from whoosh.util.numeric import tiered_ranges
+    def simplify(self, ixreader: 'readers.IndexReader') -> queries.Query:
+        from whoosh.fields import Numeric
+        from whoosh.util.numeric import split_ranges, to_sortable
 
         field = ixreader.schema[self.fieldname]
-        if not isinstance(field, NUMERIC):
+        if not isinstance(field, Numeric):
             raise Exception("NumericRange: field %r is not numeric"
                             % self.fieldname)
+        numtype = field.numtype
+        intsize = field.bits
+        signed = field.signed
 
         start = self.start
-        if start is not None:
+        if start is None:
+            start = 0
+        else:
             start = field.prepare_number(start)
+            start = to_sortable(numtype, intsize, signed, start)
+            if self.startexcl:
+                start += 1
+
         end = self.end
-        if end is not None:
+        if end is None:
+            end = 2 ** field.bits - 1
+        else:
             end = field.prepare_number(end)
+            end = to_sortable(numtype, intsize, signed, end)
+            if self.endexcl:
+                end -= 1
 
         subqueries = []
         stb = field.sortable_to_bytes
         # Get the term ranges for the different resolutions
-        ranges = tiered_ranges(field.numtype, field.bits, field.signed,
-                               start, end, field.shift_step,
-                               self.startexcl, self.endexcl)
+        if field.shift_step:
+            # Iterator of (range_start, range_end, shift) tuples
+            ranges = split_ranges(intsize, field.shift_step, start, end)
+        else:
+            ranges = [(start, end, 0)]
+
         for startnum, endnum, shift in ranges:
             if startnum == endnum:
                 subq = terms.Term(self.fieldname, stb(startnum, shift))
@@ -304,19 +345,20 @@ class NumericRange(RangeMixin, qcore.Query):
         elif subqueries:
             q = compound.Or(subqueries, boost=self.boost)
         else:
-            return qcore.NullQuery
+            return queries.NullQuery
 
         if self.constantscore:
             q = wrappers.ConstantScoreQuery(q, self.boost)
         return q
 
     def matcher(self, searcher, context=None):
-        q = self._compile_query(searcher.reader())
+        q = self.simplify(searcher.reader())
         return q.matcher(searcher, context)
 
 
 class DateRange(NumericRange):
-    """This is a very thin subclass of :class:`NumericRange` that only
+    """
+    This is a very thin subclass of :class:`NumericRange` that only
     overrides the initializer and ``__repr__()`` methods to work with datetime
     objects instead of numbers. Internally this object converts the datetime
     objects it's created with to numbers and otherwise acts like a
@@ -345,3 +387,73 @@ class DateRange(NumericRange):
                                            self.startdate, self.enddate,
                                            self.startexcl, self.endexcl,
                                            self.boost)
+
+
+@collectors.register("all")
+class Every(queries.Query):
+    """
+    A query that matches every document, or every document that has a term in
+    a given field.
+
+    This is VERY inefficient. Instead of using this to match all documents that
+    contain a term from a given field, you should add an identifying term to
+    those documents when you index them.
+    """
+
+    def __init__(self, fieldname: str=None, startchar: int=None,
+                 endchar: int=None, error: str=None, boost=1.0):
+        super(Every, self).__init__(startchar=startchar, endchar=endchar,
+                                    error=error, boost=boost)
+        self.fieldname = fieldname
+
+    def __eq__(self, other: 'Every') -> bool:
+        if type(self) == type(other):
+            if self.is_total() and other.is_total():
+                return True
+            else:
+                if self.fieldname != other.fieldname:
+                    return False
+                if self.boost != other.boost:
+                    return False
+                return True
+        return False
+
+    def __ne__(self, other: 'Every') -> bool:
+        return not self.__eq__(other)
+
+    def __hash__(self) -> int:
+        h = hash(type(self))
+        if not self.is_total():
+            h ^= hash(self.fieldname)
+        h ^= hash(self.boost)
+        return h
+
+    def is_total(self) -> bool:
+        return self.fieldname in (None, "", "*")
+
+    def estimate_size(self, reader: 'readers.IndexReader'):
+        return reader.doc_count()
+
+    def matcher(self, searcher: 'searchers.Searcher',
+                context: 'searchers.SearchContext') -> 'matchers.Matcher':
+        reader = searcher.reader()
+        include = context.include if context else None
+        exclude = context.exclude if context else None
+
+        if self.is_total():
+            include = searcher.to_comb(include)
+            exclude = searcher.to_comb(exclude)
+            matcher = matchers.IteratorMatcher(reader.all_doc_ids(),
+                                               include=include, exclude=exclude)
+        else:
+            # This is a hacky hack, but just create an in-memory set of all the
+            # document numbers of every term in the field. This is SLOOOW for
+            # large indexes
+            docset = set()
+            for text in reader.lexicon(self.fieldname):
+                pr = searcher.matcher(self.fieldname, text, include=include,
+                                      exclude=exclude)
+                docset.update(pr.all_ids())
+            matcher = matchers.ListMatcher(sorted(docset))
+
+        return matcher

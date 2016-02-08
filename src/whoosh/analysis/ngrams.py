@@ -25,16 +25,16 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from whoosh.compat import text_type
-from whoosh.compat import xrange
-from whoosh.analysis.acore import Token
-from whoosh.analysis.filters import Filter, LowercaseFilter
-from whoosh.analysis.tokenizers import Tokenizer, RegexTokenizer
+from typing import Iterable
+
+from whoosh.compat import text_type, xrange
+from whoosh.ifaces import analysis
+from whoosh.analysis import filters, tokenizers
 
 
 # Tokenizer
 
-class NgramTokenizer(Tokenizer):
+class NgramTokenizer(analysis.Tokenizer):
     """Splits input text into N-grams instead of words.
 
     >>> ngt = NgramTokenizer(4)
@@ -52,7 +52,7 @@ class NgramTokenizer(Tokenizer):
 
     __inittypes__ = dict(minsize=int, maxsize=int)
 
-    def __init__(self, minsize, maxsize=None):
+    def __init__(self, minsize: int, maxsize: int=None):
         """
         :param minsize: The minimum size of the N-grams.
         :param maxsize: The maximum size of the N-grams. If you omit
@@ -62,19 +62,14 @@ class NgramTokenizer(Tokenizer):
         self.min = minsize
         self.max = maxsize or minsize
 
-    def __eq__(self, other):
-        if self.__class__ is other.__class__:
-            if self.min == other.min and self.max == other.max:
-                return True
-        return False
-
-    def __call__(self, value, positions=False, chars=False, keeporiginal=False,
-                 removestops=True, start_pos=0, start_char=0, mode='',
-                 **kwargs):
+    def __call__(self, value, positions: bool=False, chars: bool=False,
+                 keeporiginal: bool=False, removestops: bool=True,
+                 start_pos: int=0, start_char: int=0, mode: str='',
+                 **kwargs) -> Iterable[analysis.Token]:
         assert isinstance(value, text_type), "%r is not unicode" % value
 
         inlen = len(value)
-        t = Token(positions, chars, removestops=removestops, mode=mode)
+        t = analysis.Token(positions, chars, removestops=removestops, mode=mode)
         pos = start_pos
 
         if mode == "query":
@@ -116,9 +111,10 @@ class NgramTokenizer(Tokenizer):
 
 # Filter
 
-class NgramFilter(Filter):
+class NgramFilter(analysis.Filter):
     """Splits token text into N-grams.
 
+    >>> from whoosh.analysis.tokenizers import RegexTokenizer
     >>> rext = RegexTokenizer()
     >>> stream = rext("hello there")
     >>> ngf = NgramFilter(4)
@@ -126,9 +122,7 @@ class NgramFilter(Filter):
     ["hell", "ello", "ther", "here"]
     """
 
-    __inittypes__ = dict(minsize=int, maxsize=int)
-
-    def __init__(self, minsize, maxsize=None, at=None):
+    def __init__(self, minsize: int, maxsize: int=None, at: str=None):
         """
         :param minsize: The minimum size of the N-grams.
         :param maxsize: The maximum size of the N-grams. If you omit this
@@ -146,12 +140,8 @@ class NgramFilter(Filter):
         elif at == "end":
             self.at = 1
 
-    def __eq__(self, other):
-        return other and self.__class__ is other.__class__\
-        and self.min == other.min and self.max == other.max
-
-    def __call__(self, tokens):
-        assert hasattr(tokens, "__iter__")
+    def filter(self, tokens: Iterable[analysis.Token]
+               ) -> Iterable[analysis.Token]:
         at = self.at
         for t in tokens:
             text = t.text
@@ -220,18 +210,28 @@ class NgramFilter(Filter):
 
 # Analyzers
 
-def NgramAnalyzer(minsize, maxsize=None):
-    """Composes an NgramTokenizer and a LowercaseFilter.
+class NgramAnalyzer(analysis.CompositeAnalyzer):
+    """
+    Composes an NgramTokenizer and a LowercaseFilter.
 
     >>> ana = NgramAnalyzer(4)
     >>> [token.text for token in ana("hi there")]
     ["hi t", "i th", " the", "ther", "here"]
     """
 
-    return NgramTokenizer(minsize, maxsize=maxsize) | LowercaseFilter()
+    def __init__(self, minsize: int, maxsize: int=None):
+        super(NgramAnalyzer, self).__init__(
+            NgramTokenizer(minsize, maxsize=maxsize),
+            filters.LowercaseFilter(),
+        )
 
 
-def NgramWordAnalyzer(minsize, maxsize=None, tokenizer=None, at=None):
-    if not tokenizer:
-        tokenizer = RegexTokenizer()
-    return tokenizer | LowercaseFilter() | NgramFilter(minsize, maxsize, at=at)
+class NgramWordAnalyzer(analysis.CompositeAnalyzer):
+    def __init__(self, minsize, maxsize=None, tokenizer=None, at=None):
+        tokenizer = tokenizer or tokenizers.RegexTokenizer()
+        super(NgramWordAnalyzer, self).__init__(
+            tokenizer,
+            filters.LowercaseFilter(),
+            NgramFilter(minsize, maxsize, at=at)
+        )
+

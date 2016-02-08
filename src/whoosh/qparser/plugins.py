@@ -27,12 +27,12 @@
 
 import copy
 
-from whoosh import query
 from whoosh.compat import u
 from whoosh.compat import iteritems, xrange
 from whoosh.qparser import syntax
 from whoosh.qparser.common import attach
 from whoosh.qparser.taggers import RegexTagger, FnTagger
+from whoosh.query import positional, terms
 from whoosh.util.text import rcompile
 
 
@@ -136,7 +136,7 @@ class PrefixPlugin(TaggingPlugin):
     """
 
     class PrefixNode(syntax.TextNode):
-        qclass = query.Prefix
+        qclass = terms.Prefix
 
         def r(self):
             return "%r*" % self.text
@@ -149,7 +149,7 @@ class WildcardPlugin(TaggingPlugin):
     # \u055E = Armenian question mark
     # \u061F = Arabic question mark
     # \u1367 = Ethiopic question mark
-    qmarks = u("?\u055E\u061F\u1367")
+    qmarks = u"?\u055E\u061F\u1367"
     expr = "(?P<text>[*%s])" % qmarks
 
     def filters(self, parser):
@@ -191,7 +191,7 @@ class WildcardPlugin(TaggingPlugin):
         # so the text in this node will not be analyzed... just passed
         # straight to the query
 
-        qclass = query.Wildcard
+        qclass = terms.Wildcard
 
         def r(self):
             return "Wild %r" % self.text
@@ -210,7 +210,7 @@ class RegexPlugin(TaggingPlugin):
     """
 
     class RegexNode(syntax.TextNode):
-        qclass = query.Regex
+        qclass = terms.Regex
 
         def r(self):
             return "Regex %r" % self.text
@@ -362,7 +362,9 @@ class EveryPlugin(TaggingPlugin):
             return "*:*"
 
         def query(self, parser):
-            return query.Every()
+            from whoosh.query.ranges import Every
+
+            return Every()
 
 
 class FieldsPlugin(TaggingPlugin):
@@ -500,7 +502,7 @@ class FuzzyTermPlugin(TaggingPlugin):
             return "<~%d/%d>" % (self.maxdist, self.prefixlength)
 
     class FuzzyTermNode(syntax.TextNode):
-        qclass = query.FuzzyTerm
+        qclass = terms.FuzzyTerm
 
         def __init__(self, wordnode, maxdist, prefixlength):
             self.fieldname = wordnode.fieldname
@@ -679,7 +681,7 @@ class PhrasePlugin(Plugin):
     wordexpr = rcompile(r'\S+')
 
     class PhraseNode(syntax.TextNode):
-        def __init__(self, text, textstartchar, slop=1):
+        def __init__(self, text, textstartchar, slop=0):
             syntax.TextNode.__init__(self, text)
             self.textstartchar = textstartchar
             self.slop = slop
@@ -735,7 +737,7 @@ class PhrasePlugin(Plugin):
             text = match.group("text")
             textstartchar = match.start("text")
             slopstr = match.group("slop")
-            slop = int(slopstr) if slopstr else 1
+            slop = int(slopstr) if slopstr else 0
             return PhrasePlugin.PhraseNode(text, textstartchar, slop)
 
     def __init__(self, expr='"(?P<text>.*?)"(~(?P<slop>[1-9][0-9]*))?'):
@@ -770,7 +772,7 @@ class SequencePlugin(Plugin):
         self.expr = expr
 
     class SequenceNode(syntax.GroupNode):
-        qclass = query.Sequence
+        qclass = positional.Sequence
 
     class QuoteNode(syntax.MarkerNode):
         def __init__(self, slop=None):

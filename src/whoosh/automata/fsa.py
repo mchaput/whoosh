@@ -263,7 +263,6 @@ class DFA(FSA):
         stack = []
 
         # Follow the DFA as far as possible
-        i = 0
         for i, label in enumerate(string):
             stack.append((string[:i], state, label))
             state = self.next_state(state, label)

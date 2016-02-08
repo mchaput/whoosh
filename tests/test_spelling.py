@@ -94,7 +94,7 @@ def test_query_highlight():
 
     def do(text, terms):
         q = qp.parse(text)
-        tks = [tk for tk in q.all_tokens() if tk.text in terms]
+        tks = [tk for tk in q.tokens() if tk.text in terms]
         for tk in tks:
             if tk.startchar is None or tk.endchar is None:
                 assert False, tk
@@ -109,16 +109,16 @@ def test_query_terms():
     qp = QueryParser("a", None)
 
     q = qp.parse("alfa b:(bravo OR c:charlie) delta")
-    assert sorted(q.iter_all_terms()) == [("a", "alfa"), ("a", "delta"),
-                                          ("b", "bravo"), ("c", "charlie")]
+    assert sorted(q.terms()) == [("a", "alfa"), ("a", "delta"),
+                                 ("b", "bravo"), ("c", "charlie")]
 
     q = qp.parse("alfa brav*")
-    assert sorted(q.iter_all_terms()) == [("a", "alfa")]
+    assert sorted(q.terms()) == [("a", "alfa")]
 
-    q = qp.parse('a b:("b c" d)^2 e')
-    tokens = [(t.fieldname, t.text, t.boost) for t in q.all_tokens()]
-    assert tokens == [('a', 'a', 1.0), ('b', 'b', 2.0), ('b', 'c', 2.0),
-                      ('b', 'd', 2.0), ('a', 'e', 1.0)]
+    # q = qp.parse('a b:("b c" d)^2 e')
+    # tokens = [(t.fieldname, t.text, t.boost) for t in q.tokens()]
+    # assert tokens == [('a', 'a', 1.0), ('b', 'b', 2.0), ('b', 'c', 2.0),
+    #                   ('b', 'd', 2.0), ('a', 'e', 1.0)]
 
 
 def test_correct_query():
@@ -178,9 +178,6 @@ def test_spelling_field():
             # it calls fieldobj.spelling_fieldname() first
             assert s.suggest("text", "renderink") == ["rendering"]
 
-        with ix.writer() as w:
-            w.delete_document(0)
-
 
 def test_correct_spell_field():
     ana = analysis.StemmingAnalyzer()
@@ -216,26 +213,25 @@ def test_correct_spell_field():
 
 
 def test_suggest_prefix():
-    domain = ("Shoot To Kill",
-              "Bloom, Split and Deviate",
-              "Rankle the Seas and the Skies",
-              "Lightning Flash Flame Shell",
-              "Flower Wind Rage and Flower God Roar, Heavenly Wind Rage and "
-              "Heavenly Demon Sneer",
-              "All Waves, Rise now and Become my Shield, Lightning, Strike "
-              "now and Become my Blade",
-              "Cry, Raise Your Head, Rain Without end",
-              "Sting All Enemies To Death",
-              "Reduce All Creation to Ash",
-              "Sit Upon the Frozen Heavens",
-              "Call forth the Twilight")
+    domain = (u"Shoot To Kill",
+              u"Bloom, Split and Deviate",
+              u"Rankle the Seas and the Skies",
+              u"Lightning Flash Flame Shell",
+              u"Flower Wind Rage and Flower God Roar, Heavenly Wind Rage and "
+              u"Heavenly Demon Sneer",
+              u"All Waves, Rise now and Become my Shield, Lightning, Strike "
+              u"now and Become my Blade",
+              u"Cry, Raise Your Head, Rain Without end",
+              u"Sting All Enemies To Death",
+              u"Reduce All Creation to Ash",
+              u"Sit Upon the Frozen Heavens",
+              u"Call forth the Twilight")
 
     schema = fields.Schema(content=fields.TEXT(stored=True, ),
                            quick=fields.NGRAM(maxsize=10, stored=True))
     with TempIndex(schema, "sugprefix") as ix:
         with ix.writer() as w:
-            for item in domain:
-                content = u(item)
+            for content in domain:
                 w.add_document(content=content, quick=content)
 
         with ix.searcher() as s:

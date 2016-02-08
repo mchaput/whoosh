@@ -25,18 +25,52 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from whoosh import matching
-from whoosh.compat import text_type, u, xrange
-from whoosh.query import qcore
-from whoosh.query.wrappers import WrappingQuery
+from typing import Callable, Iterable, Sequence
+
+from whoosh import collectors
+from whoosh.compat import xrange
+from whoosh.ifaces import matchers, queries, searchers
+from whoosh.matching import wrappers as mwrappers
+from whoosh.query import wrappers as qwrappers
 
 
-class NestedParent(WrappingQuery):
-    """A query that allows you to search for "nested" documents, where you can
+__all__ = ("NestedParent", "NestedChildren")
+
+
+class NestedBase(qwrappers.WrappingQuery):
+    def __repr__(self):
+        return "%s(%r, %r)" % (type(self).__name__, self.parents, self.child)
+
+    def normalize(self) -> 'queries.Query':
+        p = self.parents
+        if isinstance(p, queries.Query):
+            p = p.normalize()
+
+        q = self.child.normalize()
+
+        if isinstance(p, queries.NullQuery) or isinstance(q, queries.NullQuery):
+            return queries.NullQuery()
+
+        return self.__class__(p, q)
+
+    def children(self) -> Iterable[queries.Query]:
+        yield self.parents
+        yield self.child
+
+    def set_children(self, children: 'Sequence[queries.Query]'):
+        assert len(children) == 2
+        self.parents = children[0]
+        self.child = children[1]
+
+
+@collectors.register("containing")
+class NestedParent(NestedBase):
+    """
+    A query that allows you to search for "nested" documents, where you can
     index (possibly multiple levels of) "parent" and "child" documents using
-    the :meth:`~whoosh.writing.IndexWriter.group` and/or
-    :meth:`~whoosh.writing.IndexWriter.start_group` methods of a
-    :class:`whoosh.writing.IndexWriter` to indicate that hierarchically related
+    the :meth:`~whoosh.writing.SegmentWriter.group` and/or
+    :meth:`~whoosh.writing.SegmentWriter.start_group` methods of a
+    writer to indicate that hierarchically related
     documents should be kept together::
 
         schema = fields.Schema(type=fields.ID, text=fields.TEXT(stored=True))
@@ -63,7 +97,7 @@ class NestedParent(WrappingQuery):
     this query acts as if it found the corresponding "parent document".
 
     >>> with ix.searcher() as s:
-    ...   r = s.search(query.Term("text", "day"))
+    ...   r = s.search(queries.Term("text", "day"))
     ...   for hit in r:
     ...     print(hit["text"])
     ...
@@ -71,7 +105,9 @@ class NestedParent(WrappingQuery):
     Chapter 3
     """
 
-    def __init__(self, parents, subq, per_parent_limit=None, score_fn=sum):
+    def __init__(self, parents: 'queries.Query', subq: 'queries.Query',
+                 per_parent_limit: int=None,
+                 score_fn: Callable[[Sequence[float]], float]=sum):
         """
         :param parents: a query, DocIdSet object, or Results object
             representing the documents you want to use as the "parent"
@@ -87,129 +123,123 @@ class NestedParent(WrappingQuery):
         """
 
         self.parents = parents
-        self.child = subq
+        self.child = collectors.as_query(subq)
         self.per_parent_limit = per_parent_limit
         self.score_fn = score_fn
 
-    def normalize(self):
-        p = self.parents
-        if isinstance(p, qcore.Query):
-            p = p.normalize()
-        q = self.child.normalize()
-
-        if p is qcore.NullQuery or q is qcore.NullQuery:
-            return qcore.NullQuery
-
-        return self.__class__(p, q)
-
-    def requires(self):
-        return self.child.requires()
-
-    def matcher(self, searcher, context=None):
-        bits = searcher._filter_to_comb(self.parents)
+    def matcher(self, searcher: 'searchers.Searcher',
+                context: 'searchers.SearchContext'=None) -> 'matchers.Matcher':
+        bits = searcher.to_comb(self.parents)
         if not bits:
-            return matching.NullMatcher
+            return matchers.NullMatcher
+
         m = self.child.matcher(searcher, context)
         if not m.is_active():
-            return matching.NullMatcher
+            return matchers.NullMatcher
 
-        return self.NestedParentMatcher(bits, m, self.per_parent_limit,
-                                        searcher.doc_count_all(),
-                                        self.score_fn)
+        return NestedParentMatcher(bits, m, self.per_parent_limit,
+                                   searcher.doc_count_all())
 
-    def deletion_docs(self, searcher):
-        bits = searcher._filter_to_comb(self.parents)
-        if not bits:
-            return
+    def docs(self, searcher: 'searchers.Searcher',
+             deleting: bool=False) -> Iterable[int]:
+        if deleting:
+            bits = searcher.to_comb(self.parents)
+            if not bits:
+                return
 
-        m = self.child.matcher(searcher, searcher.boolean_context())
-        maxdoc = searcher.doc_count_all()
-        while m.is_active():
-            docnum = m.id()
-            parentdoc = bits.before(docnum + 1)
-            nextparent = bits.after(docnum) or maxdoc
-            for i in xrange(parentdoc, nextparent):
-                yield i
-            m.skip_to(nextparent)
+            m = self.child.matcher(searcher, searcher.boolean_context())
+            maxdoc = searcher.doc_count_all()
+            while m.is_active():
+                docnum = m.id()
+                parentdoc = bits.before(docnum + 1)
+                nextparent = bits.after(docnum) or maxdoc
+                for i in xrange(parentdoc, nextparent):
+                    yield i
+                m.skip_to(nextparent)
+        else:
+            m = self.matcher(searcher, searcher.boolean_context())
+            for docid in m.all_ids():
+                yield docid
 
-    class NestedParentMatcher(matching.Matcher):
-        def __init__(self, comb, child, per_parent_limit, maxdoc, score_fn):
-            self.comb = comb
-            self.child = child
-            self.per_parent_limit = per_parent_limit
-            self.maxdoc = maxdoc
-            self.score_fn = score_fn
 
-            self._nextdoc = None
-            if self.child.is_active():
-                self._gather()
+class NestedParentMatcher(matchers.Matcher):
+    def __init__(self, comb, child, per_parent_limit, maxdoc):
+        self.comb = comb
+        self.child = child
+        self.per_parent_limit = per_parent_limit
+        self.maxdoc = maxdoc
 
-        def is_active(self):
-            return self._nextdoc is not None
-
-        def supports_block_quality(self):
-            return False
-
-        def _gather(self):
-            # This is where the magic happens ;)
-            child = self.child
-            pplimit = self.per_parent_limit
-
-            # The next document returned by this matcher is the parent of the
-            # child's current document. We don't have to worry about whether
-            # the parent is deleted, because the query that gave us the parents
-            # wouldn't return deleted documents.
-            self._nextdoc = self.comb.before(child.id() + 1)
-            # The next parent after the child matcher's current document
-            nextparent = self.comb.after(child.id()) or self.maxdoc
-
-            # Sum the scores of all matching documents under the parent
-            count = 1
-            scores = []
-            while child.is_active() and child.id() < nextparent:
-                if pplimit and count > pplimit:
-                    child.skip_to(nextparent)
-                    break
-
-                scores.append(child.score())
-                child.next()
-                count += 1
-
-            score = self.score_fn(scores) if scores else 0
-            self._nextscore = score
-
-        def id(self):
-            return self._nextdoc
-
-        def score(self):
-            return self._nextscore
-
-        def reset(self):
-            self.child.reset()
+        self._nextdoc = None
+        if self.child.is_active():
             self._gather()
 
-        def next(self):
-            if self.child.is_active():
-                self._gather()
+    def is_active(self):
+        return self._nextdoc is not None
+
+    def supports_block_quality(self):
+        return False
+
+    def _gather(self):
+        # This is where the magic happens ;)
+        child = self.child
+        pplimit = self.per_parent_limit
+
+        # The next document returned by this matcher is the parent of the
+        # child's current document. We don't have to worry about whether
+        # the parent is deleted, because the query that gave us the parents
+        # wouldn't return deleted documents.
+        self._nextdoc = self.comb.before(child.id() + 1)
+        # The next parent after the child matcher's current document
+        nextparent = self.comb.after(child.id()) or self.maxdoc
+
+        # Sum the scores of all matching documents under the parent
+        count = 1
+        score = 0
+        while child.is_active() and child.id() < nextparent:
+            if pplimit and count > pplimit:
+                child.skip_to(nextparent)
+                break
+
+            score += child.score()
+            child.next()
+            count += 1
+
+        self._nextscore = score
+
+    def id(self):
+        return self._nextdoc
+
+    def score(self):
+        return self._nextscore
+
+    def reset(self):
+        self.child.reset()
+        self._gather()
+
+    def next(self):
+        if self.child.is_active():
+            self._gather()
+        else:
+            if self._nextdoc is None:
+                raise matchers.ReadTooFar
             else:
-                if self._nextdoc is None:
-                    raise matching.ReadTooFar
-                else:
-                    self._nextdoc = None
+                self._nextdoc = None
 
-        def skip_to(self, id):
-            self.child.skip_to(id)
-            self._gather()
+    def skip_to(self, id):
+        self.child.skip_to(id)
+        self._gather()
 
-        def value(self):
-            raise NotImplementedError(self.__class__)
+    def value(self):
+        raise NotImplementedError(self.__class__)
 
-        def spans(self):
-            return []
+    def spans(self):
+        return []
 
 
-class NestedChildren(WrappingQuery):
-    """This is the reverse of a :class:`NestedParent` query: instead of taking
+@collectors.register("contained_by")
+class NestedChildren(NestedBase):
+    """
+    This is the reverse of a :class:`NestedParent` query: instead of taking
     a query that matches children but returns the parent, this query matches
     parents but returns the children.
 
@@ -262,154 +292,155 @@ class NestedChildren(WrappingQuery):
 
     def __init__(self, parents, subq, boost=1.0):
         self.parents = parents
-        self.child = subq
+        self.child = collectors.as_query(subq)
         self.boost = boost
 
     def matcher(self, searcher, context=None):
-        bits = searcher._filter_to_comb(self.parents)
+        bits = searcher.to_comb(self.parents)
         if not bits:
-            return matching.NullMatcher
+            return matchers.NullMatcher
 
         m = self.child.matcher(searcher, context)
         if not m.is_active():
-            return matching.NullMatcher
+            return matchers.NullMatcher
 
-        return self.NestedChildMatcher(bits, m, searcher.doc_count_all(),
-                                       searcher.reader().is_deleted,
-                                       boost=self.boost)
+        return NestedChildMatcher(bits, m, searcher.doc_count_all(),
+                                  searcher.reader().is_deleted,
+                                  boost=self.boost)
 
-    class NestedChildMatcher(matching.WrappingMatcher):
-        def __init__(self, parent_comb, wanted_parent_matcher, limit,
-                     is_deleted, boost=1.0):
-            self.parent_comb = parent_comb
-            self.child = wanted_parent_matcher
-            self.limit = limit
-            self.is_deleted = is_deleted
-            self.boost = boost
-            self._nextchild = -1
-            self._nextparent = -1
-            self._find_next_children()
 
-        def __repr__(self):
-            return "%s(%r, %r)" % (self.__class__.__name__,
-                                   self.parent_comb,
-                                   self.child)
+class NestedChildMatcher(mwrappers.WrappingMatcher):
+    def __init__(self, parent_comb, wanted_parent_matcher, limit,
+                 is_deleted, boost=1.0):
+        self.parent_comb = parent_comb
+        self.child = wanted_parent_matcher
+        self.limit = limit
+        self.is_deleted = is_deleted
+        self.boost = boost
+        self._nextchild = -1
+        self._nextparent = -1
+        self._find_next_children()
 
-        def reset(self):
-            self.child.reset()
-            self._reset()
+    def __repr__(self):
+        return "%s(%r, %r)" % (self.__class__.__name__,
+                               self.parent_comb,
+                               self.child)
 
-        def _reset(self):
-            self._nextchild = -1
-            self._nextparent = -1
-            self._find_next_children()
+    def reset(self):
+        self.child.reset()
+        self._reset()
 
-        def is_active(self):
-            return self._nextchild < self._nextparent
+    def _reset(self):
+        self._nextchild = -1
+        self._nextparent = -1
+        self._find_next_children()
 
-        def replace(self, minquality=0):
-            return self
+    def is_active(self):
+        return self._nextchild < self._nextparent
 
-        def _find_next_children(self):
-            # "comb" contains the doc IDs of all parent documents
-            comb = self.parent_comb
-            # "m" is the matcher for "wanted" parents
-            m = self.child
-            # Last doc ID + 1
-            limit = self.limit
-            # A function that returns True if a doc ID is deleted
-            is_deleted = self.is_deleted
-            nextchild = self._nextchild
-            nextparent = self._nextparent
+    def replace(self, minquality=0):
+        return self
 
-            while m.is_active():
-                # Move the "child id" to the document after the current match
-                nextchild = m.id() + 1
-                # Move the parent matcher to the next match
-                m.next()
+    def _find_next_children(self):
+        # "comb" contains the doc IDs of all parent documents
+        comb = self.parent_comb
+        # "m" is the matcher for "wanted" parents
+        m = self.child
+        # Last doc ID + 1
+        limit = self.limit
+        # A function that returns True if a doc ID is deleted
+        is_deleted = self.is_deleted
+        nextchild = self._nextchild
+        nextparent = self._nextparent
 
-                # Find the next parent document (matching or not) after this
-                nextparent = comb.after(nextchild)
-                if nextparent is None:
-                    nextparent = limit
+        while m.is_active():
+            # Move the "child id" to the document after the current match
+            nextchild = m.id() + 1
+            # Move the parent matcher to the next match
+            m.next()
 
-                # Skip any deleted child documents
-                while is_deleted(nextchild):
-                    nextchild += 1
+            # Find the next parent document (matching or not) after this
+            nextparent = comb.after(nextchild)
+            if nextparent is None:
+                nextparent = limit
 
-                # If skipping deleted documents put us to or past the next
-                # parent doc, go again
-                if nextchild >= nextparent:
-                    continue
-                else:
-                    # Otherwise, we're done
-                    break
-
-            self._nextchild = nextchild
-            self._nextparent = nextparent
-
-        def id(self):
-            return self._nextchild
-
-        def all_ids(self):
-            while self.is_active():
-                yield self.id()
-                self.next()
-
-        def next(self):
-            is_deleted = self.is_deleted
-            limit = self.limit
-            nextparent = self._nextparent
-
-            # Go to the next document
-            nextchild = self._nextchild
-            nextchild += 1
-
-            # Skip over any deleted child documents
-            while nextchild < nextparent and is_deleted(nextchild):
+            # Skip any deleted child documents
+            while is_deleted(nextchild):
                 nextchild += 1
 
-            self._nextchild = nextchild
-            # If we're at or past the next parent doc, go to the next set of
-            # children
-            if nextchild >= limit:
-                return
-            elif nextchild >= nextparent:
-                self._find_next_children()
-
-        def skip_to(self, docid):
-            comb = self.parent_comb
-            wanted = self.child
-
-            # self._nextchild is the "current" matching child ID
-            if docid <= self._nextchild:
-                return
-
-            # self._nextparent is the next parent ID (matching or not)
-            if docid < self._nextparent:
-                # Just iterate
-                while self.is_active() and self.id() < docid:
-                    self.next()
-            elif wanted.is_active():
-                # Find the parent before the target ID
-                pid = comb.before(docid)
-                # Skip the parent matcher to that ID
-                wanted.skip_to(pid)
-                # If that made the matcher inactive, then we're done
-                if not wanted.is_active():
-                    self._nextchild = self._nextparent = self.limit
-                else:
-                    # Reestablish for the next child after the next matching
-                    # parent
-                    self._find_next_children()
+            # If skipping deleted documents put us to or past the next
+            # parent doc, go again
+            if nextchild >= nextparent:
+                continue
             else:
+                # Otherwise, we're done
+                break
+
+        self._nextchild = nextchild
+        self._nextparent = nextparent
+
+    def id(self):
+        return self._nextchild
+
+    def all_ids(self):
+        while self.is_active():
+            yield self.id()
+            self.next()
+
+    def next(self):
+        is_deleted = self.is_deleted
+        limit = self.limit
+        nextparent = self._nextparent
+
+        # Go to the next document
+        nextchild = self._nextchild
+        nextchild += 1
+
+        # Skip over any deleted child documents
+        while nextchild < nextparent and is_deleted(nextchild):
+            nextchild += 1
+
+        self._nextchild = nextchild
+        # If we're at or past the next parent doc, go to the next set of
+        # children
+        if nextchild >= limit:
+            return
+        elif nextchild >= nextparent:
+            self._find_next_children()
+
+    def skip_to(self, docid):
+        comb = self.parent_comb
+        wanted = self.child
+
+        # self._nextchild is the "current" matching child ID
+        if docid <= self._nextchild:
+            return
+
+        # self._nextparent is the next parent ID (matching or not)
+        if docid < self._nextparent:
+            # Just iterate
+            while self.is_active() and self.id() < docid:
+                self.next()
+        elif wanted.is_active():
+            # Find the parent before the target ID
+            pid = comb.before(docid)
+            # Skip the parent matcher to that ID
+            wanted.skip_to(pid)
+            # If that made the matcher inactive, then we're done
+            if not wanted.is_active():
                 self._nextchild = self._nextparent = self.limit
+            else:
+                # Reestablish for the next child after the next matching
+                # parent
+                self._find_next_children()
+        else:
+            self._nextchild = self._nextparent = self.limit
 
-        def value(self):
-            raise NotImplementedError(self.__class__)
+    def value(self):
+        raise NotImplementedError(self.__class__)
 
-        def score(self):
-            return self.boost
+    def score(self):
+        return self.boost
 
-        def spans(self):
-            return []
+    def spans(self):
+        return []

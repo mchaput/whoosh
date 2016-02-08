@@ -217,7 +217,7 @@ class QueryParser(object):
                     return q
                 except:
                     e = sys.exc_info()[1]
-                    return query.error_query(e)
+                    return query.ErrorQuery(e)
 
             # Otherwise, ask the field to process the text into a list of
             # tokenized strings
@@ -365,7 +365,7 @@ class QueryParser(object):
 
         q = nodes.query(self)
         if not q:
-            q = query.NullQuery
+            q = query.NullQuery()
         if debug:
             print_debug(debug, "Pre-normalized query: %r" % q)
 

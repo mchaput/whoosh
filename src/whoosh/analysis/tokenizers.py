@@ -25,8 +25,11 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from whoosh.compat import u, text_type
-from whoosh.analysis.acore import Composable, Token
+from typing import Iterable
+
+from whoosh.ifaces import analysis
+from whoosh.analysis import filters
+from whoosh.compat import text_type
 from whoosh.util.text import rcompile
 
 
@@ -35,16 +38,7 @@ default_pattern = rcompile(r"\w+(\.?\w+)*")
 
 # Tokenizers
 
-
-class Tokenizer(Composable):
-    """Base class for Tokenizers.
-    """
-
-    def __eq__(self, other):
-        return other and self.__class__ is other.__class__
-
-
-class IDTokenizer(Tokenizer):
+class IDTokenizer(analysis.Tokenizer):
     """Yields the entire input string as a single token. For use in indexed but
     untokenized fields, such as a document's path.
 
@@ -53,12 +47,15 @@ class IDTokenizer(Tokenizer):
     ["/a/b 123 alpha"]
     """
 
-    def __call__(self, value, positions=False, chars=False,
-                 keeporiginal=False, removestops=True,
-                 start_pos=0, start_char=0, mode='', **kwargs):
+    def __call__(self, value: text_type,
+                 positions: bool=False, chars: bool=False,
+                 keeporiginal: int=False, removestops: bool=True,
+                 start_pos: int=0, start_char: int=0,
+                 mode: str='', **kwargs) -> Iterable[analysis.Token]:
         assert isinstance(value, text_type), "%r is not unicode" % value
-        t = Token(positions, chars, removestops=removestops, mode=mode,
-                  **kwargs)
+        t = analysis.Token(positions=positions, chars=chars,
+                           removestops=removestops, mode=mode,
+                           **kwargs)
         t.text = value
         t.boost = 1.0
         if keeporiginal:
@@ -71,12 +68,12 @@ class IDTokenizer(Tokenizer):
         yield t
 
 
-class RegexTokenizer(Tokenizer):
+class RegexTokenizer(analysis.Tokenizer):
     """
     Uses a regular expression to extract tokens from text.
 
     >>> rex = RegexTokenizer()
-    >>> [token.text for token in rex(u("hi there 3.141 big-time under_score"))]
+    >>> [token.text for token in rex(u"hi there 3.141 big-time under_score")]
     ["hi", "there", "3.141", "big", "time", "under_score"]
     """
 
@@ -93,15 +90,19 @@ class RegexTokenizer(Tokenizer):
         self.expression = rcompile(expression)
         self.gaps = gaps
 
-    def __eq__(self, other):
-        if self.__class__ is other.__class__:
-            if self.expression.pattern == other.expression.pattern:
-                return True
-        return False
+    def __eq__(self, other: 'RegexTokenizer'):
+        return (
+            type(self) is type(other) and
+            self.expression.pattern == other.expression.pattern and
+            self.gaps == other.gaps
+        )
 
-    def __call__(self, value, positions=False, chars=False, keeporiginal=False,
-                 removestops=True, start_pos=0, start_char=0, tokenize=True,
-                 mode='', **kwargs):
+    def __call__(self, value: text_type,
+                 positions: bool=False, chars: bool=False, keeporiginal=False,
+                 removestops: bool=True, tokenize: bool=True,
+                 start_pos: int=0, start_char: int=0,
+                 mode: str='', **kwargs
+                 ) -> Iterable[analysis.Token]:
         """
         :param value: The unicode string to tokenize.
         :param positions: Whether to record token positions in the token.
@@ -117,11 +118,11 @@ class RegexTokenizer(Tokenizer):
 
         assert isinstance(value, text_type), "%s is not unicode" % repr(value)
 
-        t = Token(positions, chars, removestops=removestops, mode=mode,
-                  **kwargs)
+        t = analysis.Token(positions, chars, removestops=removestops, mode=mode,
+                           **kwargs)
         if not tokenize:
             t.original = t.text = value
-            t.boost = 1.0
+            t.boost = t.field_boost
             if positions:
                 t.pos = start_pos
             if chars:
@@ -132,7 +133,7 @@ class RegexTokenizer(Tokenizer):
             # The default: expression matches are used as tokens
             for pos, match in enumerate(self.expression.finditer(value)):
                 t.text = match.group(0)
-                t.boost = 1.0
+                t.boost = t.field_boost
                 if keeporiginal:
                     t.original = t.text
                 t.stopped = False
@@ -153,7 +154,7 @@ class RegexTokenizer(Tokenizer):
                 text = value[start:end]
                 if text:
                     t.text = text
-                    t.boost = 1.0
+                    t.boost = t.field_boost
                     if keeporiginal:
                         t.original = t.text
                     t.stopped = False
@@ -172,7 +173,7 @@ class RegexTokenizer(Tokenizer):
             # yield the last bit of text as a final token.
             if prevend < len(value):
                 t.text = value[prevend:]
-                t.boost = 1.0
+                t.boost = t.field_boost
                 if keeporiginal:
                     t.original = t.text
                 t.stopped = False
@@ -184,8 +185,9 @@ class RegexTokenizer(Tokenizer):
                 yield t
 
 
-class CharsetTokenizer(Tokenizer):
-    """Tokenizes and translates text according to a character mapping object.
+class CharsetTokenizer(analysis.Tokenizer):
+    """
+    Tokenizes and translates text according to a character mapping object.
     Characters that map to None are considered token break characters. For all
     other characters the map is used to translate the character. This is useful
     for case and accent folding.
@@ -221,9 +223,11 @@ class CharsetTokenizer(Tokenizer):
                 and self.__class__ is other.__class__
                 and self.charmap == other.charmap)
 
-    def __call__(self, value, positions=False, chars=False, keeporiginal=False,
-                 removestops=True, start_pos=0, start_char=0, tokenize=True,
-                  mode='', **kwargs):
+    def __call__(self, value: text_type,
+                 positions: bool=False, chars: bool=False,
+                 keeporiginal: bool=False, removestops: bool=True,
+                 start_pos: int=0, start_char: int=0, tokenize: bool=True,
+                 mode: str='', **kwargs) -> Iterable[analysis.Token]:
         """
         :param value: The unicode string to tokenize.
         :param positions: Whether to record token positions in the token.
@@ -239,8 +243,8 @@ class CharsetTokenizer(Tokenizer):
 
         assert isinstance(value, text_type), "%r is not unicode" % value
 
-        t = Token(positions, chars, removestops=removestops, mode=mode,
-                  **kwargs)
+        t = analysis.Token(positions, chars, removestops=removestops, mode=mode,
+                           **kwargs)
         if not tokenize:
             t.original = t.text = value
             t.boost = 1.0
@@ -251,7 +255,7 @@ class CharsetTokenizer(Tokenizer):
                 t.endchar = start_char + len(value)
             yield t
         else:
-            text = u("")
+            text = u""
             charmap = self.charmap
             pos = start_pos
             startchar = currentchar = start_char
@@ -273,7 +277,7 @@ class CharsetTokenizer(Tokenizer):
                             t.endchar = currentchar
                         yield t
                     startchar = currentchar + 1
-                    text = u("")
+                    text = u""
 
                 currentchar += 1
 
@@ -290,19 +294,22 @@ class CharsetTokenizer(Tokenizer):
                 yield t
 
 
-def SpaceSeparatedTokenizer():
-    """Returns a RegexTokenizer that splits tokens by whitespace.
+class SpaceSeparatedTokenizer(RegexTokenizer):
+    """
+    A RegexTokenizer that splits tokens by whitespace.
 
     >>> sst = SpaceSeparatedTokenizer()
     >>> [token.text for token in sst("hi there big-time, what's up")]
     ["hi", "there", "big-time,", "what's", "up"]
     """
 
-    return RegexTokenizer(r"[^ \t\r\n]+")
+    def __init__(self):
+        super(SpaceSeparatedTokenizer, self).__init__(r"[^ \t\r\n]+")
 
 
-def CommaSeparatedTokenizer():
-    """Splits tokens by commas.
+class CommaSeparatedTokenizer(analysis.CompositeAnalyzer):
+    """
+    Splits tokens by commas.
 
     Note that the tokenizer calls unicode.strip() on each match of the regular
     expression.
@@ -312,13 +319,16 @@ def CommaSeparatedTokenizer():
     ["hi there", "what's", "up"]
     """
 
-    from whoosh.analysis.filters import StripFilter
+    def __init__(self):
+        super(CommaSeparatedTokenizer, self).__init__(
+            RegexTokenizer(r"[^ \t\r\n]+"),
+            filters.StripFilter(),
+        )
 
-    return RegexTokenizer(r"[^,]+") | StripFilter()
 
-
-class PathTokenizer(Tokenizer):
-    """A simple tokenizer that given a string ``"/a/b/c"`` yields tokens
+class PathTokenizer(analysis.Tokenizer):
+    """
+    A simple tokenizer that given a string ``"/a/b/c"`` yields tokens
     ``["/a", "/a/b", "/a/b/c"]``.
     """
 
@@ -326,13 +336,13 @@ class PathTokenizer(Tokenizer):
         self.expr = rcompile(expression)
 
     def __call__(self, value, positions=False, start_pos=0, **kwargs):
-         assert isinstance(value, text_type), "%r is not unicode" % value
-         token = Token(positions, **kwargs)
-         pos = start_pos
-         for match in self.expr.finditer(value):
-             token.text = value[:match.end()]
-             if positions:
-                 token.pos = pos
-                 pos += 1
-             yield token
+        assert isinstance(value, text_type), "%r is not unicode" % value
+        token = analysis.Token(positions, **kwargs)
+        pos = start_pos
+        for match in self.expr.finditer(value):
+            token.text = value[:match.end()]
+            if positions:
+                token.pos = pos
+                pos += 1
+            yield token
 

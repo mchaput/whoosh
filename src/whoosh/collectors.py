@@ -1,1165 +1,918 @@
-# Copyright 2012 Matt Chaput. All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-#
-#    1. Redistributions of source code must retain the above copyright notice,
-#       this list of conditions and the following disclaimer.
-#
-#    2. Redistributions in binary form must reproduce the above copyright
-#       notice, this list of conditions and the following disclaimer in the
-#       documentation and/or other materials provided with the distribution.
-#
-# THIS SOFTWARE IS PROVIDED BY MATT CHAPUT ``AS IS'' AND ANY EXPRESS OR
-# IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
-# MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
-# EVENT SHALL MATT CHAPUT OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
-# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA,
-# OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
-# LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
-# NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
-# EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# The views and conclusions contained in the software and documentation are
-# those of the authors and should not be interpreted as representing official
-# policies, either expressed or implied, of Matt Chaput.
+import copy
+from abc import abstractmethod
+from collections import defaultdict, namedtuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-"""
-This module contains "collector" objects. Collectors provide a way to gather
-"raw" results from a :class:`whoosh.matching.Matcher` object, implement
-sorting, filtering, collation, etc., and produce a
-:class:`whoosh.searching.Results` object.
-
-The basic collectors are:
-
-TopCollector
-    Returns the top N matching results sorted by score, using block-quality
-    optimizations to skip blocks of documents that can't contribute to the top
-    N. The :meth:`whoosh.searching.Searcher.search` method uses this type of
-    collector by default or when you specify a ``limit``.
-
-UnlimitedCollector
-    Returns all matching results sorted by score. The
-    :meth:`whoosh.searching.Searcher.search` method uses this type of collector
-    when you specify ``limit=None`` or you specify a limit equal to or greater
-    than the number of documents in the searcher.
-
-SortingCollector
-    Returns all matching results sorted by a :class:`whoosh.sorting.Facet`
-    object. The :meth:`whoosh.searching.Searcher.search` method uses this type
-    of collector when you use the ``sortedby`` parameter.
-
-Here's an example of a simple collector that instead of remembering the matched
-documents just counts up the number of matches::
-
-    class CountingCollector(Collector):
-        def prepare(self, top_searcher, q, context):
-            # Always call super method in prepare
-            Collector.prepare(self, top_searcher, q, context)
-
-            self.count = 0
-
-        def collect(self, sub_docnum):
-            self.count += 1
-
-    c = CountingCollector()
-    mysearcher.search_with_collector(myquery, c)
-    print(c.count)
-
-There are also several wrapping collectors that extend or modify the
-functionality of other collectors. The meth:`whoosh.searching.Searcher.search`
-method uses many of these when you specify various parameters.
-
-NOTE: collectors are not designed to be reentrant or thread-safe. It is
-generally a good idea to create a new collector for each search.
-"""
-
-import os
-import threading
-from array import array
-from bisect import insort
-from collections import defaultdict
-from heapq import heapify, heappush, heapreplace
-
-from whoosh import sorting
-from whoosh.compat import abstractmethod, iteritems, itervalues, xrange
-from whoosh.searching import Results, TimeLimit
+from whoosh import results, sorting
+from whoosh.compat import iteritems, xrange
+from whoosh.ifaces import matchers, queries, searchers, weights
 from whoosh.util import now
 
 
-# Functions
+# Typing aliases
 
-def ilen(iterator):
-    total = 0
-    for _ in iterator:
-        total += 1
-    return total
+# (score, global_docnum, features)
+MatchTuple = Tuple[float, int, Dict[str, Any]]
 
 
-# Base class
+# Registry
+registry = {}
+compound_prefixes = []
+
+
+RegistryEntry = namedtuple("RegistryEntry", "cls compound")
+
+
+def register(name, compound=False):
+    if name in registry:
+        raise Exception("%r is already registered to %r" %
+                        (name, registry[name].cls))
+
+    if compound:
+        compound_prefixes.append(name)
+
+    def register_(cls):
+        registry[name] = RegistryEntry(cls, compound)
+        return cls
+
+    return register_
+
+
+def as_query(obj):
+    from whoosh.ifaces import queries
+
+    if isinstance(obj, queries.Query):
+        return obj
+    elif isinstance(obj, Collector):
+        return obj.query()
+    else:
+        raise ValueError("%r is not a query" % obj)
+
+
+# Classes
 
 class Collector(object):
-    """Base class for collectors.
-    """
+    collector_priority = 0
 
-    def prepare(self, top_searcher, q, context):
-        """This method is called before a search.
+    def __init__(self, searcher: 'searchers.Searcher', q: 'queries.Query'):
+        self._searcher = searcher
+        self._query = q
 
-        Subclasses can override this to perform set-up work, but
-        they should still call the superclass's method because it sets several
-        necessary attributes on the collector object:
+        self._items = None  # type: List[MatchTuple]
+        self._current_data = None  # type: Dict[str, Any]
+        self._current_searcher = None  # type: searchers.Searcher
+        self._current_offset = 0
+        self._current_context = None  # type: searchers.SearchContext
+        self._current_docset = None  # type: Optional[Set]
+        self._current_matcher = None  # type: matchers.Matcher
+        self._current_minscore = 0.0
 
-        self.top_searcher
-            The top-level searcher.
-        self.q
-            The query object
-        self.context
-            ``context.needs_current`` controls whether a wrapping collector
-            requires that this collector's matcher be in a valid state at every
-            call to ``collect()``. If this is ``False``, the collector is free
-            to use faster methods that don't necessarily keep the matcher
-            updated, such as ``matcher.all_ids()``.
+    def __repr__(self) -> str:
+        return "<%s %r>" % (type(self).__name__, self._query)
 
-        :param top_searcher: the top-level :class:`whoosh.searching.Searcher`
-            object.
-        :param q: the :class:`whoosh.query.Query` object being searched for.
-        :param context: a :class:`whoosh.searching.SearchContext` object
-            containing information about the search.
-        """
+    # Housekeeping
 
-        self.top_searcher = top_searcher
-        self.q = q
-        self.context = context
+    def __getattr__(self, name):
+        if name in registry:
+            entry = registry[name]
+            
+            def _combiner(*args, **kwargs):
+                return entry.cls.combine_collector(self, args, kwargs)
 
-        self.starttime = now()
-        self.runtime = None
-        self.docset = set()
+            return _combiner
+
+        for prefix in compound_prefixes:
+            if name.startswith(prefix):
+                from whoosh.ifaces import queries
+
+                rest = name[len(prefix):]
+                comp_cls = registry[prefix].cls
+                qcls = registry[rest].cls
+                assert isinstance(qcls, queries.Query)
+                qcol = Collector(self.searcher(), queries.NullQuery())
+
+                def _combiner(*args, **kwargs):
+                    q = qcls.combine_collector(qcol, args, kwargs).query()
+                    return comp_cls.combine_collector(self, q)
+
+                return _combiner
+
+        raise AttributeError(name)
+
+    def rewrap(self, child):
+        raise Exception("%s can't rewrap" % self.__class__.__name__)
+
+    @classmethod
+    def combine_collector(cls, collector: 'Collector', args, kwargs
+                          ) -> 'Collector':
+        raise Exception("%s can't combine" % cls.__name__)
+
+    def searcher(self) -> 'searchers.Searcher':
+        return self._searcher
+
+    def with_query(self, newq: 'queries.Query'):
+        return self.__class__(self.searcher(), newq)
+
+    # Convenience
+
+    def all(self) -> 'Collector':
+        from whoosh.query import Every
+
+        return self.with_query(Every())
+
+    def get(self, **kwargs) -> 'Collector':
+        searcher = self.searcher()
+        q = searcher.keywords_to_query(kwargs)
+        return self.with_query(q)
+
+    # Getters and setters
+
+    def set_query(self, q: 'queries.Query'):
+        self._query = q
+
+    def query(self) -> 'queries.Query':
+        return self._query
+
+    def current_context(self) -> 'searchers.SearchContext':
+        return self._current_context
+
+    def init_docset(self):
+        self._current_docset = set()
+
+    def current_docset(self) -> Optional[Set]:
+        return self._current_docset
+
+    def set_matcher(self, m: 'matchers.Matcher'):
+        self._current_matcher = m
+
+    def current_matcher(self) -> 'matchers.Matcher':
+        return self._current_matcher
+
+    def set_minscore(self, minscore: float):
+        self._current_minscore = minscore
+
+    def current_minscore(self) -> float:
+        return self._current_minscore
+
+    def current_data(self) -> Dict[str, Any]:
+        return self._current_data
+
+    # Evaluation
+
+    def exists(self) -> bool:
+        m = self.query().matcher(self.searcher())
+        exists = m.is_active()
+        m.close()
+        return exists
+
+    def all_ids(self) -> Iterable[int]:
+        for globalid, localid, score, _ in self.matches():
+            yield globalid
+
+    def docs(self) -> Set[int]:
+        return set(self.all_ids())
+
+    # Collecting
+
+    def results(self, context: 'searchers.SearchContext'=None
+                ) -> 'results.Results':
+        searcher = self.searcher()
+
+        t = now()
+        context = context or searcher.context()
+        self.set_context(context)
+        self.set_query(self.query().normalize())
+        self.run()
+        items = self.get_items()
+        runtime = now() - t
+        docset = self.current_docset()
+        data = self.current_data()
+        r = results.Results(searcher, self.query(), items, runtime=runtime,
+                            docset=docset, collector=self, data=data)
+        return r
+
+    def set_context(self, context: 'searchers.SearchContext'):
+        self._current_context = context
+
+    def start(self):
+        self._items = []
+        self._current_data = {}
+        self._current_searcher = None
+        self._current_offset = 0
+        self._current_docset = None
+        self._current_matcher = None
+        self._current_minscore = 0.0
+
+    def finish(self):
+        self._current_matcher.close()
+
+    def set_subsearcher(self, subsearcher: 'searchers.Searcher', offset: int):
+        self._current_searcher = subsearcher
+        self._current_offset = offset
+
+    def record_docid(self, globalid: int):
+        self.current_docset().add(globalid)
+
+    def collect(self, globalid: int, localid: int, score: float,
+                data: Dict[str, Any]):
+        self._items.append((score, globalid, data))
+        if self._current_docset is not None:
+            self._current_docset.add(globalid)
+
+    def forget(self, globalid):
+        items = self._items
+        for i in xrange(len(items)):
+            if items[i][1] == globalid:
+                items.pop(i)
+                break
+
+        if self._current_docset is not None:
+            self._current_docset.discard(globalid)
+
+    def get_items(self) -> List[MatchTuple]:
+        return self._items
+
+    def matches(self):
+        self.start()
+        searcher = self.searcher()
+        context = self.current_context()
+        q = self.query()
+
+        context.top_searcher = searcher
+        context.top_query = q
+
+        replaced_times = 0
+        skipped_times = 0
+        for subsearcher, offset in searcher.leaf_searchers():
+            self.set_subsearcher(subsearcher, offset)
+            weight = context.weighting
+            self.set_matcher(q.matcher(subsearcher, context))
+
+            # If the weighting model uses a final scoring adjustment, we can't
+            # use quality optimizations
+            m = self.current_matcher()
+            optimize = (weight and context.optimize and
+                        m.supports_block_quality() and not weight.use_final)
+
+            minscore = 0.0
+            replacecounter = 0
+            checkquality = False
+            # If we're not optimized, we can record all seen document IDs
+            can_record_ids = not optimize
+            # If we can record IDs, initialize the docset
+            if can_record_ids and self.current_docset() is None:
+                self.init_docset()
+
+            score = 1.0
+            while m.is_active():
+                # Try to replace the matcher with a more efficient version
+                # every once in a while
+                new_minscore = self.current_minscore()
+                if replacecounter == 0 or new_minscore != minscore:
+                    m = m.replace(new_minscore)
+                    self.set_matcher(m)
+                    replacecounter = 10
+                    replaced_times += 1
+                    minscore = new_minscore
+                    m = self.current_matcher()
+                    if not m.is_active():
+                        break
+
+                # Try to skip ahead using quality optimizations
+                if optimize and checkquality and minscore:
+                    skipped_times += m.skip_to_quality(minscore)
+                    # Skipping ahead might have moved the matcher to the end of
+                    # the posting list
+                    if not m.is_active():
+                        break
+
+                localid = m.id()
+                globalid = localid + offset
+
+                if weight:
+                    score = m.score()
+                    if weight.use_final:
+                        score = weight.final(subsearcher, localid, score)
+
+                data = {}
+                yield globalid, localid, score, data
+
+                checkquality = m.next()
+
+        rdata = self.current_data()
+        rdata["skipped_times"] = skipped_times
+        rdata["replaced_times"] = replaced_times
+
+        self.finish()
 
     def run(self):
-        # Collect matches for each sub-searcher
-        try:
-            for subsearcher, offset in self.top_searcher.leaf_searchers():
-                self.set_subsearcher(subsearcher, offset)
-                self.collect_matches()
-        finally:
-            self.finish()
+        for globalid, localid, score, data in self.matches():
+            self.collect(globalid, localid, score, data)
 
-    def set_subsearcher(self, subsearcher, offset):
-        """This method is called each time the collector starts on a new
-        sub-searcher.
-
-        Subclasses can override this to perform set-up work, but
-        they should still call the superclass's method because it sets several
-        necessary attributes on the collector object:
-
-        self.subsearcher
-            The current sub-searcher. If the top-level searcher is atomic, this
-            is the same as the top-level searcher.
-        self.offset
-            The document number offset of the current searcher. You must add
-            this number to the document number passed to
-            :meth:`Collector.collect` to get the top-level document number
-            for use in results.
-        self.matcher
-            A :class:`whoosh.matching.Matcher` object representing the matches
-            for the query in the current sub-searcher.
-        """
-
-        self.subsearcher = subsearcher
-        self.offset = offset
-        self.matcher = self.q.matcher(subsearcher, self.context)
-
-    def computes_count(self):
-        """Returns True if the collector naturally computes the exact number of
-        matching documents. Collectors that use block optimizations will return
-        False since they might skip blocks containing matching documents.
-
-        Note that if this method returns False you can still call :meth:`count`,
-        but it means that method might have to do more work to calculate the
-        number of matching documents.
-        """
-
-        return True
-
-    def all_ids(self):
-        """Returns a sequence of docnums matched in this collector. (Only valid
-        after the collector is run.)
-
-        The default implementation is based on the docset. If a collector does
-        not maintain the docset, it will need to override this method.
-        """
-
-        return self.docset
-
-    def count(self):
-        """Returns the total number of documents matched in this collector.
-        (Only valid after the collector is run.)
-
-        The default implementation is based on the docset. If a collector does
-        not maintain the docset, it will need to override this method.
-        """
-
-        return len(self.docset)
-
-    def collect_matches(self):
-        """This method calls :meth:`Collector.matches` and then for each
-        matched document calls :meth:`Collector.collect`. Sub-classes that
-        want to intervene between finding matches and adding them to the
-        collection (for example, to filter out certain documents) can override
-        this method.
-        """
-
-        collect = self.collect
-        for sub_docnum in self.matches():
-            collect(sub_docnum)
-
-    @abstractmethod
-    def collect(self, sub_docnum):
-        """This method is called for every matched document. It should do the
-        work of adding a matched document to the results, and it should return
-        an object to use as a "sorting key" for the given document (such as the
-        document's score, a key generated by a facet, or just None). Subclasses
-        must implement this method.
-
-        If you want the score for the current document, use
-        ``self.matcher.score()``.
-
-        Overriding methods should add the current document offset
-        (``self.offset``) to the ``sub_docnum`` to get the top-level document
-        number for the matching document to add to results.
-
-        :param sub_docnum: the document number of the current match within the
-            current sub-searcher. You must add ``self.offset`` to this number
-            to get the document's top-level document number.
-        """
-
-        raise NotImplementedError
-
-    @abstractmethod
-    def sort_key(self, sub_docnum):
-        """Returns a sorting key for the current match. This should return the
-        same value returned by :meth:`Collector.collect`, but without the side
-        effect of adding the current document to the results.
-
-        If the collector has been prepared with ``context.needs_current=True``,
-        this method can use ``self.matcher`` to get information, for example
-        the score. Otherwise, it should only use the provided ``sub_docnum``,
-        since the matcher may be in an inconsistent state.
-
-        Subclasses must implement this method.
-        """
-
-        raise NotImplementedError
-
-    def remove(self, global_docnum):
-        """Removes a document from the collector. Not that this method uses the
-        global document number as opposed to :meth:`Collector.collect` which
-        takes a segment-relative docnum.
-        """
-
-        items = self.items
-        for i in xrange(len(items)):
-            if items[i][1] == global_docnum:
-                items.pop(i)
-                return
-        raise KeyError(global_docnum)
-
-    def _step_through_matches(self):
-        matcher = self.matcher
-        while matcher.is_active():
-            yield matcher.id()
-            matcher.next()
-
-    def matches(self):
-        """Yields a series of relative document numbers for matches
-        in the current subsearcher.
-        """
-
-        # We jump through a lot of hoops to avoid stepping through the matcher
-        # "manually" if we can because all_ids() is MUCH faster
-        if self.context.needs_current:
-            return self._step_through_matches()
-        else:
-            return self.matcher.all_ids()
-
-    def finish(self):
-        """This method is called after a search.
-
-        Subclasses can override this to perform set-up work, but
-        they should still call the superclass's method because it sets several
-        necessary attributes on the collector object:
-
-        self.runtime
-            The time (in seconds) the search took.
-        """
-
-        self.runtime = now() - self.starttime
-
-    def _results(self, items, **kwargs):
-        # Fills in a Results object with the invariant information and the
-        # given "items" (a list of (score, docnum) tuples)
-        r = Results(self.top_searcher, self.q, items, **kwargs)
-        r.runtime = self.runtime
-        r.collector = self
-        return r
-
-    @abstractmethod
-    def results(self):
-        """Returns a :class:`~whoosh.searching.Results` object containing the
-        results of the search. Subclasses must implement this method
-        """
-
-        raise NotImplementedError
-
-
-# Scored collectors
-
-class ScoredCollector(Collector):
-    """Base class for collectors that sort the results based on document score.
-    """
-
-    def __init__(self, replace=10):
-        """
-        :param replace: Number of matches between attempts to replace the
-            matcher with a more efficient version.
-        """
-
-        Collector.__init__(self)
-        self.replace = replace
-
-    def prepare(self, top_searcher, q, context):
-        # This collector requires a valid matcher at each step
-        Collector.prepare(self, top_searcher, q, context)
-
-        if top_searcher.weighting.use_final:
-            self.final_fn = top_searcher.weighting.final
-        else:
-            self.final_fn = None
-
-        # Heap containing top N (score, 0-docnum) pairs
-        self.items = []
-        # Minimum score a document must have to make it into the top N. This is
-        # used by the block-quality optimizations
-        self.minscore = 0
-        # Number of times the matcher was replaced (for debugging)
-        self.replaced_times = 0
-        # Number of blocks skipped by quality optimizations (for debugging)
-        self.skipped_times = 0
-
-    def sort_key(self, sub_docnum):
-        return 0 - self.matcher.score()
-
-    def _collect(self, global_docnum, score):
-        # Concrete subclasses should override this method to collect matching
-        # documents
-
-        raise NotImplementedError
-
-    def _use_block_quality(self):
-        # Concrete subclasses should override this method to return True if the
-        # collector should use block quality optimizations
-
-        return False
-
-    def collect(self, sub_docnum):
-        # Do common work to calculate score and top-level document number
-        global_docnum = self.offset + sub_docnum
-
-        score = self.matcher.score()
-        if self.final_fn:
-            score = self.final_fn(self.top_searcher, global_docnum, score)
-
-        # Call specialized method on subclass
-        return self._collect(global_docnum, score)
-
-    def matches(self):
-        minscore = self.minscore
-        matcher = self.matcher
-        usequality = self._use_block_quality()
-        replace = self.replace
-        replacecounter = 0
-
-        # A flag to indicate whether we should check block quality at the start
-        # of the next loop
-        checkquality = True
-
-        while matcher.is_active():
-            # If the replacement counter has reached 0, try replacing the
-            # matcher with a more efficient version
-            if replace:
-                if replacecounter == 0 or self.minscore != minscore:
-                    self.matcher = matcher = matcher.replace(minscore or 0)
-                    self.replaced_times += 1
-                    if not matcher.is_active():
-                        break
-                    usequality = self._use_block_quality()
-                    replacecounter = self.replace
-
-                    if self.minscore != minscore:
-                        checkquality = True
-                        minscore = self.minscore
-
-                replacecounter -= 1
-
-            # If we're using block quality optimizations, and the checkquality
-            # flag is true, try to skip ahead to the next block with the
-            # minimum required quality
-            if usequality and checkquality and minscore is not None:
-                self.skipped_times += matcher.skip_to_quality(minscore)
-                # Skipping ahead might have moved the matcher to the end of the
-                # posting list
-                if not matcher.is_active():
-                    break
-
-            yield matcher.id()
-
-            # Move to the next document. This method returns True if the
-            # matcher has entered a new block, so we should check block quality
-            # again.
-            checkquality = matcher.next()
-
-
-class TopCollector(ScoredCollector):
-    """A collector that only returns the top "N" scored results.
-    """
-
-    def __init__(self, limit=10, usequality=True, **kwargs):
-        """
-        :param limit: the maximum number of results to return.
-        :param usequality: whether to use block-quality optimizations. This may
-            be useful for debugging.
-        """
-
-        ScoredCollector.__init__(self, **kwargs)
-        self.limit = limit
-        self.usequality = usequality
-        self.total = 0
-
-    def _use_block_quality(self):
-        return (self.usequality
-                and not self.top_searcher.weighting.use_final
-                and self.matcher.supports_block_quality())
-
-    def computes_count(self):
-        return not self._use_block_quality()
-
-    def all_ids(self):
-        # Since this collector can skip blocks, it doesn't track the total
-        # number of matching documents, so if the user asks for all matched
-        # docs we need to re-run the search using docs_for_query
-
-        return self.top_searcher.docs_for_query(self.q)
-
-    def count(self):
-        if self.computes_count():
-            return self.total
-        else:
-            return ilen(self.all_ids())
-
-    # ScoredCollector.collect calls this
-    def _collect(self, global_docnum, score):
-        items = self.items
-        self.total += 1
-
-        # Document numbers are negated before putting them in the heap so that
-        # higher document numbers have lower "priority" in the queue. Lower
-        # document numbers should always come before higher document numbers
-        # with the same score to keep the order stable.
-        if len(items) < self.limit:
-            # The heap isn't full, so add this document
-            heappush(items, (score, 0 - global_docnum))
-            # Negate score to act as sort key so higher scores appear first
-            return 0 - score
-        elif score > items[0][0]:
-            # The heap is full, but if this document has a high enough
-            # score to make the top N, add it to the heap
-            heapreplace(items, (score, 0 - global_docnum))
-            self.minscore = items[0][0]
-            # Negate score to act as sort key so higher scores appear first
-            return 0 - score
-        else:
-            return 0
-
-    def remove(self, global_docnum):
-        negated = 0 - global_docnum
-        items = self.items
-
-        # Remove the document if it's on the list (it may not be since
-        # TopCollector forgets documents that don't make the top N list)
-        for i in xrange(len(items)):
-            if items[i][1] == negated:
-                items.pop(i)
-                # Restore the heap invariant
-                heapify(items)
-                self.minscore = items[0][0] if items else 0
-                return
-
-    def results(self):
-        # The items are stored (postive score, negative docnum) so the heap
-        # keeps the highest scores and lowest docnums, in order from lowest to
-        # highest. Since for the results we want the highest scores first,
-        # sort the heap in reverse order
-        items = self.items
-        items.sort(reverse=True)
-        # De-negate the docnums for presentation to the user
-        items = [(score, 0 - docnum) for score, docnum in items]
-        return self._results(items)
-
-
-class UnlimitedCollector(ScoredCollector):
-    """A collector that returns **all** scored results.
-    """
-
-    def __init__(self, reverse=False):
-        ScoredCollector.__init__(self)
-        self.reverse = reverse
-
-    # ScoredCollector.collect calls this
-    def _collect(self, global_docnum, score):
-        self.items.append((score, global_docnum))
-        self.docset.add(global_docnum)
-        # Negate score to act as sort key so higher scores appear first
-        return 0 - score
-
-    def results(self):
-        # Sort by negated scores so that higher scores go first, then by
-        # document number to keep the order stable when documents have the
-        # same score
-        self.items.sort(key=lambda x: (0 - x[0], x[1]), reverse=self.reverse)
-        return self._results(self.items, docset=self.docset)
-
-
-# Sorting collector
-
-class SortingCollector(Collector):
-    """A collector that returns results sorted by a given
-    :class:`whoosh.sorting.Facet` object. See :doc:`/facets` for more
-    information.
-    """
-
-    def __init__(self, sortedby, limit=10, reverse=False):
-        """
-        :param sortedby: see :doc:`/facets`.
-        :param reverse: If True, reverse the overall results. Note that you
-            can reverse individual facets in a multi-facet sort key as well.
-        """
-
-        Collector.__init__(self)
-        self.sortfacet = sorting.MultiFacet.from_sortedby(sortedby)
-        self.limit = limit
-        self.reverse = reverse
-
-    def prepare(self, top_searcher, q, context):
-        self.categorizer = self.sortfacet.categorizer(top_searcher)
-        # If the categorizer requires a valid matcher, then tell the child
-        # collector that we need it
-        rm = context.needs_current or self.categorizer.needs_current
-        Collector.prepare(self, top_searcher, q, context.set(needs_current=rm))
-
-        # List of (sortkey, docnum) pairs
-        self.items = []
-
-    def set_subsearcher(self, subsearcher, offset):
-        Collector.set_subsearcher(self, subsearcher, offset)
-        self.categorizer.set_searcher(subsearcher, offset)
-
-    def sort_key(self, sub_docnum):
-        return self.categorizer.key_for(self.matcher, sub_docnum)
-
-    def collect(self, sub_docnum):
-        global_docnum = self.offset + sub_docnum
-        sortkey = self.sort_key(sub_docnum)
-        self.items.append((sortkey, global_docnum))
-        self.docset.add(global_docnum)
-        return sortkey
-
-    def results(self):
-        items = self.items
-        items.sort(reverse=self.reverse)
-        if self.limit:
-            items = items[:self.limit]
-        return self._results(items, docset=self.docset)
-
-
-class UnsortedCollector(Collector):
-    def prepare(self, top_searcher, q, context):
-        Collector.prepare(self, top_searcher, q, context.set(weighting=None))
-        self.items = []
-
-    def collect(self, sub_docnum):
-        global_docnum = self.offset + sub_docnum
-        self.items.append((None, global_docnum))
-        self.docset.add(global_docnum)
-
-    def results(self):
-        items = self.items
-        return self._results(items, docset=self.docset)
-
-
-# Wrapping collectors
 
 class WrappingCollector(Collector):
-    """Base class for collectors that wrap other collectors.
-    """
-
-    def __init__(self, child):
+    def __init__(self, child: Collector):
         self.child = child
 
-    @property
-    def top_searcher(self):
-        return self.child.top_searcher
+    def __repr__(self):
+        return "<%s %r>" % (type(self).__name__, self.child)
 
-    @property
-    def context(self):
-        return self.child.context
+    # Housekeeping
 
-    def prepare(self, top_searcher, q, context):
-        self.child.prepare(top_searcher, q, context)
+    @classmethod
+    def combine_collector(cls, collector: Collector, args, kwargs
+                          ) -> 'WrappingCollector':
+        cls_pri = getattr(cls, "collector_priority", 0)
+        existing_pri = getattr(collector, "collector_priority", 0)
 
-    def set_subsearcher(self, subsearcher, offset):
+        if existing_pri > cls_pri:
+            # The existing wrapper has a higher priority than this class.
+            # (We assume it's a wrapper since only wrappers should have non-zero
+            # priorities.) So, wrap this class around the wrapper's CHILD,
+            # *then*, re-wrap the existing wrapper around that
+            newchild = cls.combine_collector(collector.child, args, kwargs)
+            result = collector.rewrap(newchild)
+        else:
+            # Wrap this class around the existing collector
+            result = cls(collector, *args, **kwargs)
+
+        return result
+
+    def rewrap(self, newchild: Collector) -> 'WrappingCollector':
+        return self.__class__(newchild)
+
+    def with_query(self, newq: 'queries.Query') -> 'WrappingCollector':
+        return self.rewrap(self.child.with_query(newq))
+
+    # Getters and setters
+
+    def searcher(self) -> 'searchers.Searcher':
+        return self.child.searcher()
+
+    def set_query(self, q: 'queries.Query'):
+        self.child.set_query(q)
+
+    def query(self) -> 'queries.Query':
+        return self.child.query()
+
+    def current_context(self) -> 'searchers.SearchContext':
+        return self.child.current_context()
+
+    def init_docset(self):
+        self.child.init_docset()
+
+    def current_docset(self) -> Optional[Set]:
+        return self.child.current_docset()
+
+    def set_matcher(self, m: 'matchers.Matcher'):
+        self.child.set_matcher(m)
+
+    def current_matcher(self) -> 'matchers.Matcher':
+        return self.child.current_matcher()
+
+    def set_minscore(self, minscore: float):
+        self.child.set_minscore(minscore)
+
+    def current_minscore(self) -> float:
+        return self.child.current_minscore()
+
+    def current_data(self) -> Dict[str, Any]:
+        return self.child.current_data()
+
+    # Collecting
+
+    def set_context(self, context: 'searchers.SearchContext'):
+        self.child.set_context(context)
+
+    def start(self):
+        self.child.start()
+
+    def finish(self):
+        self.child.finish()
+
+    def set_subsearcher(self, subsearcher: 'searchers.Searcher', offset: int):
         self.child.set_subsearcher(subsearcher, offset)
-        self.subsearcher = subsearcher
-        self.matcher = self.child.matcher
-        self.offset = self.child.offset
 
-    def all_ids(self):
+    def collect(self, globalid: int, localid: int, score: float,
+                data: Dict[str, Any]):
+        self.child.collect(globalid, localid, score, data)
+
+    def forget(self, globalid):
+        self.child.forget(globalid)
+
+    def get_items(self) -> List[MatchTuple]:
+        return self.child.get_items()
+
+    def all_ids(self) -> Iterable[int]:
         return self.child.all_ids()
 
-    def count(self):
-        return self.child.count()
 
-    def collect_matches(self):
-        for sub_docnum in self.matches():
-            self.collect(sub_docnum)
+@register("top")
+class TopCollector(WrappingCollector):
+    collector_priority = 100
 
-    def sort_key(self, sub_docnum):
-        return self.child.sort_key(sub_docnum)
+    def __init__(self, child: Collector, limit: int=20):
+        super(TopCollector, self).__init__(child)
+        self._limit = limit
 
-    def collect(self, sub_docnum):
-        return self.child.collect(sub_docnum)
+        self._scored = None  # type: List[MatchTuple]
 
-    def remove(self, global_docnum):
-        return self.child.remove(global_docnum)
+    def __repr__(self):
+        return "<%s %s %r>" % (type(self).__name__, self._limit, self.child)
 
-    def matches(self):
-        return self.child.matches()
+    def rewrap(self, child: Collector) -> 'TopCollector':
+        return self.__class__(child, self._limit)
+
+    # Collecting
+
+    def set_context(self, context: 'searchers.SearchContext'):
+        context.limit = self._limit
+        self.child.set_context(context)
+
+    def start(self):
+        self._scored = []
+        self.child.start()
+
+    def collect(self, globalid: int, localid: int, score: float,
+                data: Dict[str, Any]):
+        from heapq import heappush, heapreplace
+
+        scored = self._scored
+        limit = self._limit
+
+        # Manipulate tuple so it sorts properly by score
+        item = score, 0 - globalid, data
+        # Put the item on the heap
+        if limit:
+            if len(scored) < limit:
+                heappush(scored, item)
+            elif score > scored[0][0]:
+                heapreplace(scored, item)
+                self.set_minscore(score)
+        else:
+            scored.append(item)
+
+        self.child.collect(globalid, localid, score, data)
+
+    def forget(self, globalid):
+        from heapq import heapify
+
+        scored = self._scored
+        for i in xrange(len(scored)):
+            if 0 - scored[i][1] == globalid:
+                scored.pop(i)
+                heapify(scored)
+
+                if i == 0:
+                    # We just forgot the doc with the lowest score, so we should
+                    # set a new minscore
+                    self.set_minscore(scored[0][0])
+
+                break
+
+        self.child.forget(globalid)
+
+    def get_items(self) -> List[MatchTuple]:
+        scored = self._scored
+        # The items are in heap order, so we need to sort them (in reverse so
+        # higher scores are first)
+        scored.sort(reverse=True)
+        # Un-invert the global ID
+        return [(score, 0 - inv_globalid, d) for score, inv_globalid, d
+                in scored]
+
+
+@register("sorted_by")
+class SortingCollector(WrappingCollector):
+    collector_priority = 500
+
+    def __init__(self, child: Collector,
+                 *criteria: Sequence[sorting.FacetType]):
+        super(SortingCollector, self).__init__(child)
+        self._facet = sorting.FacetType.from_sortedby(criteria)
+        self._catter = None  # type: sorting.Categorizer
+
+    def rewrap(self, child: Collector) -> 'SortingCollector':
+        return self.__class__(child, self._facet)
+
+    # Collecting
+
+    def set_context(self, context: 'searchers.SearchContext'):
+        context.optimize = False
+        self.child.set_context(context)
+
+    def start(self):
+        self._catter = self._facet.categorizer(self.searcher())
+        self.child.start()
 
     def finish(self):
+        self._catter.close()
         self.child.finish()
 
-    def results(self):
-        return self.child.results()
+    def set_subsearcher(self, subsearcher: 'searchers.Searcher', offset: int):
+        self._catter.set_searcher(subsearcher, offset)
+        self.child.set_subsearcher(subsearcher, offset)
+
+    def collect(self, globalid: int, localid: int, score: float,
+                data: Dict[str, Any]):
+        # Get the sorting key for the current document and store it in the hit
+        # data
+        key = self._catter.key_for(self.current_matcher(), localid)
+        data["sort_key"] = key
+        self.child.collect(globalid, localid, score, data)
+
+    def get_items(self) -> List[MatchTuple]:
+        items = self.child.get_items()
+        items = sorted(items, key=lambda x: x[-1]["sort_key"])
+        return items
 
 
-# Allow and disallow collector
+@register("grouped_by")
+class GroupingCollector(WrappingCollector):
+    def __init__(self, child: Collector, groupedby: 'sorting.FacetType',
+                 name: str=None, maptype: 'sorting.FacetMap'=None):
+        super(GroupingCollector, self).__init__(child)
+        self._facet = sorting.FacetType.from_sortedby(groupedby, maptype)
+        self._name = name or self._facet.default_name()
 
+        self._catter = None  # type: sorting.Categorizer
+        self._map = None  # type: sorting.FacetMap
+
+    def rewrap(self, child: Collector) -> 'SortingCollector':
+        return self.__class__(child, self._facet)
+
+    # Collecting
+
+    def start(self):
+        self._catter = self._facet.categorizer(self.searcher())
+        self._map = self._facet.map()
+        self.child.start()
+
+    def finish(self):
+        self._catter.close()
+
+        data = self.current_data()
+        data[self._name] = self._map.as_dict()
+
+        self.child.finish()
+
+    def set_subsearcher(self, subsearcher: 'searchers.Searcher', offset: int):
+        self._catter.set_searcher(subsearcher, offset)
+        self.child.set_subsearcher(subsearcher, offset)
+
+    def collect(self, globalid: int, localid: int, score: float,
+                data: Dict[str, Any]):
+        name = self._name
+        catter = self._catter
+        facetmap = self._map
+        matcher = self.current_matcher()
+        sortkey = data.get("sort_key", 0 - score)
+
+        if catter.allow_overlap:
+            keynames = [catter.key_to_name(n) for n
+                        in catter.keys_for(matcher, localid)]
+            data[name] = keynames
+            for keyname in keynames:
+                facetmap.add(keyname, globalid, sortkey)
+        else:
+            keyname = catter.key_to_name(catter.key_for(matcher, localid))
+            data[name] = keyname
+            facetmap.add(keyname, globalid, sortkey)
+
+        self.child.collect(globalid, localid, score, data)
+
+
+@register("filter")
 class FilterCollector(WrappingCollector):
-    """A collector that lets you allow and/or restrict certain document numbers
-    in the results::
+    collector_priority = 1
 
-        uc = collectors.UnlimitedCollector()
-
-        ins = query.Term("chapter", "rendering")
-        outs = query.Term("status", "restricted")
-        fc = FilterCollector(uc, allow=ins, restrict=outs)
-
-        mysearcher.search_with_collector(myquery, fc)
-        print(fc.results())
-
-    This collector discards a document if:
-
-    * The allowed set is not None and a document number is not in the set, or
-    * The restrict set is not None and a document number is in the set.
-
-    (So, if the same document number is in both sets, that document will be
-    discarded.)
-
-    If you have a reference to the collector, you can use
-    ``FilterCollector.filtered_count`` to get the number of matching documents
-    filtered out of the results by the collector.
-    """
-
-    def __init__(self, child, allow=None, restrict=None):
-        """
-        :param child: the collector to wrap.
-        :param allow: a query, Results object, or set-like object containing
-            docnument numbers that are allowed in the results, or None (meaning
-            everything is allowed).
-        :param restrict: a query, Results object, or set-like object containing
-            document numbers to disallow from the results, or None (meaning
-            nothing is disallowed).
-        """
-
+    def __init__(self, child: Collector, include: 'queries.Query'=None,
+                 exclude: 'queries.Query'=None):
         self.child = child
-        self.allow = allow
-        self.restrict = restrict
+        self._include = include
+        self._exclude = exclude
 
-    def prepare(self, top_searcher, q, context):
-        self.child.prepare(top_searcher, q, context)
+    def rewrap(self, child: Collector) -> 'FilterCollector':
+        return self.__class__(child, self._include, self._exclude)
 
-        allow = self.allow
-        restrict = self.restrict
-        ftc = top_searcher._filter_to_comb
+    # Collecting
 
-        self._allow = ftc(allow) if allow else None
-        self._restrict = ftc(restrict) if restrict else None
-        self.filtered_count = 0
-
-    def all_ids(self):
-        child = self.child
-
-        _allow = self._allow
-        _restrict = self._restrict
-
-        for global_docnum in child.all_ids():
-            if (
-                (_allow and global_docnum not in _allow) or
-                (_restrict and global_docnum in _restrict)
-            ):
-                    continue
-            yield global_docnum
-
-    def count(self):
-        child = self.child
-        if child.computes_count():
-            return child.count()
-        else:
-            return ilen(self.all_ids())
-
-    def collect_matches(self):
-        child = self.child
-        _allow = self._allow
-        _restrict = self._restrict
-
-        if _allow is not None or _restrict is not None:
-            filtered_count = self.filtered_count
-            for sub_docnum in child.matches():
-                global_docnum = self.offset + sub_docnum
-                if ((_allow is not None and global_docnum not in _allow)
-                    or (_restrict is not None and global_docnum in _restrict)):
-                    filtered_count += 1
-                    continue
-                child.collect(sub_docnum)
-            self.filtered_count = filtered_count
-        else:
-            # If there was no allow or restrict set, don't do anything special,
-            # just forward the call to the child collector
-            child.collect_matches()
-
-    def results(self):
-        r = self.child.results()
-        r.collector = self
-        r.filtered_count = self.filtered_count
-        r.allowed = self.allow
-        r.restricted = self.restrict
-        return r
+    def set_context(self, context: 'searchers.SearchContext'):
+        context.include = self._include
+        context.exclude = self._exclude
+        self.child.set_context(context)
 
 
-# Facet grouping collector
-
-class FacetCollector(WrappingCollector):
-    """A collector that creates groups of documents based on
-    :class:`whoosh.sorting.Facet` objects. See :doc:`/facets` for more
-    information.
-
-    This collector is used if you specify a ``groupedby`` parameter in the
-    :meth:`whoosh.searching.Searcher.search` method. You can use the
-    :meth:`whoosh.searching.Results.groups` method to access the facet groups.
-
-    If you have a reference to the collector can also use
-    ``FacetedCollector.facetmaps`` to access the groups directly::
-
-        uc = collectors.UnlimitedCollector()
-        fc = FacetedCollector(uc, sorting.FieldFacet("category"))
-        mysearcher.search_with_collector(myquery, fc)
-        print(fc.facetmaps)
-    """
-
-    def __init__(self, child, groupedby, maptype=None):
-        """
-        :param groupedby: see :doc:`/facets`.
-        :param maptype: a :class:`whoosh.sorting.FacetMap` type to use for any
-            facets that don't specify their own.
-        """
-
+@register("with_terms")
+class TermsCollector(WrappingCollector):
+    def __init__(self, child: Collector, fieldnames: Sequence[str]=None):
         self.child = child
-        self.facets = sorting.Facets.from_groupedby(groupedby)
-        self.maptype = maptype
 
-    def prepare(self, top_searcher, q, context):
-        facets = self.facets
+        if isinstance(fieldnames, str):
+            fieldnames = [fieldnames]
+        self._fieldnames = fieldnames
 
-        # For each facet we're grouping by:
-        # - Create a facetmap (to hold the groups)
-        # - Create a categorizer (to generate document keys)
-        self.facetmaps = {}
-        self.categorizers = {}
+        self._termset = None  # type: Set[bytes]
 
-        # Set needs_current to True if any of the categorizers require the
-        # current document to work
-        needs_current = context.needs_current
-        for facetname, facet in facets.items():
-            self.facetmaps[facetname] = facet.map(self.maptype)
+    def rewrap(self, child: Collector) -> 'FilterCollector':
+        return self.__class__(child, self._fieldnames)
 
-            ctr = facet.categorizer(top_searcher)
-            self.categorizers[facetname] = ctr
-            needs_current = needs_current or ctr.needs_current
-        context = context.set(needs_current=needs_current)
+    # Collecting
 
-        self.child.prepare(top_searcher, q, context)
+    def start(self):
+        self.child.start()
+        self._termset = set()
 
-    def set_subsearcher(self, subsearcher, offset):
-        WrappingCollector.set_subsearcher(self, subsearcher, offset)
+        # Put a reference to the termset in the results data
+        data = self.current_data()
+        data["terms"] = self._termset
 
-        # Tell each categorizer about the new subsearcher and offset
-        for categorizer in itervalues(self.categorizers):
-            categorizer.set_searcher(self.child.subsearcher, self.child.offset)
+    def set_context(self, context: 'searchers.SearchContext'):
+        context.optimize = False
+        self.child.set_context(context)
 
-    def collect(self, sub_docnum):
-        matcher = self.child.matcher
-        global_docnum = sub_docnum + self.child.offset
+    def collect(self, globalid: int, localid: int, score: float,
+                data: Dict[str, Any]):
+        fieldnames = self._fieldnames
+        matcher = self.current_matcher()
+        hitset = set()
+        for term in matcher.matching_terms(localid):
+            if not fieldnames or term[0] in fieldnames:
+                hitset.add(term)
 
-        # We want the sort key for the document so we can (by default) sort
-        # the facet groups
-        sortkey = self.child.collect(sub_docnum)
+        # Store the matched terms in the hit data
+        data["terms"] = hitset
+        # Add the matched terms to the result data
+        self._termset.update(hitset)
 
-        # For each facet we're grouping by
-        for name, categorizer in iteritems(self.categorizers):
-            add = self.facetmaps[name].add
-
-            # We have to do more work if the facet allows overlapping groups
-            if categorizer.allow_overlap:
-                for key in categorizer.keys_for(matcher, sub_docnum):
-                    add(categorizer.key_to_name(key), global_docnum, sortkey)
-            else:
-                key = categorizer.key_for(matcher, sub_docnum)
-                key = categorizer.key_to_name(key)
-                add(key, global_docnum, sortkey)
-
-        return sortkey
-
-    def results(self):
-        r = self.child.results()
-        r._facetmaps = self.facetmaps
-        return r
+        self.child.collect(globalid, localid, score, data)
 
 
-# Collapsing collector
-
-class CollapseCollector(WrappingCollector):
-    """A collector that collapses results based on a facet. That is, it
-    eliminates all but the top N results that share the same facet key.
-    Documents with an empty key for the facet are never eliminated.
-
-    The "top" results within each group is determined by the result ordering
-    (e.g. highest score in a scored search) or an optional second "ordering"
-    facet.
-
-    If you have a reference to the collector you can use
-    ``CollapseCollector.collapsed_counts`` to access the number of documents
-    eliminated based on each key::
-
-        tc = TopCollector(limit=20)
-        cc = CollapseCollector(tc, "group", limit=3)
-        mysearcher.search_with_collector(myquery, cc)
-        print(cc.collapsed_counts)
-
-    See :ref:`collapsing` for more information.
-    """
-
-    def __init__(self, child, keyfacet, limit=1, order=None):
-        """
-        :param child: the collector to wrap.
-        :param keyfacet: a :class:`whoosh.sorting.Facet` to use for collapsing.
-            All but the top N documents that share a key will be eliminated
-            from the results.
-        :param limit: the maximum number of documents to keep for each key.
-        :param order: an optional :class:`whoosh.sorting.Facet` to use
-            to determine the "top" document(s) to keep when collapsing. The
-            default (``orderfaceet=None``) uses the results order (e.g. the
-            highest score in a scored search).
-        """
-
+@register("with_spans")
+class SpansCollector(WrappingCollector):
+    def __init__(self, child: Collector, fieldnames: Sequence[str]=None):
         self.child = child
-        self.keyfacet = sorting.MultiFacet.from_sortedby(keyfacet)
+        self._fieldnames = fieldnames
 
-        self.limit = limit
-        if order:
-            self.orderfacet = sorting.MultiFacet.from_sortedby(order)
-        else:
-            self.orderfacet = None
+    def rewrap(self, child: Collector) -> 'FilterCollector':
+        return self.__class__(child, self._fieldnames)
 
-    def prepare(self, top_searcher, q, context):
-        # Categorizer for getting the collapse key of a document
-        self.keyer = self.keyfacet.categorizer(top_searcher)
-        # Categorizer for getting the collapse order of a document
-        self.orderer = None
-        if self.orderfacet:
-            self.orderer = self.orderfacet.categorizer(top_searcher)
+    # Collecting
 
-        # Dictionary mapping keys to lists of (sortkey, global_docnum) pairs
-        # representing the best docs for that key
-        self.lists = defaultdict(list)
-        # Dictionary mapping keys to the number of documents that have been
-        # filtered out with that key
-        self.collapsed_counts = defaultdict(int)
-        # Total number of documents filtered out by collapsing
-        self.collapsed_total = 0
+    def set_context(self, context: 'searchers.SearchContext'):
+        context.optimize = False
+        self.child.set_context(context)
 
-        # If the keyer or orderer require a valid matcher, tell the child
-        # collector we need it
-        needs_current = (context.needs_current
-                     or self.keyer.needs_current
-                     or (self.orderer and self.orderer.needs_current))
-        self.child.prepare(top_searcher, q,
-                           context.set(needs_current=needs_current))
-
-    def set_subsearcher(self, subsearcher, offset):
-        WrappingCollector.set_subsearcher(self, subsearcher, offset)
-
-        # Tell the keyer and (optional) orderer about the new subsearcher
-        self.keyer.set_searcher(subsearcher, offset)
-        if self.orderer:
-            self.orderer.set_searcher(subsearcher, offset)
-
-    def all_ids(self):
-        child = self.child
-        limit = self.limit
-        counters = defaultdict(int)
-
-        for subsearcher, offset in child.subsearchers():
-            self.set_subsearcher(subsearcher, offset)
-            matcher = child.matcher
-            keyer = self.keyer
-            for sub_docnum in child.matches():
-                ckey = keyer.key_for(matcher, sub_docnum)
-                if ckey is not None:
-                    if ckey in counters and counters[ckey] >= limit:
-                        continue
-                    else:
-                        counters[ckey] += 1
-                yield offset + sub_docnum
-
-    def count(self):
-        if self.child.computes_count():
-            return self.child.count() - self.collapsed_total
-        else:
-            return ilen(self.all_ids())
-
-    def collect_matches(self):
-        lists = self.lists
-        limit = self.limit
-        keyer = self.keyer
-        orderer = self.orderer
-        collapsed_counts = self.collapsed_counts
-
-        child = self.child
-        matcher = child.matcher
-        offset = child.offset
-        for sub_docnum in child.matches():
-            # Collapsing category key
-            ckey = keyer.key_to_name(keyer.key_for(matcher, sub_docnum))
-            if not ckey:
-                # If the document isn't in a collapsing category, just add it
-                child.collect(sub_docnum)
-            else:
-                global_docnum = offset + sub_docnum
-
-                if orderer:
-                    # If user specified a collapse order, use it
-                    sortkey = orderer.key_for(child.matcher, sub_docnum)
-                else:
-                    # Otherwise, use the results order
-                    sortkey = child.sort_key(sub_docnum)
-
-                # Current list of best docs for this collapse key
-                best = lists[ckey]
-                add = False
-                if len(best) < limit:
-                    # If the heap is not full yet, just add this document
-                    add = True
-                elif sortkey < best[-1][0]:
-                    # If the heap is full but this document has a lower sort
-                    # key than the highest key currently on the heap, replace
-                    # the "least-best" document
-                    # Tell the child collector to remove the document
-                    child.remove(best.pop()[1])
-                    add = True
-
-                if add:
-                    insort(best, (sortkey, global_docnum))
-                    child.collect(sub_docnum)
-                else:
-                    # Remember that a document was filtered
-                    collapsed_counts[ckey] += 1
-                    self.collapsed_total += 1
-
-    def results(self):
-        r = self.child.results()
-        r.collapsed_counts = self.collapsed_counts
-        return r
+    def collect(self, globalid: int, localid: int, score: float,
+                data: Dict[str, Any]):
+        fieldnames = self._fieldnames
+        matcher = self.current_matcher()
+        spans = []
+        for tm in matcher.term_matchers():
+            if tm.is_active() and tm.id() == localid:
+                fieldname, text = tm.term()
+                if not fieldnames or fieldname in fieldnames:
+                    for span in tm.spans():
+                        span.fieldname = fieldname
+                        span.text = text
+                        spans.append(span)
+        # Add the spans to the hit data
+        data["spans"] = spans
+        self.child.collect(globalid, localid, score, data)
 
 
-# Time limit collector
+@register("collapse")
+class CollapsingCollector(WrappingCollector):
+    # This needs to be outside a TopCollector
+    collector_priority = 200
 
-class TimeLimitCollector(WrappingCollector):
-    """A collector that raises a :class:`TimeLimit` exception if the search
-    does not complete within a certain number of seconds::
-
-        uc = collectors.UnlimitedCollector()
-        tlc = TimeLimitedCollector(uc, timelimit=5.8)
-        try:
-            mysearcher.search_with_collector(myquery, tlc)
-        except collectors.TimeLimit:
-            print("The search ran out of time!")
-
-        # We can still get partial results from the collector
-        print(tlc.results())
-
-    IMPORTANT: On Unix systems (systems where signal.SIGALRM is defined), the
-    code uses signals to stop searching immediately when the time limit is
-    reached. On Windows, the OS does not support this functionality, so the
-    search only checks the time between each found document, so if a matcher
-    is slow the search could exceed the time limit.
-    """
-
-    def __init__(self, child, timelimit, greedy=False, use_alarm=True):
-        """
-        :param child: the collector to wrap.
-        :param timelimit: the maximum amount of time (in seconds) to
-            allow for searching. If the search takes longer than this, it will
-            raise a ``TimeLimit`` exception.
-        :param greedy: if ``True``, the collector will finish adding the most
-            recent hit before raising the ``TimeLimit`` exception.
-        :param use_alarm: if ``True`` (the default), the collector will try to
-            use signal.SIGALRM (on UNIX).
-        """
+    def __init__(self, child: Collector, facet: 'sorting.FacetType',
+                 limit: int=1, order: 'sorting.FacetType'=None):
         self.child = child
-        self.timelimit = timelimit
-        self.greedy = greedy
+        self._facet = sorting.FacetType.from_sortedby(facet)
+        self._limit = limit
+        self._order = order
 
-        if use_alarm:
-            import signal
-            self.use_alarm = use_alarm and hasattr(signal, "SIGALRM")
+        self._collapse_cat = None  # type: sorting.Categorizer
+        self._order_cat = None  # type: sorting.Categorizer
+        self._lists = None  # type: Dict[Any, List[Tuple[Any, int]]]
+        self._counts = None  # type: Dict[Any, int]
+        self._i = 0
+
+    def rewrap(self, child: Collector) -> 'CollapsingCollector':
+        return self.__class__(child, self._facet, self._limit, self._order)
+
+    # Collecting
+
+    def start(self):
+        searcher = self.searcher()
+        self._collapse_cat = self._facet.categorizer(searcher)
+        if self._order:
+            self._order_cat = self._order.categorizer(searcher)
         else:
-            self.use_alarm = False
-
-        self.timer = None
-        self.timedout = False
-
-    def prepare(self, top_searcher, q, context):
-        self.child.prepare(top_searcher, q, context)
-
-        self.timedout = False
-        if self.use_alarm:
-            import signal
-            signal.signal(signal.SIGALRM, self._was_signaled)
-
-        # Start a timer thread. If the timer fires, it will call this object's
-        # _timestop() method
-        self.timer = threading.Timer(self.timelimit, self._timestop)
-        self.timer.start()
-
-    def _timestop(self):
-        # Called when the timer expires
-        self.timer = None
-        # Set an attribute that will be noticed in the collect_matches() loop
-        self.timedout = True
-
-        if self.use_alarm:
-            import signal
-            os.kill(os.getpid(), signal.SIGALRM)
-
-    def _was_signaled(self, signum, frame):
-        raise TimeLimit
-
-    def collect_matches(self):
-        child = self.child
-        greedy = self.greedy
-
-        for sub_docnum in child.matches():
-            # If the timer fired since the last loop and we're not greedy,
-            # raise the exception
-            if self.timedout and not greedy:
-                raise TimeLimit
-
-            child.collect(sub_docnum)
-
-            # If the timer fired since we entered the loop or it fired earlier
-            # but we were greedy, raise now
-            if self.timedout:
-                raise TimeLimit
+            self._order_cat = None
+        self._lists = defaultdict(list)
+        self._counts = defaultdict(int)
+        self.child.start()
 
     def finish(self):
-        if self.timer:
-            self.timer.cancel()
-        self.timer = None
+        self._collapse_cat.close()
+        if self._order_cat:
+            self._order_cat.close()
+
+        counts = self._counts
+        # Put references to the collapsed counts in the result data
+        data = self.current_data()
+        data["collapsed"] = counts
+        data["collapsed_total"] = sum(counts.values()) if counts else 0
         self.child.finish()
 
+    def set_context(self, context: 'searchers.SearchContext'):
+        context.optimize = False
+        self.child.set_context(context)
 
-# Matched terms collector
+    def set_subsearcher(self, subsearcher: 'searchers.Searcher', offset: int):
+        self._collapse_cat.set_searcher(subsearcher, offset)
+        if self._order_cat:
+            self._order_cat.set_searcher(subsearcher, offset)
+        self.child.set_subsearcher(subsearcher, offset)
 
-class TermsCollector(WrappingCollector):
-    """A collector that remembers which terms appeared in which terms appeared
-    in each matched document.
+    def _add_forget(self, globalid, localid, score, data):
+        from bisect import insort
 
-    This collector is used if you specify ``terms=True`` in the
-    :meth:`whoosh.searching.Searcher.search` method.
+        limit = self._limit
+        m = self.current_matcher()
+        collapse_cat = self._collapse_cat
+        order_cat = self._order_cat
+        lists = self._lists
+        counts = self._counts
 
-    If you have a reference to the collector can also use
-    ``TermsCollector.termslist`` to access the term lists directly::
+        add = True
+        forget = None
 
-        uc = collectors.UnlimitedCollector()
-        tc = TermsCollector(uc)
-        mysearcher.search_with_collector(myquery, tc)
-        # tc.termdocs is a dictionary mapping (fieldname, text) tuples to
-        # sets of document numbers
-        print(tc.termdocs)
-        # tc.docterms is a dictionary mapping docnums to lists of
-        # (fieldname, text) tuples
-        print(tc.docterms)
+        key = collapse_cat.key_to_name(collapse_cat.key_for(m, localid))
+        if order_cat:
+            sortkey = order_cat.key_for(m, localid) if order_cat else None
+        elif "sort_key" in data:
+            sortkey = data["sort_key"]
+        else:
+            sortkey = 0 - score
+
+        best = lists[key]
+        if len(best) < limit:
+            # The heap is not full, just add this document
+            best.append((sortkey, globalid))
+
+        elif sortkey < best[-1][0]:
+            # The heap is full but this doc has a lower sortkey than the
+            # "least-best" one on the heap
+            if limit == 1:
+                # Special case the default for speed
+                forget = best[0][1]
+                best[0] = (sortkey, globalid)
+            else:
+                _, forget = best.pop()
+                insort(best, (sortkey, globalid))
+
+        else:
+            # This doc doesn't have a low enough sort key, discard it
+            add = False
+            # Remember that we filtered a document
+            counts[key] += 1
+
+        return add, forget
+
+    def all_ids(self) -> Iterable[int]:
+        ids = []
+        add_forget = self._add_forget
+        for globalid, localid, score, data in self.matches():
+            add, forget = add_forget(globalid, localid, score, data)
+            if forget is not None:
+                ids.remove(forget)
+            if add:
+                ids.append(globalid)
+        return iter(ids)
+
+    def collect(self, globalid: int, localid: int, score: float,
+                data: Dict[str, Any]):
+        add, forget = self._add_forget(globalid, localid, score, data)
+        if forget is not None:
+            self.child.forget(forget)
+        if add:
+            self.child.collect(globalid, localid, score, data)
+
+
+
+@register("sample")
+class SamplingCollector(WrappingCollector):
+    """
+    Produces a random sampling of the matching documents. The results are in
+    random order::
+
+        searcher.q.term("content", "bravo").sample(10).results()
     """
 
-    def __init__(self, child, settype=set):
-        self.child = child
-        self.settype = settype
+    def __init__(self, child: Collector, limit: int=1):
+        super(SamplingCollector, self).__init__(child)
+        self._limit = limit
+        self._sample = None  # type: List[int]
+        self._i = 0
 
-    def prepare(self, top_searcher, q, context):
-        # This collector requires a valid matcher at each step
-        self.child.prepare(top_searcher, q, context.set(needs_current=True))
+    def rewrap(self, child: Collector) -> 'SamplingCollector':
+        return self.__class__(child, self._limit)
 
-        # A dictionary mapping (fieldname, text) pairs to arrays of docnums
-        self.termdocs = defaultdict(lambda: array("I"))
-        # A dictionary mapping docnums to lists of (fieldname, text) pairs
-        self.docterms = defaultdict(list)
+    # Collecting
 
-    def set_subsearcher(self, subsearcher, offset):
-        WrappingCollector.set_subsearcher(self, subsearcher, offset)
+    def start(self):
+        self._sample = []
+        self._i = 0
+        self.child.start()
 
-        # Store a list of all the term matchers in the matcher tree
-        self.termmatchers = list(self.child.matcher.term_matchers())
+    def collect(self, globalid: int, localid: int, score: float,
+                data: Dict[str, Any]):
+        from random import randint, random
 
-    def collect(self, sub_docnum):
-        child = self.child
-        termdocs = self.termdocs
-        docterms = self.docterms
+        limit = self._limit
+        sample = self._sample
+        i = self._i
+        if i < limit:
+            sample.append(globalid)
+            self.child.collect(globalid, localid, score, data)
+        elif random() < limit/float(self._i + 1):
+            replace = randint(0, len(sample) - 1)
+            old_global = sample[replace]
+            sample[replace] = globalid
+            self.child.forget(old_global)
+            self.child.collect(globalid, localid, score, data)
 
-        child.collect(sub_docnum)
+        self._i += 1
 
-        global_docnum = child.offset + sub_docnum
 
-        # For each term matcher...
-        for tm in self.termmatchers:
-            # If the term matcher is matching the current document...
-            if tm.is_active() and tm.id() == sub_docnum:
-                # Add it to the list of matching documents for the term
-                term = tm.term()
-                termdocs[term].append(global_docnum)
-                docterms[global_docnum].append(term)
+@register("weighted_by")
+class WeightingCollector(WrappingCollector):
+    def __init__(self, weighting: 'weights.WeightingModel'):
+        self._weighting = weighting
 
-    def results(self):
-        r = self.child.results()
-        r.termdocs = dict(self.termdocs)
-        r.docterms = dict(self.docterms)
-        return r
+    def rewrap(self, child: Collector) -> 'WeightingCollector':
+        return self.__class__(child, self._weighting)
+
+    # Collecting
+
+    def set_context(self, context: 'searchers.SearchContext'):
+        context.weighting = self._weighting
+        self.child.set_context(context)
+
+
+@register("page")
+class PageCollector(WrappingCollector):
+    def __init__(self, child, page=1, size=10):
+        super(PageCollector, self).__init__(child)
+        self._page = page
+        self._size = size
+
+    def rewrap(self, child: Collector) -> 'PageCollector':
+        return self.__class__(child, self._page, self._size)
+
+    def results(self, context: 'searchers.SearchContext'=None
+                ) -> 'results.Results':
+        from whoosh.results import ResultsPage
+
+        r = self.child.results(context)
+        return ResultsPage(r, self._page, self._size)
+
+
+@register("limit")
+class LimitCollector(WrappingCollector):
+    collector_priority = 1000
+
+    def __init__(self, child: Collector, limit: int=10):
+        super(LimitCollector, self).__init__(child)
+        self._limit = limit
+
+    def rewrap(self, newchild: Collector) -> 'LimitCollector':
+        return self.__class__(newchild, self._limit)
+
+    def get_items(self) -> List[MatchTuple]:
+        items = self.child.get_items()
+        if self._limit is not None and len(items) > self._limit:
+            del items[self._limit:]
+        return items
+
+
+@register("reversed")
+class ReversingCollector(WrappingCollector):
+    collector_priority = 900
+
+    def __init__(self, child: Collector, limit: int=10):
+        super(ReversingCollector, self).__init__(child)
+        self._limit = limit
+
+    def rewrap(self, child: Collector) -> 'ReversingCollector':
+        return self.__class__(self.child, self._limit)
+
+    def get_items(self) -> List[MatchTuple]:
+        items = self.child.get_items()
+        items.reverse()
+        return items
+
+

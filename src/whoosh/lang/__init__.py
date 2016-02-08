@@ -65,7 +65,7 @@ aliases = {
            "romanian": "ro",
            "russian": "ru",
            "spanish": "es",
-           "swedish": "sv",
+           "swedish": "sw",
            "turkish": "tr",
 
            # By name in own language

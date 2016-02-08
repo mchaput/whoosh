@@ -25,22 +25,40 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+from abc import abstractmethod
 from array import array
 from collections import defaultdict
+from datetime import datetime, timedelta
+from typing import Any, Callable, Dict, Iterable, Optional, Sequence, Set, Union
 
-from whoosh.compat import string_type
-from whoosh.compat import iteritems, izip, xrange
+from whoosh.compat import iteritems, izip, string_type, text_type, xrange
+from whoosh.ifaces import matchers, queries, searchers
 
 
 # Faceting objects
 
 class FacetType(object):
-    """Base class for "facets", aspects that can be sorted/faceted.
+    """
+    Base class for "facets", aspects that can be sorted/faceted.
     """
 
     maptype = None
 
-    def categorizer(self, global_searcher):
+    @classmethod
+    def from_sortedby(cls, item, maptype: 'FacetMap'=None):
+        if isinstance(item, FacetType):
+            return item
+        elif isinstance(item, str):
+            return FieldFacet(item, maptype=maptype)
+        elif isinstance(item, (list, tuple)):
+            return MultiFacet(
+                [FacetType.from_sortedby(x) for x in item], maptype=maptype
+            )
+        else:
+            raise Exception("Don't know what to do with %r" % item)
+
+    def categorizer(self, global_searcher: 'searchers.Searcher'
+                    ) -> 'Categorizer':
         """Returns a :class:`Categorizer` corresponding to this facet.
 
         :param global_searcher: A parent searcher. You can use this searcher if
@@ -49,7 +67,7 @@ class FacetType(object):
 
         raise NotImplementedError
 
-    def map(self, default=None):
+    def map(self, default: type=None) -> 'FacetMap':
         t = self.maptype
         if t is None:
             t = default
@@ -61,12 +79,13 @@ class FacetType(object):
         else:
             return t
 
-    def default_name(self):
+    def default_name(self) -> str:
         return "facet"
 
 
 class Categorizer(object):
-    """Base class for categorizer objects which compute a key value for a
+    """
+    Base class for categorizer objects which compute a key value for a
     document based on certain criteria, for use in sorting/faceting.
 
     Categorizers are created by FacetType objects through the
@@ -83,83 +102,79 @@ class Categorizer(object):
     ``Collector.allow_overlap`` should be ``True`` if the caller can use the
     ``keys_for`` method instead of ``key_for`` to group documents into
     potentially overlapping groups. The default is ``False``.
-
-    If a categorizer subclass can categorize the document using only the
-    document number, it should set ``Collector.needs_current`` to ``False``
-    (this is the default) and NOT USE the given matcher in the ``key_for`` or
-    ``keys_for`` methods, since in that case ``segment_docnum`` is not
-    guaranteed to be consistent with the given matcher. If a categorizer
-    subclass needs to access information on the matcher, it should set
-    ``needs_current`` to ``True``. This will prevent the caller from using
-    optimizations that might leave the matcher in an inconsistent state.
     """
 
     allow_overlap = False
-    needs_current = False
 
-    def set_searcher(self, segment_searcher, docoffset):
-        """Called by the collector when the collector moves to a new segment.
+    def set_searcher(self, segment_searcher: 'searchers.Searcher',
+                     docoffset: int):
+        """
+        Called by the collector when the collector moves to a new segment.
         The ``segment_searcher`` will be atomic. The ``docoffset`` is the
         offset of the segment's document numbers relative to the entire index.
         You can use the offset to get absolute index docnums by adding the
         offset to segment-relative docnums.
+
+        :param segment_searcher: a single-segment searcher.
+        :param docoffset: the offset between the searcher's first document and
+            its position in the global searcher.
         """
 
         pass
 
-    def key_for(self, matcher, segment_docnum):
-        """Returns a key for the current match.
+    @abstractmethod
+    def key_for(self, matcher: 'matchers.Matcher', segment_docnum: int) -> Any:
+        """
+        Returns a key for the current match.
 
-        :param matcher: a :class:`whoosh.matching.Matcher` object. If
-            ``self.needs_current`` is ``False``, DO NOT use this object,
-            since it may be inconsistent. Use the given ``segment_docnum``
-            instead.
+        :param matcher: a :class:`whoosh.matching.Matcher` object.
         :param segment_docnum: the segment-relative document number of the
             current match.
         """
 
-        # Backwards compatibility
-        if hasattr(self, "key_for_id"):
-            return self.key_for_id(segment_docnum)
-        elif hasattr(self, "key_for_matcher"):
-            return self.key_for_matcher(matcher)
-
         raise NotImplementedError(self.__class__)
 
-    def keys_for(self, matcher, segment_docnum):
-        """Yields a series of keys for the current match.
+    def keys_for(self, matcher: 'matchers.Matcher', segment_docnum: int
+                 ) -> Iterable[Any]:
+        """
+        Yields a series of keys for the current match.
 
         This method will be called instead of ``key_for`` if
         ``self.allow_overlap`` is ``True``.
 
-        :param matcher: a :class:`whoosh.matching.Matcher` object. If
-            ``self.needs_current`` is ``False``, DO NOT use this object,
-            since it may be inconsistent. Use the given ``segment_docnum``
-            instead.
+        :param matcher: a :class:`whoosh.matching.Matcher` object.
         :param segment_docnum: the segment-relative document number of the
             current match.
         """
 
-        # Backwards compatibility
-        if hasattr(self, "keys_for_id"):
-            return self.keys_for_id(segment_docnum)
+        return [self.key_for(matcher, segment_docnum)]
 
-        raise NotImplementedError(self.__class__)
-
-    def key_to_name(self, key):
-        """Returns a representation of the key to be used as a dictionary key
+    def key_to_name(self, key: Any) -> text_type:
+        """
+        Returns a representation of the key to be used as a dictionary key
         in faceting. For example, the sorting key for date fields is a large
         integer; this method translates it into a ``datetime`` object to make
         the groupings clearer.
+
+        :param key: the key object to convert into a name.
         """
 
         return key
+
+    def close(self):
+        """
+        Closes any resources (such as column readers) used by this categorizer.
+        :return:
+        """
+
+        pass
 
 
 # General field facet
 
 class FieldFacet(FacetType):
-    """Sorts/facets by the contents of a field.
+    """
+    Sorts/facets by the contents of a field.
 
     For example, to sort by the contents of the "path" field in reverse order,
     and facet by the contents of the "tag" field::
@@ -171,8 +186,8 @@ class FieldFacet(FacetType):
     This facet returns different categorizers based on the field type.
     """
 
-    def __init__(self, fieldname, reverse=False, allow_overlap=False,
-                 maptype=None):
+    def __init__(self, fieldname: str, reverse: bool=False,
+                 allow_overlap: bool=False, maptype: 'FacetMap'=None):
         """
         :param fieldname: the name of the field to sort/facet on.
         :param reverse: if True, when sorting, reverse the sort order of this
@@ -186,10 +201,10 @@ class FieldFacet(FacetType):
         self.allow_overlap = allow_overlap
         self.maptype = maptype
 
-    def default_name(self):
+    def default_name(self) -> str:
         return self.fieldname
 
-    def categorizer(self, global_searcher):
+    def categorizer(self, global_searcher: 'searchers.Searcher') -> Categorizer:
         # The searcher we're passed here may wrap a multireader, but the
         # actual key functions will always be called per-segment following a
         # Categorizer.set_searcher method call
@@ -202,7 +217,7 @@ class FieldFacet(FacetType):
             return OverlappingCategorizer(global_searcher, fieldname)
 
         if global_searcher.reader().has_column(fieldname):
-            coltype = fieldobj.column_type
+            coltype = fieldobj.column
             if coltype.reversible or not self.reverse:
                 c = ColumnCategorizer(global_searcher, fieldname, self.reverse)
             else:
@@ -214,10 +229,11 @@ class FieldFacet(FacetType):
 
 
 class ColumnCategorizer(Categorizer):
-    def __init__(self, global_searcher, fieldname, reverse=False):
+    def __init__(self, global_searcher: 'searchers.Searcher', fieldname: str,
+                 reverse: bool=False):
         self._fieldname = fieldname
         self._fieldobj = global_searcher.schema[self._fieldname]
-        self._column_type = self._fieldobj.column_type
+        self._column_type = self._fieldobj.column
         self._reverse = reverse
 
         # The column reader is set in set_searcher() as we iterate over the
@@ -229,17 +245,24 @@ class ColumnCategorizer(Categorizer):
                                            self._fieldobj, self._fieldname,
                                            self._reverse)
 
-    def set_searcher(self, segment_searcher, docoffset):
+    def set_searcher(self, segment_searcher: 'searchers.Searcher',
+                     docoffset: int):
+        if self._creader is not None:
+            self._creader.close()
         r = segment_searcher.reader()
         self._creader = r.column_reader(self._fieldname,
                                         reverse=self._reverse,
                                         translate=False)
 
-    def key_for(self, matcher, segment_docnum):
+    def key_for(self, matcher: 'matchers.Matcher', segment_docnum: int) -> Any:
         return self._creader.sort_key(segment_docnum)
 
-    def key_to_name(self, key):
+    def key_to_name(self, key: Any) -> text_type:
         return self._fieldobj.from_column_value(key)
+
+    def close(self):
+        if self._creader is not None:
+            self._creader.close()
 
 
 class ReversedColumnCategorizer(ColumnCategorizer):
@@ -255,6 +278,7 @@ class ReversedColumnCategorizer(ColumnCategorizer):
 
         global_creader = reader.column_reader(fieldname, translate=False)
         self._values = sorted(set(global_creader))
+        global_creader.close()
 
     def key_for(self, matcher, segment_docnum):
         value = self._creader[segment_docnum]
@@ -262,7 +286,7 @@ class ReversedColumnCategorizer(ColumnCategorizer):
         # Subtract from 0 to reverse the order
         return 0 - order
 
-    def key_to_name(self, key):
+    def key_to_name(self, key: Any) -> text_type:
         # Re-reverse the key to get the index into _values
         key = self._values[0 - key]
         return ColumnCategorizer.key_to_name(self, key)
@@ -282,14 +306,18 @@ class OverlappingCategorizer(Categorizer):
                             and field.column_type.stores_lists())
 
         # These are set in set_searcher() as we iterate over the sub-searchers
-        self._segment_searcher = None
-        self._creader = None
+        self._segment_searcher = None  # type: searchers.Searcher
+        self._creader = None  # type: columns.ColumnReader
         self._lists = None
 
-    def set_searcher(self, segment_searcher, docoffset):
+    def set_searcher(self, segment_searcher: 'searchers.Searcher',
+                     docoffset: int):
         fieldname = self._fieldname
         self._segment_searcher = segment_searcher
         reader = segment_searcher.reader()
+
+        if self._creader:
+            self._creader.close()
 
         if self._use_vectors:
             pass
@@ -305,15 +333,17 @@ class OverlappingCategorizer(Categorizer):
             self._lists = [[] for _ in xrange(dc)]
             for btext in field.sortable_terms(reader, fieldname):
                 text = from_bytes(btext)
-                postings = reader.postings(fieldname, btext)
-                for docid in postings.all_ids():
+                m = reader.matcher(fieldname, btext)
+                for docid in m.all_ids():
                     self._lists[docid].append(text)
 
     def keys_for(self, matcher, docid):
+        s = self._segment_searcher
         if self._use_vectors:
             try:
-                v = self._segment_searcher.vector(docid, self._fieldname)
-                return list(v.all_ids())
+                fieldobj = s.schema[self._fieldname]
+                v = s.vector(docid, self._fieldname)
+                return [fieldobj.from_bytes(t) for t in v.all_terms()]
             except KeyError:
                 return []
         elif self._use_column:
@@ -337,6 +367,10 @@ class OverlappingCategorizer(Categorizer):
             else:
                 return None
 
+    def close(self):
+        if self._creader:
+            self._creader.close()
+
 
 class PostingCategorizer(Categorizer):
     """
@@ -354,6 +388,9 @@ class PostingCategorizer(Categorizer):
 
     def __init__(self, global_searcher, fieldname, reverse):
         self.reverse = reverse
+        # These will be set by set_searcher
+        self._searcher = None  # type: searchers.Searcher
+        self._docoffset = None  # type: int
 
         if fieldname in global_searcher._field_caches:
             self.values, self.array = global_searcher._field_caches[fieldname]
@@ -372,24 +409,25 @@ class PostingCategorizer(Categorizer):
             for i, btext in enumerate(btexts):
                 self.values.append(from_bytes(btext))
                 # Get global docids from global reader
-                postings = reader.postings(fieldname, btext)
-                for docid in postings.all_ids():
+                matcher = reader.matcher(fieldname, btext)
+                for docid in matcher.all_ids():
                     self.array[docid] = i
 
             global_searcher._field_caches[fieldname] = (self.values, self.array)
 
-    def set_searcher(self, segment_searcher, docoffset):
+    def set_searcher(self, segment_searcher: 'searchers.Searcher',
+                     docoffset: int):
         self._searcher = segment_searcher
-        self.docoffset = docoffset
+        self._docoffset = docoffset
 
-    def key_for(self, matcher, segment_docnum):
-        global_docnum = self.docoffset + segment_docnum
+    def key_for(self, matcher: 'matchers.Matcher', segment_docnum: int) -> int:
+        global_docnum = self._docoffset + segment_docnum
         i = self.array[global_docnum]
         if self.reverse:
             i = len(self.values) - i
         return i
 
-    def key_to_name(self, i):
+    def key_to_name(self, i: int) -> text_type:
         if i >= len(self.values):
             return None
         if self.reverse:
@@ -400,11 +438,12 @@ class PostingCategorizer(Categorizer):
 # Special facet types
 
 class QueryFacet(FacetType):
-    """Sorts/facets based on the results of a series of queries.
+    """
+    Sorts/facets based on the results of a series of queries.
     """
 
-    def __init__(self, querydict, other=None, allow_overlap=False,
-                 maptype=None):
+    def __init__(self, querydict: 'Dict[str, queries.Query]', other: str=None,
+                 allow_overlap: bool=False, maptype: 'FacetMap'=None):
         """
         :param querydict: a dictionary mapping keys to
             :class:`whoosh.query.Query` objects.
@@ -417,33 +456,42 @@ class QueryFacet(FacetType):
         self.maptype = maptype
         self.allow_overlap = allow_overlap
 
-    def categorizer(self, global_searcher):
-        return self.QueryCategorizer(self.querydict, self.other, self.allow_overlap)
+    def categorizer(self, global_searcher: 'searchers.Searcher'
+                    ) -> 'Categorizer':
+        return self.QueryCategorizer(self.querydict, self.other,
+                                     self.allow_overlap)
 
     class QueryCategorizer(Categorizer):
-        def __init__(self, querydict, other, allow_overlap=False):
+        def __init__(self, querydict: 'Dict[str, queries.Query]',
+                     other: str=None, allow_overlap: bool=False):
             self.querydict = querydict
             self.other = other
             self.allow_overlap = allow_overlap
 
-        def set_searcher(self, segment_searcher, offset):
-            self.docsets = {}
+            # Set by set_searcher
+            self._docsets = None  # type: Dict[str, Set[int]]
+            self._docoffset = None
+
+        def set_searcher(self, segment_searcher: 'searchers.Searcher',
+                     docoffset: int):
+            self._docsets = {}
             for qname, q in self.querydict.items():
                 docset = set(q.docs(segment_searcher))
                 if docset:
-                    self.docsets[qname] = docset
-            self.offset = offset
+                    self._docsets[qname] = docset
 
-        def key_for(self, matcher, docid):
-            for qname in self.docsets:
-                if docid in self.docsets[qname]:
+        def key_for(self, matcher: 'matchers.Matcher', segment_docnum: int
+                    ) -> text_type:
+            for qname in self._docsets:
+                if segment_docnum in self._docsets[qname]:
                     return qname
             return self.other
 
-        def keys_for(self, matcher, docid):
+        def keys_for(self, matcher: 'matchers.Matcher', segment_docnum: int
+                 ) -> Iterable[text_type]:
             found = False
-            for qname in self.docsets:
-                if docid in self.docsets[qname]:
+            for qname in self._docsets:
+                if segment_docnum in self._docsets[qname]:
                     yield qname
                     found = True
             if not found:
@@ -451,7 +499,8 @@ class QueryFacet(FacetType):
 
 
 class RangeFacet(QueryFacet):
-    """Sorts/facets based on numeric ranges. For textual ranges, use
+    """
+    Sorts/facets based on numeric ranges. For textual ranges, use
     :class:`QueryFacet`.
 
     For example, to facet the "price" field into $100 buckets, up to $1000::
@@ -463,8 +512,11 @@ class RangeFacet(QueryFacet):
     at the end.
     """
 
-    def __init__(self, fieldname, start, end, gap, hardend=False,
-                 maptype=None):
+    def __init__(self, fieldname: str,
+                 start: Union[float, datetime],
+                 end: Union[float, datetime],
+                 gap: Union[float, Sequence[float], timedelta],
+                 hardend: bool=False, maptype: 'FacetMap'=None):
         """
         :param fieldname: the numeric field to sort/facet on.
         :param start: the start of the entire range.
@@ -487,7 +539,7 @@ class RangeFacet(QueryFacet):
         self.maptype = maptype
         self._queries()
 
-    def default_name(self):
+    def default_name(self) -> str:
         return self.fieldname
 
     def _rangetype(self):
@@ -495,8 +547,8 @@ class RangeFacet(QueryFacet):
 
         return query.NumericRange
 
-    def _range_name(self, startval, endval):
-        return (startval, endval)
+    def _range_name(self, startval: float, endval: float):
+        return startval, endval
 
     def _queries(self):
         if not self.gap:
@@ -528,16 +580,18 @@ class RangeFacet(QueryFacet):
 
             cstart = cend
 
-    def categorizer(self, global_searcher):
+    def categorizer(self, global_searcher: 'searchers.Searcher'
+                    ) -> 'Categorizer':
         return QueryFacet(self.querydict).categorizer(global_searcher)
 
 
 class DateRangeFacet(RangeFacet):
-    """Sorts/facets based on date ranges. This is the same as RangeFacet
+    """
+    Sorts/facets based on date ranges. This is the same as RangeFacet
     except you are expected to use ``daterange`` objects as the start and end
     of the range, and ``timedelta`` or ``relativedelta`` objects as the gap(s),
     and it generates :class:`~whoosh.query.DateRange` queries instead of
-    :class:`~whoosh.query.TermRange` queries.
+    :class:`~whoosh.query.NumericRange` queries.
 
     For example, to facet a "birthday" range into 5 year buckets::
 
@@ -561,7 +615,8 @@ class DateRangeFacet(RangeFacet):
 
 
 class ScoreFacet(FacetType):
-    """Uses a document's score as a sorting criterion.
+    """
+    Uses a document's score as a sorting criterion.
 
     For example, to sort by the ``tag`` field, and then within that by relative
     score::
@@ -570,31 +625,37 @@ class ScoreFacet(FacetType):
         results = searcher.search(myquery, sortedby=tag_score)
     """
 
-    def categorizer(self, global_searcher):
+    def categorizer(self, global_searcher: 'searchers.Searcher'
+                    ) -> 'Categorizer':
         return self.ScoreCategorizer(global_searcher)
 
     class ScoreCategorizer(Categorizer):
-        needs_current = True
-
-        def __init__(self, global_searcher):
+        def __init__(self, global_searcher: 'searchers.Searcher'):
             w = global_searcher.weighting
             self.use_final = w.use_final
             if w.use_final:
                 self.final = w.final
 
-        def set_searcher(self, segment_searcher, offset):
-            self.segment_searcher = segment_searcher
+            # Set by set_searcher
+            self._segment_searcher = None  # type: searchers.Searcher
 
-        def key_for(self, matcher, docid):
+        def set_searcher(self, segment_searcher: 'searchers.Searcher',
+                         docoffset: int):
+            self._segment_searcher = segment_searcher
+
+        def key_for(self, matcher: 'matchers.Matcher', segment_docnum: int
+                    ) -> float:
             score = matcher.score()
             if self.use_final:
-                score = self.final(self.segment_searcher, docid, score)
+                score = self.final(self._segment_searcher, segment_docnum,
+                                   score)
             # Negate the score so higher values sort first
             return 0 - score
 
 
 class FunctionFacet(FacetType):
-    """This facet type is low-level. In most cases you should use
+    """
+    This facet type is low-level. In most cases you should use
     :class:`TranslateFacet` instead.
 
     This facet type ets you pass an arbitrary function that will compute the
@@ -624,15 +685,22 @@ class FunctionFacet(FacetType):
             self.global_searcher = global_searcher
             self.fn = fn
 
-        def set_searcher(self, segment_searcher, docoffset):
-            self.offset = docoffset
+            # Set by set_searcher
+            self._docoffset = None  # type: int
 
-        def key_for(self, matcher, docid):
-            return self.fn(self.global_searcher, docid + self.offset)
+        def set_searcher(self, segment_searcher: 'searchers.Searcher',
+                         docoffset: int):
+            self._docoffset = docoffset
+
+        def key_for(self, matcher: 'matchers.Matcher', segment_docnum: int
+                    ) -> Any:
+            return self.fn(self.global_searcher,
+                           segment_docnum + self._docoffset)
 
 
 class TranslateFacet(FacetType):
-    """Lets you specify a function to compute the key based on a key generated
+    """
+    Lets you specify a function to compute the key based on a key generated
     by a wrapped facet.
 
     This is useful if you want to use a custom ordering of a sortable field. For
@@ -657,7 +725,7 @@ class TranslateFacet(FacetType):
     You can pass multiple facets to the
     """
 
-    def __init__(self, fn, *facets):
+    def __init__(self, fn: Callable, *facets: Sequence[FacetType]):
         """
         :param fn: The function to apply. For each matching document, this
             function will be called with the values of the given facets as
@@ -666,11 +734,13 @@ class TranslateFacet(FacetType):
             used to compute facet value(s) for a matching document, and then the
             value(s) is/are passed to the function.
         """
+
         self.fn = fn
         self.facets = facets
         self.maptype = None
 
-    def categorizer(self, global_searcher):
+    def categorizer(self, global_searcher: 'searchers.Searcher'
+                    ) -> 'Categorizer':
         catters = [facet.categorizer(global_searcher) for facet in self.facets]
         return self.TranslateCategorizer(self.fn, catters)
 
@@ -679,18 +749,25 @@ class TranslateFacet(FacetType):
             self.fn = fn
             self.catters = catters
 
-        def set_searcher(self, segment_searcher, docoffset):
+        def set_searcher(self, segment_searcher: 'searchers.Searcher',
+                         docoffset: int):
             for catter in self.catters:
                 catter.set_searcher(segment_searcher, docoffset)
 
-        def key_for(self, matcher, segment_docnum):
+        def key_for(self, matcher: 'matchers.Matcher', segment_docnum: int
+                    ) -> Any:
             keys = [catter.key_for(matcher, segment_docnum)
                     for catter in self.catters]
             return self.fn(*keys)
 
+        def close(self):
+            for catter in self.catters:
+                catter.close()
+
 
 class StoredFieldFacet(FacetType):
-    """Lets you sort/group using the value in an unindexed, stored field (e.g.
+    """
+    Lets you sort/group using the value in an unindexed, stored field (e.g.
     :class:`whoosh.fields.STORED`). This is usually slower than using an indexed
     field.
 
@@ -701,8 +778,8 @@ class StoredFieldFacet(FacetType):
     if one is supplied).
     """
 
-    def __init__(self, fieldname, allow_overlap=False, split_fn=None,
-                 maptype=None):
+    def __init__(self, fieldname: str, allow_overlap: bool=False,
+                 split_fn: Callable=None, maptype: 'FacetMap'=None):
         """
         :param fieldname: the name of the stored field.
         :param allow_overlap: if True, when grouping, allow documents to appear
@@ -717,40 +794,50 @@ class StoredFieldFacet(FacetType):
 
         self.fieldname = fieldname
         self.allow_overlap = allow_overlap
-        self.split_fn = split_fn
+        self.split_fn = None
         self.maptype = maptype
 
-    def default_name(self):
+    def default_name(self) -> str:
         return self.fieldname
 
-    def categorizer(self, global_searcher):
+    def categorizer(self, global_searcher: 'searchers.Searcher'
+                    ) -> 'Categorizer':
         return self.StoredFieldCategorizer(self.fieldname, self.allow_overlap,
                                            self.split_fn)
 
     class StoredFieldCategorizer(Categorizer):
-        def __init__(self, fieldname, allow_overlap, split_fn):
+        def __init__(self, fieldname: str, allow_overlap: bool,
+                     split_fn: Optional[Callable]):
             self.fieldname = fieldname
             self.allow_overlap = allow_overlap
             self.split_fn = split_fn
 
-        def set_searcher(self, segment_searcher, docoffset):
-            self.segment_searcher = segment_searcher
+            # Set by set_searcher
+            self._segment_searcher = None  # type: searchers.Searcher
 
-        def keys_for(self, matcher, docid):
-            d = self.segment_searcher.stored_fields(docid)
+        def set_searcher(self, segment_searcher, docoffset):
+            self._segment_searcher = segment_searcher
+
+        def key_for(self, matcher: 'matchers.Matcher', segment_docnum: int
+                    ) -> Any:
+            d = self._segment_searcher.stored_fields(segment_docnum)
+            return d.get(self.fieldname)
+
+        def keys_for(self, matcher: 'matchers.Matcher', segment_docnum: int
+                 ) -> Iterable[Any]:
+            d = self._segment_searcher.stored_fields(segment_docnum)
             value = d.get(self.fieldname)
             if self.split_fn:
                 return self.split_fn(value)
             else:
                 return value.split()
 
-        def key_for(self, matcher, docid):
-            d = self.segment_searcher.stored_fields(docid)
-            return d.get(self.fieldname)
 
+#
 
 class MultiFacet(FacetType):
-    """Sorts/facets by the combination of multiple "sub-facets".
+    """
+    Sorts/facets by the combination of multiple "sub-facets".
 
     For example, to sort by the value of the "tag" field, and then (for
     documents where the tag is the same) by the value of the "path" field::
@@ -772,11 +859,12 @@ class MultiFacet(FacetType):
                          "n-z": TermRange("name", "n", "z")})
     """
 
-    def __init__(self, items=None, maptype=None):
-        self.facets = []
+    def __init__(self, items: Sequence[Union[str, FacetType]]=None,
+                 maptype: 'FacetMap'=None):
         if items:
-            for item in items:
-                self._add(item)
+            self.facets = [FacetType.from_sortedby(x) for x in items]
+        else:
+            self.facets = []
         self.maptype = maptype
 
     def __repr__(self):
@@ -784,48 +872,32 @@ class MultiFacet(FacetType):
                                self.facets,
                                self.maptype)
 
-    @classmethod
-    def from_sortedby(cls, sortedby):
-        multi = cls()
-        if isinstance(sortedby, string_type):
-            multi._add(sortedby)
-        elif (isinstance(sortedby, (list, tuple))
-              or hasattr(sortedby, "__iter__")):
-            for item in sortedby:
-                multi._add(item)
-        else:
-            multi._add(sortedby)
-        return multi
+    def default_name(self) -> str:
+        return "/".join(f.default_name() for f in self.facets)
 
-    def _add(self, item):
-        if isinstance(item, FacetType):
-            self.add_facet(item)
-        elif isinstance(item, string_type):
-            self.add_field(item)
-        else:
-            raise Exception("Don't know what to do with facet %r" % (item,))
-
-    def add_field(self, fieldname, reverse=False):
+    def add_field(self, fieldname: str, reverse: bool=False) -> 'MultiFacet':
         self.facets.append(FieldFacet(fieldname, reverse=reverse))
         return self
 
-    def add_query(self, querydict, other=None, allow_overlap=False):
+    def add_query(self, querydict: 'Dict[str, queries.Query]', other: str=None,
+                  allow_overlap: bool=False) -> 'MultiFacet':
         self.facets.append(QueryFacet(querydict, other=other,
                                       allow_overlap=allow_overlap))
         return self
 
-    def add_score(self):
+    def add_score(self) -> 'MultiFacet':
         self.facets.append(ScoreFacet())
         return self
 
-    def add_facet(self, facet):
+    def add_facet(self, facet: FacetType) -> 'MultiFacet':
         if not isinstance(facet, FacetType):
             raise TypeError("%r is not a facet object, perhaps you meant "
                             "add_field()" % (facet,))
         self.facets.append(facet)
         return self
 
-    def categorizer(self, global_searcher):
+    def categorizer(self, global_searcher: 'searchers.Searcher'
+                    ) -> 'Categorizer':
         if not self.facets:
             raise Exception("No facets")
         elif len(self.facets) == 1:
@@ -836,29 +908,32 @@ class MultiFacet(FacetType):
         return catter
 
     class MultiCategorizer(Categorizer):
-        def __init__(self, catters):
+        def __init__(self, catters: Sequence[Categorizer]):
             self.catters = catters
 
-        @property
-        def needs_current(self):
-            return any(c.needs_current for c in self.catters)
-
-        def set_searcher(self, segment_searcher, docoffset):
+        def set_searcher(self, segment_searcher: 'searchers.Searcher',
+                         docoffset: int):
             for catter in self.catters:
                 catter.set_searcher(segment_searcher, docoffset)
 
-        def key_for(self, matcher, docid):
-            return tuple(catter.key_for(matcher, docid)
+        def key_for(self, matcher: 'matchers.Matcher', segment_docnum: int
+                    ) -> Any:
+            return tuple(catter.key_for(matcher, segment_docnum)
                          for catter in self.catters)
 
-        def key_to_name(self, key):
+        def key_to_name(self, key: Any) -> Any:
             return tuple(catter.key_to_name(keypart)
                          for catter, keypart
                          in izip(self.catters, key))
 
+        def close(self):
+            for catter in self.catters:
+                catter.close()
+
 
 class Facets(object):
-    """Maps facet names to :class:`FacetType` objects, for creating multiple
+    """
+    Maps facet names to :class:`FacetType` objects, for creating multiple
     groupings of documents.
 
     For example, to group by tag, and **also** group by price range::
@@ -954,7 +1029,8 @@ class Facets(object):
 # Objects for holding facet groups
 
 class FacetMap(object):
-    """Base class for objects holding the results of grouping search results by
+    """
+    Base class for objects holding the results of grouping search results by
     a Facet. Use an object's ``as_dict()`` method to access the results.
 
     You can pass a subclass of this to the ``maptype`` keyword argument when
@@ -990,7 +1066,8 @@ class FacetMap(object):
 
 
 class OrderedList(FacetMap):
-    """Stores a list of document numbers for each group, in the same order as
+    """
+    Stores a list of document numbers for each group, in the same order as
     they appear in the search results.
 
     The ``as_dict`` method returns a dictionary mapping group names to lists
@@ -1011,29 +1088,6 @@ class OrderedList(FacetMap):
         for key, items in iteritems(self.dict):
             d[key] = [docnum for _, docnum in sorted(items)]
         return d
-
-
-class UnorderedList(FacetMap):
-    """Stores a list of document numbers for each group, in arbitrary order.
-    This is slightly faster and uses less memory than
-    :class:`OrderedListResult` if you don't care about the ordering of the
-    documents within groups.
-
-    The ``as_dict`` method returns a dictionary mapping group names to lists
-    of document numbers.
-    """
-
-    def __init__(self):
-        self.dict = defaultdict(list)
-
-    def __repr__(self):
-        return "<%s %r>" % (self.__class__.__name__, self.dict)
-
-    def add(self, groupname, docid, sortkey):
-        self.dict[groupname].append(docid)
-
-    def as_dict(self):
-        return dict(self.dict)
 
 
 class Count(FacetMap):
@@ -1082,75 +1136,75 @@ class Best(FacetMap):
 
 # Helper functions
 
-def add_sortable(writer, fieldname, facet, column=None):
-    """Adds a per-document value column to an existing field which was created
-    without the ``sortable`` keyword argument.
-
-    >>> from whoosh import index, sorting
-    >>> ix = index.open_dir("indexdir")
-    >>> with ix.writer() as w:
-    ...   facet = sorting.FieldFacet("price")
-    ...   sorting.add_sortable(w, "price", facet)
-    ...
-
-    :param writer: a :class:`whoosh.writing.IndexWriter` object.
-    :param fieldname: the name of the field to add the per-document sortable
-        values to. If this field doesn't exist in the writer's schema, the
-        function will add a :class:`whoosh.fields.COLUMN` field to the schema,
-        and you must specify the column object to using the ``column`` keyword
-        argument.
-    :param facet: a :class:`FacetType` object to use to generate the
-        per-document values.
-    :param column: a :class:`whosh.columns.ColumnType` object to use to store
-        the per-document values. If you don't specify a column object, the
-        function will use the default column type for the given field.
-    """
-
-    storage = writer.storage
-    schema = writer.schema
-
-    field = None
-    if fieldname in schema:
-        field = schema[fieldname]
-        if field.column_type:
-            raise Exception("%r field is already sortable" % fieldname)
-
-    if column:
-        if fieldname not in schema:
-            from whoosh.fields import COLUMN
-            field = COLUMN(column)
-            schema.add(fieldname, field)
-    else:
-        if fieldname in schema:
-            column = field.default_column()
-        else:
-            raise Exception("Field %r does not exist" % fieldname)
-
-    searcher = writer.searcher()
-    catter = facet.categorizer(searcher)
-    for subsearcher, docoffset in searcher.leaf_searchers():
-        catter.set_searcher(subsearcher, docoffset)
-        reader = subsearcher.reader()
-
-        if reader.has_column(fieldname):
-            raise Exception("%r field already has a column" % fieldname)
-
-        codec = reader.codec()
-        segment = reader.segment()
-
-        colname = codec.column_filename(segment, fieldname)
-        colfile = storage.create_file(colname)
-        try:
-            colwriter = column.writer(colfile)
-            for docnum in reader.all_doc_ids():
-                v = catter.key_to_name(catter.key_for(None, docnum))
-                cv = field.to_column_value(v)
-                colwriter.add(docnum, cv)
-            colwriter.finish(reader.doc_count_all())
-        finally:
-            colfile.close()
-
-    field.column_type = column
-
-
-
+# def add_sortable(writer, fieldname, facet, column=None):
+#     """Adds a per-document value column to an existing field which was created
+#     without the ``sortable`` keyword argument.
+#
+#     >>> from whoosh import index, sorting
+#     >>> ix = index.open_dir("indexdir")
+#     >>> with ix.writer() as w:
+#     ...   facet = sorting.FieldFacet("price")
+#     ...   sorting.add_sortable(w, "price", facet)
+#     ...
+#
+#     :param writer: a :class:`whoosh.writing.SegmentWriter` object.
+#     :param fieldname: the name of the field to add the per-document sortable
+#         values to. If this field doesn't exist in the writer's schema, the
+#         function will add a :class:`whoosh.fields.COLUMN` field to the schema,
+#         and you must specify the column object to using the ``column`` keyword
+#         argument.
+#     :param facet: a :class:`FacetType` object to use to generate the
+#         per-document values.
+#     :param column: a :class:`whosh.columns.ColumnType` object to use to store
+#         the per-document values. If you don't specify a column object, the
+#         function will use the default column type for the given field.
+#     """
+#
+#     storage = writer.storage
+#     schema = writer.schema
+#
+#     field = None
+#     if fieldname in schema:
+#         field = schema[fieldname]
+#         if field.column_type:
+#             raise Exception("%r field is already sortable" % fieldname)
+#
+#     if column:
+#         if fieldname not in schema:
+#             from whoosh.fields import COLUMN
+#             field = COLUMN(column)
+#             schema.add(fieldname, field)
+#     else:
+#         if fieldname in schema:
+#             column = field.default_column()
+#         else:
+#             raise Exception("Field %r does not exist" % fieldname)
+#
+#     searcher = writer.searcher()
+#     catter = facet.categorizer(searcher)
+#     for subsearcher, docoffset in searcher.leaf_searchers():
+#         catter.set_searcher(subsearcher, docoffset)
+#         reader = subsearcher.reader()
+#
+#         if reader.has_column(fieldname):
+#             raise Exception("%r field already has a column" % fieldname)
+#
+#         codec = reader.codec()
+#         segment = reader.segment()
+#
+#         colname = codec.column_filename(segment, fieldname)
+#         colfile = storage.create_file(colname)
+#         try:
+#             colwriter = column.writer(colfile)
+#             for docnum in reader.all_doc_ids():
+#                 v = catter.key_to_name(catter.key_for(None, docnum))
+#                 cv = field.to_column_value(v)
+#                 colwriter.add(docnum, cv)
+#             colwriter.finish(reader.doc_count_all())
+#         finally:
+#             colfile.close()
+#
+#     field.column_type = column
+#
+#
+#

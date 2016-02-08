@@ -74,23 +74,24 @@ class TempDir(object):
 
 
 class TempStorage(TempDir):
-    def __init__(self, debug=False, **kwargs):
-        TempDir.__init__(self, **kwargs)
+    def __init__(self, debug=False, supports_mmap: bool=True, **kwargs):
+        super(TempStorage, self).__init__(**kwargs)
+        self._supports_mmap = supports_mmap
         self._debug = debug
+        self.store = None
 
     def cleanup(self):
         self.store.close()
 
     def __enter__(self):
         dirpath = TempDir.__enter__(self)
-        self.store = FileStorage(dirpath, debug=self._debug)
+        self.store = FileStorage(dirpath, supports_mmap=self._supports_mmap)
         return self.store
 
 
 class TempIndex(TempStorage):
-    def __init__(self, schema, ixname='', storage_debug=False, **kwargs):
-        TempStorage.__init__(self, basename=ixname, debug=storage_debug,
-                             **kwargs)
+    def __init__(self, schema, ixname='', **kwargs):
+        TempStorage.__init__(self, basename=ixname, **kwargs)
         self.schema = schema
 
     def __enter__(self):

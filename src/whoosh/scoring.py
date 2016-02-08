@@ -31,211 +31,32 @@ This module contains classes for scoring (and sorting) search results.
 
 from __future__ import division
 from math import log, pi
+from typing import Dict, Union
 
-from whoosh.compat import iteritems
-
-
-# Base classes
-
-class WeightingModel(object):
-    """Abstract base class for scoring models. A WeightingModel object provides
-    a method, ``scorer``, which returns an instance of
-    :class:`whoosh.scoring.Scorer`.
-
-    Basically, WeightingModel objects store the configuration information for
-    the model (for example, the values of B and K1 in the BM25F model), and
-    then creates a scorer instance based on additional run-time information
-    (the searcher, the fieldname, and term text) to do the actual scoring.
-    """
-
-    use_final = False
-
-    def idf(self, searcher, fieldname, text):
-        """Returns the inverse document frequency of the given term.
-        """
-
-        parent = searcher.get_parent()
-        n = parent.doc_frequency(fieldname, text)
-        dc = parent.doc_count_all()
-        return log(dc / (n + 1)) + 1
-
-    def scorer(self, searcher, fieldname, text, qf=1):
-        """Returns an instance of :class:`whoosh.scoring.Scorer` configured
-        for the given searcher, fieldname, and term text.
-        """
-
-        raise NotImplementedError(self.__class__.__name__)
-
-    def final(self, searcher, docnum, score):
-        """Returns a final score for each document. You can use this method
-        in subclasses to apply document-level adjustments to the score, for
-        example using the value of stored field to influence the score
-        (although that would be slow).
-
-        WeightingModel sub-classes that use ``final()`` should have the
-        attribute ``use_final`` set to ``True``.
-
-        :param searcher: :class:`whoosh.searching.Searcher` for the index.
-        :param docnum: the doc number of the document being scored.
-        :param score: the document's accumulated term score.
-
-        :rtype: float
-        """
-
-        return score
+from whoosh.ifaces import matchers, searchers, weights
+from whoosh.compat import iteritems, text_type
 
 
-class BaseScorer(object):
-    """Base class for "scorer" implementations. A scorer provides a method for
-    scoring a document, and sometimes methods for rating the "quality" of a
-    document and a matcher's current "block", to implement quality-based
-    optimizations.
+# Type aliases
 
-    Scorer objects are created by WeightingModel objects. Basically,
-    WeightingModel objects store the configuration information for the model
-    (for example, the values of B and K1 in the BM25F model), and then creates
-    a scorer instance.
-    """
-
-    def supports_block_quality(self):
-        """Returns True if this class supports quality optimizations.
-        """
-
-        return False
-
-    def score(self, matcher):
-        """Returns a score for the current document of the matcher.
-        """
-
-        raise NotImplementedError(self.__class__.__name__)
-
-    def max_quality(self):
-        """Returns the *maximum limit* on the possible score the matcher can
-        give. This can be an estimate and not necessarily the actual maximum
-        score possible, but it must never be less than the actual maximum
-        score.
-        """
-
-        raise NotImplementedError(self.__class__.__name__)
-
-    def block_quality(self, matcher):
-        """Returns the *maximum limit* on the possible score the matcher can
-        give **in its current "block"** (whatever concept of "block" the
-        backend might use). This can be an estimate and not necessarily the
-        actual maximum score possible, but it must never be less than the
-        actual maximum score.
-
-        If this score is less than the minimum score
-        required to make the "top N" results, then we can tell the matcher to
-        skip ahead to another block with better "quality".
-        """
-
-        raise NotImplementedError(self.__class__.__name__)
-
-
-# Scorer that just returns term weight
-
-class WeightScorer(BaseScorer):
-    """A scorer that simply returns the weight as the score. This is useful
-    for more complex weighting models to return when they are asked for a
-    scorer for fields that aren't scorable (don't store field lengths).
-    """
-
-    def __init__(self, maxweight):
-        self._maxweight = maxweight
-
-    def supports_block_quality(self):
-        return True
-
-    def score(self, matcher):
-        return matcher.weight()
-
-    def max_quality(self):
-        return self._maxweight
-
-    def block_quality(self, matcher):
-        return matcher.block_max_weight()
-
-    @classmethod
-    def for_(cls, searcher, fieldname, text):
-        ti = searcher.term_info(fieldname, text)
-        return cls(ti.max_weight())
-
-
-# Base scorer for models that only use weight and field length
-
-class WeightLengthScorer(BaseScorer):
-    """Base class for scorers where the only per-document variables are term
-    weight and field length.
-
-    Subclasses should override the ``_score(weight, length)`` method to return
-    the score for a document with the given weight and length, and call the
-    ``setup()`` method at the end of the initializer to set up common
-    attributes.
-    """
-
-    def setup(self, searcher, fieldname, text):
-        """Initializes the scorer and then does the busy work of
-        adding the ``dfl()`` function and maximum quality attribute.
-
-        This method assumes the initializers of WeightLengthScorer subclasses
-        always take ``searcher, offset, fieldname, text`` as the first three
-        arguments. Any additional arguments given to this method are passed
-        through to the initializer.
-
-        Note: this method calls ``self._score()``, so you should only call it
-        in the initializer after setting up whatever attributes ``_score()``
-        depends on::
-
-            class MyScorer(WeightLengthScorer):
-                def __init__(self, searcher, fieldname, text, parm=1.0):
-                    self.parm = parm
-                    self.setup(searcher, fieldname, text)
-
-                def _score(self, weight, length):
-                    return (weight / (length + 1)) * self.parm
-        """
-
-        ti = searcher.term_info(fieldname, text)
-        if not searcher.schema[fieldname].scorable:
-            return WeightScorer(ti.max_weight())
-
-        self.dfl = lambda docid: searcher.doc_field_length(docid, fieldname, 1)
-        self._maxquality = self._score(ti.max_weight(), ti.min_length())
-
-    def supports_block_quality(self):
-        return True
-
-    def score(self, matcher):
-        return self._score(matcher.weight(), self.dfl(matcher.id()))
-
-    def max_quality(self):
-        return self._maxquality
-
-    def block_quality(self, matcher):
-        return self._score(matcher.block_max_weight(),
-                           matcher.block_min_length())
-
-    def _score(self, weight, length):
-        # Override this method with the actual scoring function
-        raise NotImplementedError(self.__class__.__name__)
+TermText = Union[text_type, bytes]
 
 
 # WeightingModel implementations
 
 # Debugging model
 
-class DebugModel(WeightingModel):
+class DebugModel(weights.WeightingModel):
     def __init__(self):
         self.log = []
 
-    def scorer(self, searcher, fieldname, text, qf=1):
+    def scorer(self, searcher, fieldname, text, qf=1) -> 'DebugScorer':
         return DebugScorer(searcher, fieldname, text, self.log)
 
 
-class DebugScorer(BaseScorer):
+class DebugScorer(weights.Scorer):
     def __init__(self, searcher, fieldname, text, log):
-        ti = searcher.term_info(fieldname, text)
+        ti = searcher.reader().term_info(fieldname, text)
         self._maxweight = ti.max_weight()
 
         self.searcher = searcher
@@ -263,7 +84,7 @@ class DebugScorer(BaseScorer):
 
 # BM25F Model
 
-def bm25(idf, tf, fl, avgfl, B, K1):
+def bm25(idf, tf, fl, avgfl, B=0.75, K1=1.2):
     # idf - inverse document frequency
     # tf - term frequency in the current document
     # fl - field length in the current document
@@ -273,17 +94,17 @@ def bm25(idf, tf, fl, avgfl, B, K1):
     return idf * ((tf * (K1 + 1)) / (tf + K1 * ((1 - B) + B * fl / avgfl)))
 
 
-class BM25F(WeightingModel):
-    """Implements the BM25F scoring algorithm.
+class BM25F(weights.WeightingModel):
+    """
+    Implements the BM25F scoring algorithm.
+
+    >>> from whoosh import scoring
+    >>> # Set a custom B value for the "content" field
+    >>> w = scoring.BM25F(B=0.75, content_B=1.0, K1=1.5)
     """
 
     def __init__(self, B=0.75, K1=1.2, **kwargs):
         """
-
-        >>> from whoosh import scoring
-        >>> # Set a custom B value for the "content" field
-        >>> w = scoring.BM25F(B=0.75, content_B=1.0, K1=1.5)
-
         :param B: free parameter, see the BM25 literature. Keyword arguments of
             the form ``fieldname_B`` (for example, ``body_B``) set field-
             specific values for B.
@@ -299,13 +120,12 @@ class BM25F(WeightingModel):
                 fieldname = k[:-2]
                 self._field_B[fieldname] = v
 
-    def supports_block_quality(self):
+    @staticmethod
+    def supports_block_quality():
         return True
 
-    def scorer(self, searcher, fieldname, text, qf=1):
-        if not searcher.schema[fieldname].scorable:
-            return WeightScorer.for_(searcher, fieldname, text)
-
+    def scorer(self, searcher: 'searchers.Searcher', fieldname: str,
+               text: TermText, qf: float=1) -> 'BM25FScorer':
         if fieldname in self._field_B:
             B = self._field_B[fieldname]
         else:
@@ -314,20 +134,21 @@ class BM25F(WeightingModel):
         return BM25FScorer(searcher, fieldname, text, B, self.K1, qf=qf)
 
 
-class BM25FScorer(WeightLengthScorer):
-    def __init__(self, searcher, fieldname, text, B, K1, qf=1):
+class BM25FScorer(weights.WeightLengthScorer):
+    def __init__(self, searcher: 'searchers.Searcher', fieldname: str,
+                 text: TermText, B: float, K1: float, qf: float=1):
         # IDF and average field length are global statistics, so get them from
         # the top-level searcher
-        parent = searcher.get_parent()  # Returns self if no parent
+        parent = searcher.parent()  # Returns self if no parent
         self.idf = parent.idf(fieldname, text)
         self.avgfl = parent.avg_field_length(fieldname) or 1
-
         self.B = B
         self.K1 = K1
         self.qf = qf
-        self.setup(searcher, fieldname, text)
 
-    def _score(self, weight, length):
+        super(BM25FScorer, self).__init__(searcher, fieldname, text)
+
+    def _score(self, weight: float, length: int):
         s = bm25(self.idf, weight, length, self.avgfl, self.B, self.K1)
         return s
 
@@ -345,39 +166,42 @@ def dfree(tf, cf, qf, dl, fl):
     invpriorcol = fl / cf
     norm = tf * log(post / prior)
 
-    return qf * norm * (tf * (log(prior * invpriorcol))
-                        + (tf + 1.0) * (log(post * invpriorcol))
-                        + 0.5 * log(post / prior))
+    return qf * norm * (tf * (log(prior * invpriorcol)) +
+                        (tf + 1.0) * (log(post * invpriorcol)) +
+                        0.5 * log(post / prior))
 
 
-class DFree(WeightingModel):
-    """Implements the DFree scoring model from Terrier.
+class DFree(weights.WeightingModel):
+    """
+    Implements the DFree scoring model from Terrier.
 
     See http://terrier.org/
     """
 
-    def supports_block_quality(self):
+    @staticmethod
+    def supports_block_quality():
         return True
 
-    def scorer(self, searcher, fieldname, text, qf=1):
+    def scorer(self, searcher: 'searchers.Searcher', fieldname: str,
+               text: TermText, qf: float=1) -> 'DFreeScorer':
         if not searcher.schema[fieldname].scorable:
-            return WeightScorer.for_(searcher, fieldname, text)
+            return weights.WeightScorer.for_(searcher, fieldname, text)
 
         return DFreeScorer(searcher, fieldname, text, qf=qf)
 
 
-class DFreeScorer(WeightLengthScorer):
-    def __init__(self, searcher, fieldname, text, qf=1):
+class DFreeScorer(weights.WeightLengthScorer):
+    def __init__(self, searcher: 'searchers.Searcher', fieldname: str,
+                 text: TermText, qf: float=1):
         # Total term weight and total field length are global statistics, so
         # get them from the top-level searcher
-        parent = searcher.get_parent()  # Returns self if no parent
-        self.cf = parent.weight(fieldname, text)
+        parent = searcher.parent()  # Returns self if no parent
+        self.cf = parent.reader().weight(fieldname, text)
         self.fl = parent.field_length(fieldname)
-
         self.qf = qf
-        self.setup(searcher, fieldname, text)
+        super(DFreeScorer, self).__init__(searcher, fieldname, text)
 
-    def _score(self, weight, length):
+    def _score(self, weight: float, length: int) -> float:
         return dfree(weight, self.cf, self.qf, length, self.fl)
 
 
@@ -404,34 +228,33 @@ def pl2(tf, cf, qf, dc, fl, avgfl, c):
                         + TF * (log(TF) - rec_log2_of_e))
 
 
-class PL2(WeightingModel):
-    """Implements the PL2 scoring model from Terrier.
+class PL2(weights.WeightingModel):
+    """
+    Implements the PL2 scoring model from Terrier.
 
     See http://terrier.org/
     """
 
-    def __init__(self, c=1.0):
+    def __init__(self, c: float=1.0):
         self.c = c
 
-    def scorer(self, searcher, fieldname, text, qf=1):
-        if not searcher.schema[fieldname].scorable:
-            return WeightScorer.for_(searcher, fieldname, text)
-
+    def scorer(self, searcher: 'searchers.Searcher', fieldname: str,
+               text: TermText, qf: float=1) -> 'PL2Scorer':
         return PL2Scorer(searcher, fieldname, text, self.c, qf=qf)
 
 
-class PL2Scorer(WeightLengthScorer):
-    def __init__(self, searcher, fieldname, text, c, qf=1):
+class PL2Scorer(weights.WeightLengthScorer):
+    def __init__(self, searcher: 'searchers.Searcher', fieldname: str,
+                 text: TermText, c: float, qf: float=1):
         # Total term weight, document count, and average field length are
         # global statistics, so get them from the top-level searcher
-        parent = searcher.get_parent()  # Returns self if no parent
-        self.cf = parent.frequency(fieldname, text)
+        parent = searcher.parent()  # Returns self if no parent
+        self.cf = parent.reader().weight(fieldname, text)
         self.dc = parent.doc_count_all()
         self.avgfl = parent.avg_field_length(fieldname) or 1
-
         self.c = c
         self.qf = qf
-        self.setup(searcher, fieldname, text)
+        super(PL2Scorer, self).__init__(searcher, fieldname, text)
 
     def _score(self, weight, length):
         return pl2(weight, self.cf, self.qf, self.dc, length, self.avgfl,
@@ -440,26 +263,32 @@ class PL2Scorer(WeightLengthScorer):
 
 # Simple models
 
-class Frequency(WeightingModel):
-    def scorer(self, searcher, fieldname, text, qf=1):
-        maxweight = searcher.term_info(fieldname, text).max_weight()
-        return WeightScorer(maxweight)
+class Frequency(weights.WeightingModel):
+    def scorer(self, searcher: 'searchers.Searcher', fieldname: str,
+               text: TermText, qf: float=1) -> 'weights.WeightScorer':
+        fieldobj = searcher.schema[fieldname]
+        if fieldobj.scorable:
+            maxw = searcher.reader().term_info(fieldname, text).max_weight()
+        else:
+            maxw = 1.0
+        return weights.WeightScorer(maxw)
 
 
-class TF_IDF(WeightingModel):
-    def scorer(self, searcher, fieldname, text, qf=1):
+class TF_IDF(weights.WeightingModel):
+    def scorer(self, searcher: 'searchers.Searcher', fieldname: str,
+               text: TermText, qf: float=1) -> 'TF_IDFScorer':
+        return TF_IDFScorer(searcher, fieldname, text)
+
+
+class TF_IDFScorer(weights.Scorer):
+    def __init__(self, searcher: 'searchers.Searcher', fieldname: str,
+                 text: TermText):
         # IDF is a global statistic, so get it from the top-level searcher
-        parent = searcher.get_parent()  # Returns self if no parent
-        idf = parent.idf(fieldname, text)
+        parent = searcher.parent()  # Returns self if no parent
+        self.idf = parent.idf(fieldname, text)
 
-        maxweight = searcher.term_info(fieldname, text).max_weight()
-        return TF_IDFScorer(maxweight, idf)
-
-
-class TF_IDFScorer(BaseScorer):
-    def __init__(self, maxweight, idf):
-        self._maxquality = maxweight * idf
-        self.idf = idf
+        maxweight = searcher.reader().term_info(fieldname, text).max_weight()
+        self._maxquality = maxweight * self.idf
 
     def supports_block_quality(self):
         return True
@@ -476,32 +305,12 @@ class TF_IDFScorer(BaseScorer):
 
 # Utility models
 
-class Weighting(WeightingModel):
-    """This class provides backwards-compatibility with the old weighting
-    class architecture, so any existing custom scorers don't need to be
-    rewritten.
+ScoreFn = 'Callable[[searchers.Searcher, str, TermText, float], float]'
+
+
+class FunctionWeighting(weights.WeightingModel):
     """
-
-    def scorer(self, searcher, fieldname, text, qf=1):
-        return self.CompatibilityScorer(searcher, fieldname, text, self.score)
-
-    def score(self, searcher, fieldname, text, docnum, weight):
-        raise NotImplementedError
-
-    class CompatibilityScorer(BaseScorer):
-        def __init__(self, searcher, fieldname, text, scoremethod):
-            self.searcher = searcher
-            self.fieldname = fieldname
-            self.text = text
-            self.scoremethod = scoremethod
-
-        def score(self, matcher):
-            return self.scoremethod(self.searcher, self.fieldname, self.text,
-                                    matcher.id(), matcher.weight())
-
-
-class FunctionWeighting(WeightingModel):
-    """Uses a supplied function to do the scoring. For simple scoring functions
+    Uses a supplied function to do the scoring. For simple scoring functions
     and experiments this may be simpler to use than writing a full weighting
     model class and scorer class.
 
@@ -526,81 +335,92 @@ class FunctionWeighting(WeightingModel):
     write a real model/scorer combo so you can cache them on the object.)
     """
 
-    def __init__(self, fn):
+    def __init__(self, fn: ScoreFn):
         self.fn = fn
 
-    def scorer(self, searcher, fieldname, text, qf=1):
-        return self.FunctionScorer(self.fn, searcher, fieldname, text, qf=qf)
-
-    class FunctionScorer(BaseScorer):
-        def __init__(self, fn, searcher, fieldname, text, qf=1):
-            self.fn = fn
-            self.searcher = searcher
-            self.fieldname = fieldname
-            self.text = text
-            self.qf = qf
-
-        def score(self, matcher):
-            return self.fn(self.searcher, self.fieldname, self.text, matcher)
+    def scorer(self, searcher: 'searchers.Searcher', fieldname: str,
+               text: TermText, qf: float=1) -> 'FunctionScorer':
+        return FunctionScorer(self.fn, searcher, fieldname, text, qf=qf)
 
 
-class MultiWeighting(WeightingModel):
-    """Chooses from multiple scoring algorithms based on the field.
+class FunctionScorer(weights.Scorer):
+    def __init__(self, fn: ScoreFn, searcher: 'searchers.Searcher',
+                 fieldname: str, text: TermText, qf: float=1):
+        self.fn = fn
+        self.searcher = searcher
+        self.fieldname = fieldname
+        self.text = text
+        self.qf = qf
+
+    def score(self, matcher):
+        return self.fn(self.searcher, self.fieldname, self.text, matcher)
+
+
+class MultiWeighting(weights.WeightingModel):
+    """
+    Chooses from multiple scoring algorithms based on the field.
+
+    The only non-keyword argument specifies the default
+    :class:`weighting.WeightingModel` instance to use. Keyword arguments specify
+    WeightingModel instances for specific fields.
+
+    For example, to use ``BM25`` for most fields, but ``Frequency`` for
+    the ``id`` field and ``TF_IDF`` for the ``keys`` field::
+
+        mw = MultiWeighting(BM25(), id=Frequency(), keys=TF_IDF())
     """
 
-    def __init__(self, default, **weightings):
-        """The only non-keyword argument specifies the default
-        :class:`Weighting` instance to use. Keyword arguments specify
-        Weighting instances for specific fields.
-
-        For example, to use ``BM25`` for most fields, but ``Frequency`` for
-        the ``id`` field and ``TF_IDF`` for the ``keys`` field::
-
-            mw = MultiWeighting(BM25(), id=Frequency(), keys=TF_IDF())
-
+    def __init__(self, default: 'weights.WeightingModel',
+                 **weightings: 'Dict[str, weights.WeightingModel]'):
+        """
         :param default: the Weighting instance to use for fields not
             specified in the keyword arguments.
+        :param weightings: keyword argument names are field names, and the
+            values are WeightingModel instances.
         """
 
         self.default = default
-        # Store weighting functions by field name
         self.weightings = weightings
 
-    def scorer(self, searcher, fieldname, text, qf=1):
+    def scorer(self, searcher: 'searchers.Searcher', fieldname: str,
+               text: TermText, qf: float=1) -> 'weights.Scorer':
         w = self.weightings.get(fieldname, self.default)
         return w.scorer(searcher, fieldname, text, qf=qf)
 
 
-class ReverseWeighting(WeightingModel):
-    """Wraps a weighting object and subtracts the wrapped model's scores from
+class ReverseWeighting(weights.WeightingModel):
+    """
+    Wraps a weighting object and subtracts the wrapped model's scores from
     0, essentially reversing the weighting model.
     """
 
-    def __init__(self, weighting):
+    def __init__(self, weighting: 'weights.WeightingModel'):
         self.weighting = weighting
 
-    def scorer(self, searcher, fieldname, text, qf=1):
+    def scorer(self, searcher: 'searchers.Searcher', fieldname: str,
+               text: TermText, qf: float=1) -> 'ReverseScorer':
         subscorer = self.weighting.scorer(searcher, fieldname, text, qf=qf)
-        return ReverseWeighting.ReverseScorer(subscorer)
-
-    class ReverseScorer(BaseScorer):
-        def __init__(self, subscorer):
-            self.subscorer = subscorer
-
-        def supports_block_quality(self):
-            return self.subscorer.supports_block_quality()
-
-        def score(self, matcher):
-            return 0 - self.subscorer.score(matcher)
-
-        def max_quality(self):
-            return 0 - self.subscorer.max_quality()
-
-        def block_quality(self, matcher):
-            return 0 - self.subscorer.block_quality(matcher)
+        return ReverseScorer(subscorer)
 
 
-#class PositionWeighting(WeightingModel):
+class ReverseScorer(weights.Scorer):
+    def __init__(self, subscorer):
+        self.subscorer = subscorer
+
+    def supports_block_quality(self):
+        return self.subscorer.supports_block_quality()
+
+    def score(self, matcher: 'matchers.Matcher') -> float:
+        return 0 - self.subscorer.score(matcher)
+
+    def max_quality(self) -> float:
+        return 0 - self.subscorer.max_quality()
+
+    def block_quality(self, matcher: 'matchers.Matcher') -> float:
+        return 0 - self.subscorer.block_quality(matcher)
+
+
+#class PositionWeighting(weighting.WeightingModel):
 #    def __init__(self, reversed=False):
 #        self.reversed = reversed
 #

@@ -67,17 +67,22 @@ def timedelta_to_usecs(td):
     return total
 
 
-def datetime_to_long(dt):
-    """Converts a datetime object to a long integer representing the number
+def datetime_to_long(dt: datetime) -> int:
+    """
+    Converts a datetime object to a long integer representing the number
     of microseconds since ``datetime.min``.
+
+    :param dt: the datetime object to convert to an integer.
     """
 
     return timedelta_to_usecs(dt.replace(tzinfo=None) - dt.min)
 
 
-def long_to_datetime(x):
+def long_to_datetime(x: int) -> datetime:
     """Converts a long integer representing the number of microseconds since
     ``datetime.min`` to a datetime object.
+
+    :param x: the integer to convert to a datetime object.
     """
 
     days = x // 86400000000  # Microseconds in a day

@@ -25,12 +25,12 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from whoosh.query.qcore import *
-from whoosh.query.terms import *
 from whoosh.query.compound import *
-from whoosh.query.positional import *
-from whoosh.query.ranges import *
-from whoosh.query.wrappers import *
 from whoosh.query.nested import *
+from whoosh.query.positional import *
 from whoosh.query.qcolumns import *
+from whoosh.query.ranges import *
 from whoosh.query.spans import *
+from whoosh.query.terms import *
+from whoosh.query.wrappers import *
+from whoosh.ifaces.queries import *

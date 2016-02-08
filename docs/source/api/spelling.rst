@@ -15,6 +15,9 @@ Corrector objects
 
 .. autoclass:: ReaderCorrector
 
+.. autoclass:: GraphCorrector
+    :members:
+
 .. autoclass:: MultiCorrector
 
 

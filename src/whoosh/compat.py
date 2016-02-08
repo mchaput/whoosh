@@ -14,8 +14,6 @@ def htmlescape(s, quote=True):
     return s
 
 if sys.version_info[0] < 3:
-    PY3 = False
-
     def b(s):
         return s
 
@@ -37,6 +35,7 @@ if sys.version_info[0] < 3:
     unichr = unichr
     from urllib import urlretrieve
     import Queue as queue
+    import urlparse
 
     def byte(num):
         return chr(num)
@@ -52,14 +51,7 @@ if sys.version_info[0] < 3:
     xrange = xrange
     zip_ = zip
 
-    def memoryview_(source, offset=None, length=None):
-        if offset or length:
-            return buffer(source, offset, length)
-        else:
-            return buffer(source)
-
 else:
-    PY3 = True
     import collections
 
     def b(s):
@@ -85,6 +77,7 @@ else:
     unichr = chr
     from urllib.request import urlretrieve
     import queue
+    from urllib import parse as urlparse
 
     def byte(num):
         return bytes((num,))
@@ -102,13 +95,6 @@ else:
 
     xrange = range
     zip_ = lambda * args: list(zip(*args))
-
-    def memoryview_(source, offset=None, length=None):
-        mv = memoryview(source)
-        if offset or length:
-            return mv[offset:offset + length]
-        else:
-            return mv
 
     try:
         # for python >= 3.2, avoid DeprecationWarning for cgi.escape

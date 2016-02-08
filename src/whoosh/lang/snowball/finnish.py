@@ -30,28 +30,28 @@ class FinnishStemmer(_StandardStemmer):
            http://snowball.tartarus.org/algorithms/finnish/stemmer.html
     """
 
-    __vowels = u("aeiouy\xE4\xF6")
-    __restricted_vowels = u("aeiou\xE4\xF6")
-    __long_vowels = ("aa", "ee", "ii", "oo", "uu", u("\xE4\xE4"),
-                     u("\xF6\xF6"))
+    __vowels = u"aeiouy\xE4\xF6"
+    __restricted_vowels = u"aeiou\xE4\xF6"
+    __long_vowels = ("aa", "ee", "ii", "oo", "uu", u"\xE4\xE4",
+                     u"\xF6\xF6")
     __consonants = "bcdfghjklmnpqrstvwxz"
     __double_consonants = ("bb", "cc", "dd", "ff", "gg", "hh", "jj",
                            "kk", "ll", "mm", "nn", "pp", "qq", "rr",
                            "ss", "tt", "vv", "ww", "xx", "zz")
-    __step1_suffixes = ('kaan', u('k\xE4\xE4n'), 'sti', 'kin', 'han',
-                        u('h\xE4n'), 'ko', u('k\xF6'), 'pa', u('p\xE4'))
-    __step2_suffixes = ('nsa', u('ns\xE4'), 'mme', 'nne', 'si', 'ni',
-                        'an', u('\xE4n'), 'en')
+    __step1_suffixes = ('kaan', u'k\xE4\xE4n', 'sti', 'kin', 'han',
+                        u'h\xE4n', 'ko', u'k\xF6', 'pa', u'p\xE4')
+    __step2_suffixes = ('nsa', u'ns\xE4', 'mme', 'nne', 'si', 'ni',
+                        'an', u'\xE4n', 'en')
     __step3_suffixes = ('siin', 'tten', 'seen', 'han', 'hen', 'hin',
-                        'hon', u('h\xE4n'), u('h\xF6n'), 'den', 'tta',
-                        u('tt\xE4'), 'ssa', u('ss\xE4'), 'sta',
-                        u('st\xE4'), 'lla', u('ll\xE4'), 'lta',
-                        u('lt\xE4'), 'lle', 'ksi', 'ine', 'ta',
-                        u('t\xE4'), 'na', u('n\xE4'), 'a', u('\xE4'),
+                        'hon', u'h\xE4n', u'h\xF6n', 'den', 'tta',
+                        u'tt\xE4', 'ssa', u'ss\xE4', 'sta',
+                        u'st\xE4', 'lla', u'll\xE4', 'lta',
+                        u'lt\xE4', 'lle', 'ksi', 'ine', 'ta',
+                        u't\xE4', 'na', u'n\xE4', 'a', u'\xE4',
                         'n')
-    __step4_suffixes = ('impi', 'impa', u('imp\xE4'), 'immi', 'imma',
-                        u('imm\xE4'), 'mpi', 'mpa', u('mp\xE4'), 'mmi',
-                        'mma', u('mm\xE4'), 'eja', u('ej\xE4'))
+    __step4_suffixes = ('impi', 'impa', u'imp\xE4', 'immi', 'imma',
+                        u'imm\xE4', 'mpi', 'mpa', u'mp\xE4', 'mmi',
+                        'mma', u'mm\xE4', 'eja', u'ej\xE4')
 
     def stem(self, word):
         """
@@ -78,7 +78,7 @@ class FinnishStemmer(_StandardStemmer):
                         r1 = r1[:-3]
                         r2 = r2[:-3]
                 else:
-                    if word[-len(suffix) - 1] in u("ntaeiouy\xE4\xF6"):
+                    if word[-len(suffix) - 1] in u"ntaeiouy\xE4\xF6":
                         word = word[:-len(suffix)]
                         r1 = r1[:-len(suffix)]
                         r2 = r2[:-len(suffix)]
@@ -113,10 +113,10 @@ class FinnishStemmer(_StandardStemmer):
                         r1 = r1[:-2]
                         r2 = r2[:-2]
 
-                elif suffix == u("\xE4n"):
-                    if (word[-4:-2] in (u("t\xE4"), u("n\xE4")) or
-                        word[-5:-2] in (u("ss\xE4"), u("st\xE4"),
-                                        u("ll\xE4"), u("lt\xE4"))):
+                elif suffix == u"\xE4n":
+                    if (word[-4:-2] in (u"t\xE4", u"n\xE4") or
+                        word[-5:-2] in (u"ss\xE4", u"st\xE4",
+                                        u"ll\xE4", u"lt\xE4")):
                         word = word[:-2]
                         r1 = r1[:-2]
                         r2 = r2[:-2]
@@ -135,14 +135,14 @@ class FinnishStemmer(_StandardStemmer):
         # STEP 3: Cases
         for suffix in self.__step3_suffixes:
             if r1.endswith(suffix):
-                if suffix in ("han", "hen", "hin", "hon", u("h\xE4n"),
-                              u("h\xF6n")):
+                if suffix in ("han", "hen", "hin", "hon", u"h\xE4n",
+                              u"h\xF6n"):
                     if ((suffix == "han" and word[-4] == "a") or
                         (suffix == "hen" and word[-4] == "e") or
                         (suffix == "hin" and word[-4] == "i") or
                         (suffix == "hon" and word[-4] == "o") or
-                        (suffix == u("h\xE4n") and word[-4] == u("\xE4")) or
-                        (suffix == u("h\xF6n") and word[-4] == u("\xF6"))):
+                        (suffix == u"h\xE4n" and word[-4] == u"\xE4") or
+                        (suffix == u"h\xF6n" and word[-4] == u"\xF6")):
                         word = word[:-3]
                         r1 = r1[:-3]
                         r2 = r2[:-3]
@@ -167,14 +167,14 @@ class FinnishStemmer(_StandardStemmer):
                     else:
                         continue
 
-                elif suffix in ("a", u("\xE4")):
+                elif suffix in ("a", u"\xE4"):
                     if word[-2] in self.__vowels and word[-3] in self.__consonants:
                         word = word[:-1]
                         r1 = r1[:-1]
                         r2 = r2[:-1]
                         step3_success = True
 
-                elif suffix in ("tta", u("tt\xE4")):
+                elif suffix in ("tta", u"tt\xE4"):
                     if word[-4] == "e":
                         word = word[:-3]
                         r1 = r1[:-3]
@@ -201,8 +201,8 @@ class FinnishStemmer(_StandardStemmer):
         # STEP 4: Other endings
         for suffix in self.__step4_suffixes:
             if r2.endswith(suffix):
-                if suffix in ("mpi", "mpa", u("mp\xE4"), "mmi", "mma",
-                              u("mm\xE4")):
+                if suffix in ("mpi", "mpa", u"mp\xE4", "mmi", "mma",
+                              u"mm\xE4"):
                     if word[-5:-3] != "po":
                         word = word[:-3]
                         r1 = r1[:-3]
@@ -236,7 +236,7 @@ class FinnishStemmer(_StandardStemmer):
             r1 = r1[:-1]
 
         if (len(r1) >= 2 and r1[-2] in self.__consonants and
-            r1[-1] in u("a\xE4ei")):
+            r1[-1] in u"a\xE4ei"):
             word = word[:-1]
             r1 = r1[:-1]
 

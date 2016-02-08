@@ -30,7 +30,7 @@ from bisect import bisect_left
 from threading import Lock, RLock
 
 from whoosh.compat import xrange
-from whoosh.codec import base
+from whoosh.ifaces import codecs
 from whoosh.matching import ListMatcher
 from whoosh.reading import SegmentReader, TermInfo, TermNotFound
 from whoosh.writing import SegmentWriter
@@ -41,7 +41,7 @@ class MemWriter(SegmentWriter):
         self._finalize_segment()
 
 
-class MemoryCodec(base.Codec):
+class MemoryCodec(codecs.Codec):
     def __init__(self):
         from whoosh.filedb.filestore import RamStorage
 
@@ -72,7 +72,7 @@ class MemoryCodec(base.Codec):
         return self.segment
 
 
-class MemPerDocWriter(base.PerDocWriterWithColumns):
+class MemPerDocWriter(codecs.PerDocWriterWithColumns):
     def __init__(self, storage, segment):
         self._storage = storage
         self._segment = segment
@@ -122,7 +122,7 @@ class MemPerDocWriter(base.PerDocWriterWithColumns):
         self.is_closed = True
 
 
-class MemPerDocReader(base.PerDocumentReader):
+class MemPerDocReader(codecs.PerDocumentReader):
     def __init__(self, storage, segment):
         self._storage = storage
         self._segment = segment
@@ -149,11 +149,12 @@ class MemPerDocReader(base.PerDocumentReader):
         filename = "%s.c" % fieldname
         return self._storage.file_exists(filename)
 
-    def column_reader(self, fieldname, column):
+    def column_reader(self, fieldname, column, reverse=False):
         filename = "%s.c" % fieldname
         colfile = self._storage.open_file(filename)
         length = self._storage.file_length(filename)
-        return column.reader(colfile, 0, length, self._segment.doc_count_all())
+        return column.reader(colfile, 0, length, self._segment.doc_count_all(),
+                             reverse=reverse)
 
     def doc_field_length(self, docnum, fieldname, default=0):
         return self._segment._lengths[docnum].get(fieldname, default)
@@ -186,7 +187,7 @@ class MemPerDocReader(base.PerDocumentReader):
         pass
 
 
-class MemFieldWriter(base.FieldWriter):
+class MemFieldWriter(codecs.FieldWriter):
     def __init__(self, storage, segment):
         self._storage = storage
         self._segment = segment
@@ -246,7 +247,7 @@ class MemFieldWriter(base.FieldWriter):
         self.is_closed = True
 
 
-class MemTermsReader(base.TermsReader):
+class MemTermsReader(codecs.TermsReader):
     def __init__(self, storage, segment):
         self._storage = storage
         self._segment = segment
@@ -285,10 +286,10 @@ class MemTermsReader(base.TermsReader):
         pass
 
 
-class MemSegment(base.Segment):
-    def __init__(self, codec, indexname):
-        base.Segment.__init__(self, indexname)
-        self._codec = codec
+class MemSegment(codecs.Segment):
+    def __init__(self, cdc, indexname):
+        codecs.Segment.__init__(self, indexname)
+        self._codec = cdc
         self._doccount = 0
         self._stored = {}
         self._lengths = {}

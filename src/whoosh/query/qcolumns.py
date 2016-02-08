@@ -25,12 +25,16 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from whoosh.matching import ConstantScoreMatcher, NullMatcher, ReadTooFar
-from whoosh.query import Query
+from whoosh.ifaces import matchers, queries
+from whoosh.matching import wrappers
 
 
-class ColumnQuery(Query):
-    """A query that matches per-document values stored in a column rather than
+__all__ = ("ColumnQuery", "ColumnMatcher")
+
+
+class ColumnQuery(queries.Query):
+    """
+    A query that matches per-document values stored in a column rather than
     terms in the inverted index.
 
     This may be useful in special circumstances, but note that this is MUCH
@@ -66,13 +70,13 @@ class ColumnQuery(Query):
 
         reader = searcher.reader()
         if not reader.has_column(fieldname):
-            return NullMatcher()
+            return matchers.NullMatcher()
 
         creader = reader.column_reader(fieldname)
         return ColumnMatcher(creader, comp)
 
 
-class ColumnMatcher(ConstantScoreMatcher):
+class ColumnMatcher(wrappers.ConstantScoreMatcher):
     def __init__(self, creader, condition):
         self.creader = creader
         self.condition = condition
@@ -91,7 +95,7 @@ class ColumnMatcher(ConstantScoreMatcher):
 
     def next(self):
         if not self.is_active():
-            raise ReadTooFar
+            raise matchers.ReadTooFar
         self._i += 1
         self._find_next()
 

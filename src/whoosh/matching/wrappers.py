@@ -26,207 +26,257 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import division
+from typing import (
+    Any, Callable, Iterable, Optional, Sequence, Set, Tuple, Union,
+)
 
-from whoosh.compat import xrange
-from whoosh.matching import mcore
+from whoosh import idsets, postings
+from whoosh.ifaces import matchers, weights
 
 
-class WrappingMatcher(mcore.Matcher):
-    """Base class for matchers that wrap sub-matchers.
+__all__ = ("WrappingMatcher", "ConstantScoreMatcher", "MultiMatcher",
+           "FilterMatcher", "InverseMatcher", "SingleTermMatcher",
+           "CoordMatcher", "AndNotMatcher", "AndMaybeMatcher")
+
+
+class WrappingMatcher(matchers.Matcher):
+    """
+    Base class for matchers that wrap sub-matchers.
     """
 
-    def __init__(self, child, boost=1.0):
+    def __init__(self, child: matchers.Matcher, boost: float=1.0):
         self.child = child
-        self.boost = boost
+        self._boost = boost
 
     def __repr__(self):
         return "%s(%r, boost=%s)" % (self.__class__.__name__, self.child,
-                                     self.boost)
+                                     self._boost)
 
-    def copy(self):
-        kwargs = {}
-        if hasattr(self, "boost"):
-            kwargs["boost"] = self.boost
-        return self.__class__(self.child.copy(), **kwargs)
+    # Subclasses should override _rewrap to wrap a replaced or copied child
 
-    def depth(self):
-        return 1 + self.child.depth()
+    def _rewrap(self, newchild: matchers.Matcher):
+        return self.__class__(newchild, self._boost)
 
-    def _replacement(self, newchild):
-        return self.__class__(newchild, boost=self.boost)
+    def copy(self) -> matchers.Matcher:
+        return self._rewrap(self.child.copy())
 
-    def replace(self, minquality=0):
+    def children(self) -> Sequence[matchers.Matcher]:
+        return self.child.children()
+
+    def replace(self, minquality=0) -> matchers.Matcher:
         # Replace the child matcher
-        r = self.child.replace(minquality)
+        r = self.child.replace(minquality / self._boost)
         if r is not self.child:
             # If the child changed, return a new wrapper on the new child
-            return self._replacement(r)
+            return self._rewrap(r)
         else:
             return self
 
-    def id(self):
-        return self.child.id()
+    # Implement defaults for Matcher interface
 
-    def all_ids(self):
-        return self.child.all_ids()
-
-    def is_active(self):
+    def is_active(self) -> bool:
         return self.child.is_active()
 
-    def reset(self):
-        self.child.reset()
+    def id(self) -> int:
+        return self.child.id()
 
-    def children(self):
-        return [self.child]
-
-    def supports(self, astype):
-        return self.child.supports(astype)
-
-    def value(self):
-        return self.child.value()
-
-    def value_as(self, astype):
-        return self.child.value_as(astype)
-
-    def spans(self):
-        return self.child.spans()
-
-    def skip_to(self, id):
-        return self.child.skip_to(id)
-
-    def next(self):
+    def next(self) -> bool:
         self.child.next()
 
-    def supports_block_quality(self):
-        return self.child.supports_block_quality()
+    def skip_to(self, docid: int) -> bool:
+        return self.child.skip_to(docid)
 
-    def skip_to_quality(self, minquality):
-        return self.child.skip_to_quality(minquality / self.boost)
+    def save(self) -> Any:
+        return self.child.save()
 
-    def max_quality(self):
-        return self.child.max_quality() * self.boost
-
-    def block_quality(self):
-        return self.child.block_quality() * self.boost
+    def restore(self, place: Any):
+        self.child.restore(place)
 
     def weight(self):
-        return self.child.weight() * self.boost
+        return self.child.weight() * self._boost
 
     def score(self):
-        return self.child.score() * self.boost
+        return self.child.score() * self._boost
+
+    def supports(self, name: str) -> bool:
+        return self.child.supports(name)
+
+    def supports_block_quality(self) -> bool:
+        return self.child.supports_block_quality()
+
+    def max_quality(self) -> float:
+        return self.child.max_quality()
+
+    def block_quality(self) -> float:
+        return self.child.block_quality()
+
+    def skip_to_quality(self, minquality: float) -> int:
+        return self.child.skip_to_quality(minquality)
+
+    # Use super's all_ids() and all_postings() because we want to use our
+    # is_active(), next(), id(), etc., not the child's
+
+    # Leaf methods
+
+    def term(self) -> Optional[Tuple[str, bytes]]:
+        return self.child.term()
+
+    def posting(self) -> 'Optional[postings.PostTuple]':
+        return self.child.posting()
+
+    # def all_postings(self) -> Iterable[postings.PostTuple]:
+    #     return self.child.all_postings()
+
+    def has_weights(self) -> bool:
+        return self.child.has_weights()
+
+    def has_lengths(self) -> bool:
+        return self.child.has_lengths()
+
+    def has_positions(self) -> bool:
+        return self.child.has_positions()
+
+    def has_chars(self) -> bool:
+        return self.child.has_chars()
+
+    def has_payloads(self) -> bool:
+        return self.child.has_payloads()
+
+    def length(self) -> int:
+        return self.child.length()
+
+    def positions(self) -> Sequence[int]:
+        return self.child.positions()
+
+    def chars(self) -> Sequence[Tuple[int]]:
+        return self.child.chars()
+
+    def payloads(self) -> Sequence[bytes]:
+        return self.child.payloads()
 
 
-class MultiMatcher(mcore.Matcher):
-    """Serializes the results of a list of sub-matchers.
+class ConstantScoreMatcher(WrappingMatcher):
+    def __init__(self, child, score=1.0):
+        self.child = child
+        self._boost = score
+        self._active = True
+
+    def _rewrap(self, newchild: matchers.Matcher) -> matchers.Matcher:
+        return self.__class__(newchild, self._boost)
+
+    def is_active(self) -> bool:
+        return self._active and self.child.is_active()
+
+    def supports_block_quality(self):
+        return True
+
+    def max_quality(self) -> float:
+        return self._boost
+
+    def replace(self, minquality: float=0) -> matchers.Matcher:
+        if minquality and self._boost <= minquality:
+            return matchers.NullMatcher()
+        else:
+            return self
+
+    def block_quality(self) -> float:
+        return self._boost
+
+    def skip_to_quality(self, minquality):
+        if minquality >= self._boost:
+            self._active = False
+
+    def score(self) -> float:
+        return self._boost
+
+
+class DocOffsetMatcher(WrappingMatcher):
+    def __init__(self, child: 'matchers.Matcher', doc_offset: int):
+        super(DocOffsetMatcher, self).__init__(child)
+        self._doc_offset = doc_offset
+
+    def _rewrap(self, newchild: matchers.Matcher) -> 'DocOffsetMatcher':
+        return self.__class__(newchild, self._doc_offset)
+
+    def id(self):
+        return self.child.id() + self._doc_offset
+
+    def skip_to(self, docid: int) -> bool:
+        return self.child.skip_to(docid - self._doc_offset)
+
+    def all_ids(self) -> Iterable[int]:
+        docoffset = self._doc_offset
+        for docid in self.child.all_ids():
+            yield docoffset + docid
+
+    def posting(self):
+        post = self.child.posting()
+        docid = postings.post_docid(post)
+        return postings.change_docid(post, docid + self._doc_offset)
+
+
+class MultiMatcher(matchers.Matcher):
+    """
+    Serializes the results of a list of sub-matchers.
     """
 
-    def __init__(self, matchers, idoffsets, scorer=None, current=0):
+    def __init__(self, matchers: Sequence[matchers.Matcher],
+                 idoffsets: Sequence[int], scorer: 'weights.Scorer'=None,
+                 current: int=0):
         """
         :param matchers: a list of Matcher objects.
         :param idoffsets: a list of offsets corresponding to items in the
             ``matchers`` list.
+        :param scorer: a Scorer to use to score the matched documents.
+        :param current: the index of the current matcher.
         """
 
-        self.matchers = matchers
-        self.offsets = idoffsets
-        self.scorer = scorer
-        self.current = current
+        self._matchers = matchers
+        self._offsets = idoffsets
+        self._scorer = scorer
+        self._current = current
         self._next_matcher()
 
     def __repr__(self):
         return "%s(%r, %r, current=%s)" % (self.__class__.__name__,
-                                           self.matchers, self.offsets,
-                                           self.current)
-
-    def is_active(self):
-        return self.current < len(self.matchers)
-
-    def reset(self):
-        for mr in self.matchers:
-            mr.reset()
-        self.current = 0
-
-    def children(self):
-        return [self.matchers[self.current]]
+                                           self._matchers, self._offsets,
+                                           self._current)
 
     def _next_matcher(self):
-        matchers = self.matchers
-        while (self.current < len(matchers)
-               and not matchers[self.current].is_active()):
-            self.current += 1
+        # Moves to the next active sub-matcher
+        matchers = self._matchers
+        while (self._current < len(matchers) and
+               not matchers[self._current].is_active()):
+            self._current += 1
 
-    def copy(self):
-        return self.__class__([mr.copy() for mr in self.matchers],
-                              self.offsets, current=self.current)
+    # Override interface
 
-    def depth(self):
-        if self.is_active():
-            return 1 + max(mr.depth() for mr in self.matchers[self.current:])
-        else:
-            return 0
+    def is_active(self) -> bool:
+        return self._current < len(self._matchers)
 
-    def replace(self, minquality=0):
-        m = self
-        if minquality:
-            # Skip sub-matchers that don't have a high enough max quality to
-            # contribute
-            while (m.is_active()
-                   and m.matchers[m.current].max_quality() < minquality):
-                m = self.__class__(self.matchers, self.offsets, self.scorer,
-                                   m.current + 1)
-                m._next_matcher()
+    @matchers.check_active
+    def id(self) -> int:
+        current = self._current
+        return self._matchers[current].id() + self._offsets[current]
 
-        if not m.is_active():
-            return mcore.NullMatcher()
-
-        # TODO: Possible optimization: if the last matcher is current, replace
-        # this with the last matcher, but wrap it with a matcher that adds the
-        # offset. Have to check whether that's actually faster, though.
-        return m
-
-    def id(self):
-        current = self.current
-        return self.matchers[current].id() + self.offsets[current]
-
-    def all_ids(self):
-        offsets = self.offsets
-        for i, mr in enumerate(self.matchers):
-            for id in mr.all_ids():
-                yield id + offsets[i]
-
-    def spans(self):
-        return self.matchers[self.current].spans()
-
-    def supports(self, astype):
-        return self.matchers[self.current].supports(astype)
-
-    def value(self):
-        return self.matchers[self.current].value()
-
-    def value_as(self, astype):
-        return self.matchers[self.current].value_as(astype)
-
-    def next(self):
-        if not self.is_active():
-            raise mcore.ReadTooFar
-
-        self.matchers[self.current].next()
-        if not self.matchers[self.current].is_active():
+    @matchers.check_active
+    def next(self) -> bool:
+        self._matchers[self._current].next()
+        if not self._matchers[self._current].is_active():
             self._next_matcher()
 
-    def skip_to(self, id):
-        if not self.is_active():
-            raise mcore.ReadTooFar
-        if id <= self.id():
+    @matchers.check_active
+    def skip_to(self, docid: int) -> bool:
+        if docid <= self.id():
             return
 
-        matchers = self.matchers
-        offsets = self.offsets
+        matchers = self._matchers
+        offsets = self._offsets
         r = False
 
-        while self.current < len(matchers) and id > self.id():
-            mr = matchers[self.current]
-            sr = mr.skip_to(id - offsets[self.current])
+        while self._current < len(matchers) and docid > self.id():
+            mr = matchers[self._current]
+            sr = mr.skip_to(docid - offsets[self._current])
             r = sr or r
             if mr.is_active():
                 break
@@ -235,65 +285,130 @@ class MultiMatcher(mcore.Matcher):
 
         return r
 
-    def supports_block_quality(self):
-        return all(mr.supports_block_quality() for mr
-                   in self.matchers[self.current:])
+    def save(self) -> Any:
+        return tuple(m.save() for m in self._matchers)
 
+    def restore(self, place: Any):
+        for i, m in self._matchers:
+            m.restore(place[i])
+
+    @matchers.check_active
+    def weight(self) -> float:
+        return self._matchers[self._current].weight()
+
+    @matchers.check_active
+    def score(self) -> float:
+        current = self._matchers[self._current]
+        return self._scorer.score(current)
+
+    @matchers.check_active
+    def posting(self) -> 'Optional[postings.PostTuple]':
+        offset = self._offsets[self._current]
+        p = self._matchers[self._current].posting()
+        return postings.change_docid(p, offset + p[postings.DOCID])
+
+    def all_postings(self) -> Iterable[postings.PostTuple]:
+        if not self.is_active():
+            return
+
+        change_docid = postings.change_docid
+        DOCID = postings.DOCID
+
+        offsets = self._offsets
+        for i, m in enumerate(self._matchers):
+            offset = offsets[i]
+            for p in m.all_postings():
+                yield change_docid(p, p[DOCID] + offset)
+
+    def children(self) -> Sequence[matchers.Matcher]:
+        # Not sure what the right thing to do is here... for now, I'm returning
+        # the current matcher as the only "child"
+        return (self._matchers[self._current],)
+
+    def copy(self) -> 'MultiMatcher':
+        return self.__class__([mr.copy() for mr in self._matchers],
+                              self._offsets, self._scorer, self._current)
+
+    def replace(self, minquality=0):
+        m = self.__class__(self._matchers, self._offsets, self._scorer,
+                           self._current)
+        if minquality:
+            # Skip sub-matchers that don't have a high enough max quality to
+            # contribute
+            while (m.is_active() and
+                   m._matchers[m._current].max_quality() < minquality):
+                m._current += 1
+                m._next_matcher()
+
+        if not m.is_active():
+            return matchers.NullMatcher()
+
+        # TODO: Possible optimization: if the last matcher is current, replace
+        # this with the last matcher, but wrap it with a matcher that adds the
+        # offset. Have to check whether that's actually faster, though.
+        return m
+
+    def supports(self, name: str) -> bool:
+        return all(mr.supports(name) for mr in self._matchers)
+
+    def supports_block_quality(self) -> bool:
+        return all(mr.supports_block_quality() for mr in self._matchers)
+
+    @matchers.check_active
     def max_quality(self):
-        return max(m.max_quality() for m in self.matchers[self.current:])
+        return max(m.max_quality() for m in self._matchers[self._current:])
 
+    @matchers.check_active
     def block_quality(self):
-        return self.matchers[self.current].block_quality()
+        return self._matchers[self._current].block_quality()
 
-    def weight(self):
-        return self.matchers[self.current].weight()
+    # Override derived
 
-    def score(self):
-        return self.scorer.score(self)
+    def all_ids(self):
+        if not self.is_active():
+            return
 
-
-def ExcludeMatcher(child, excluded, boost=1.0):
-    return FilterMatcher(child, excluded, exclude=True, boost=boost)
+        offsets = self._offsets
+        for i, mr in enumerate(self._matchers):
+            offset = offsets[i]
+            if mr.is_active():
+                for id in mr.all_ids():
+                    yield id + offset
 
 
 class FilterMatcher(WrappingMatcher):
-    """Filters the postings from the wrapped based on whether the IDs are
+    """
+    Filters the postings from the wrapped based on whether the IDs are
     present in or absent from a set.
     """
 
-    def __init__(self, child, ids, exclude=False, boost=1.0):
+    def __init__(self, child: matchers.Matcher,
+                 ids: 'Union[idsets.DocIdSet, Set]', exclude: bool=False,
+                 boost: float=1.0):
         """
         :param child: the child matcher.
         :param ids: a set of IDs to filter by.
         :param exclude: by default, only IDs from the wrapped matcher that are
             **in** the set are used. If this argument is True, only IDs from
             the wrapped matcher that are **not in** the set are used.
+        :param boost: Multiply scores in the wrapped matcher by this factor.
         """
 
-        super(FilterMatcher, self).__init__(child)
+        super(FilterMatcher, self).__init__(child, boost)
         self._ids = ids
         self._exclude = exclude
-        self.boost = boost
         self._find_next()
 
     def __repr__(self):
-        return "%s(%r, %r, %r, boost=%s)" % (self.__class__.__name__,
-                                             self.child, self._ids,
-                                             self._exclude, self.boost)
+        key = "exclude" if self._exclude else "include"
+        return "%s(%r, %s=%r, boost=%s)" % (
+            type(self).__name__, self.child, key, self._ids, self._boost
+        )
 
-    def reset(self):
-        self.child.reset()
-        self._find_next()
+    def _rewrap(self, newchild: matchers.Matcher):
+        return self.__class__(newchild, self._ids, self._exclude, self._boost)
 
-    def copy(self):
-        return self.__class__(self.child.copy(), self._ids, self._exclude,
-                              boost=self.boost)
-
-    def _replacement(self, newchild):
-        return self.__class__(newchild, self._ids, exclude=self._exclude,
-                              boost=self.boost)
-
-    def _find_next(self):
+    def _find_next(self) -> bool:
         child = self.child
         ids = self._ids
         r = False
@@ -306,6 +421,11 @@ class FilterMatcher(WrappingMatcher):
                 r = child.next() or r
         return r
 
+    # Override interface
+
+    def is_active(self) -> bool:
+        return self.child.is_active()
+
     def next(self):
         self.child.next()
         self._find_next()
@@ -314,58 +434,67 @@ class FilterMatcher(WrappingMatcher):
         self.child.skip_to(id)
         self._find_next()
 
-    def all_ids(self):
+    def replace(self, minquality=0) -> 'matchers.Matcher':
+        if not self.child.is_active():
+            return matchers.NullMatcher()
+        else:
+            return self
+
+    # Override derived
+
+    def all_ids(self) -> Iterable[int]:
+        if not self.is_active():
+            return iter(())
+
         ids = self._ids
         if self._exclude:
             return (id for id in self.child.all_ids() if id not in ids)
         else:
             return (id for id in self.child.all_ids() if id in ids)
 
-    def all_items(self):
+    def all_postings(self) -> 'Iterable[postings.PostTuple]':
         ids = self._ids
+        DOCID = postings.DOCID
+
         if self._exclude:
-            return (item for item in self.child.all_items()
-                    if item[0] not in ids)
+            return (p for p in self.child.all_postings() if p[DOCID] not in ids)
         else:
-            return (item for item in self.child.all_items() if item[0] in ids)
+            return (p for p in self.child.all_postings() if p[DOCID] in ids)
 
 
 class InverseMatcher(WrappingMatcher):
-    """Synthetic matcher, generates postings that are NOT present in the
-    wrapped matcher.
+    """
+    Generates matches that are NOT present in the wrapped matcher.
     """
 
-    def __init__(self, child, limit, missing=None, weight=1.0, id=0):
+    def __init__(self, child: matchers.Matcher, limit: int,
+                 missing: Callable[[int], bool]=None, weight: float=1.0,
+                 start: int=0):
+        """
+
+        :param child: the matcher to invert.
+        :param limit: the document count.
+        :param missing: an optional function that returns true if a given
+            document number is missing (for example, deleted), and shouldn't
+            be generated by this matcher.
+        :param weight: the weight to return for generated matches.
+        :param start: the document number to start at.
+        """
+
         super(InverseMatcher, self).__init__(child)
-        self.limit = limit
+        self._limit = limit
         self._weight = weight
-        self.missing = missing or (lambda id: False)
-        self._id = id
+        self._is_missing = missing or (lambda id: False)
+        self._id = start
         self._find_next()
 
-    def copy(self):
-        return self.__class__(self.child.copy(), self.limit,
-                              weight=self._weight, missing=self.missing,
-                              id=self._id)
-
-    def _replacement(self, newchild):
-        return self.__class__(newchild, self.limit, missing=self.missing,
-                              weight=self._weight, id=self._id)
-
-    def is_active(self):
-        return self._id < self.limit
-
-    def reset(self):
-        self.child.reset()
-        self._id = 0
-        self._find_next()
-
-    def supports_block_quality(self):
-        return False
+    def _rewrap(self, newchild: matchers.Matcher):
+        return self.__class__(newchild, self._limit, self._is_missing,
+                              self._weight, self._id)
 
     def _find_next(self):
         child = self.child
-        missing = self.missing
+        missing = self._is_missing
 
         # If the current docnum isn't missing and the child matcher is
         # exhausted (so we don't have to worry about skipping its matches), we
@@ -374,7 +503,7 @@ class InverseMatcher(WrappingMatcher):
             return
 
         # Skip missing documents
-        while self._id < self.limit and missing(self._id):
+        while self._id < self._limit and missing(self._id):
             self._id += 1
 
         # Catch the child matcher up to where this matcher is
@@ -382,7 +511,7 @@ class InverseMatcher(WrappingMatcher):
             child.skip_to(self._id)
 
         # While self._id is missing or is in the child matcher, increase it
-        while child.is_active() and self._id < self.limit:
+        while child.is_active() and self._id < self._limit:
             if missing(self._id):
                 self._id += 1
                 continue
@@ -394,152 +523,106 @@ class InverseMatcher(WrappingMatcher):
 
             break
 
-    def id(self):
+    # Override interface
+
+    def is_active(self) -> bool:
+        return self._id < self._limit
+
+    @matchers.check_active
+    def id(self) -> int:
         return self._id
 
-    def all_ids(self):
-        return mcore.Matcher.all_ids(self)
-
+    @matchers.check_active
     def next(self):
-        if self._id >= self.limit:
-            raise mcore.ReadTooFar
         self._id += 1
         self._find_next()
 
-    def skip_to(self, id):
-        if self._id >= self.limit:
-            raise mcore.ReadTooFar
-        if id < self._id:
+    @matchers.check_active
+    def skip_to(self, docid):
+        if self._id >= self._limit:
+            raise matchers.ReadTooFar
+        if docid < self._id:
             return
-        self._id = id
+        self._id = docid
         self._find_next()
 
-    def weight(self):
+    def save(self) -> Tuple[int, Any]:
+        return self._id, self.child.save()
+
+    def restore(self, place: Tuple[int, Any]):
+        self._id = place[0]
+        self.child.restore(place[1])
+
+    @matchers.check_active
+    def weight(self) -> float:
         return self._weight
 
+    @matchers.check_active
     def score(self):
         return self._weight
 
+    @matchers.check_active
+    def posting(self) -> 'Optional[postings.PostTuple]':
+        return None
 
-class RequireMatcher(WrappingMatcher):
-    """Matches postings that are in both sub-matchers, but only uses scores
-    from the first.
-    """
+    def term(self) -> Optional[Tuple[str, bytes]]:
+        return None
 
-    def __init__(self, a, b):
-        from whoosh.matching.binary import IntersectionMatcher
+    def children(self) -> 'Sequence[Matcher]':
+        # Not sure what to do here, but it doesn't seem like this matcher should
+        # report having children
+        return ()
 
-        self.a = a
-        self.b = b
-        WrappingMatcher.__init__(self, IntersectionMatcher(a, b))
-
-    def copy(self):
-        return self.__class__(self.a.copy(), self.b.copy())
+    def supports(self, name: str):
+        return False
 
     def supports_block_quality(self):
-        return self.a.supports_block_quality()
-
-    def replace(self, minquality=0):
-        if not self.child.is_active():
-            # If one of the sub-matchers is inactive, go inactive
-            return mcore.NullMatcher()
-        elif minquality and self.a.max_quality() < minquality:
-            # If the required matcher doesn't have a high enough max quality
-            # to possibly contribute, return an inactive matcher
-            return mcore.NullMatcher()
-
-        new_a = self.a.replace(minquality)
-        new_b = self.b.replace()
-        if not new_a.is_active():
-            return mcore.NullMatcher()
-        elif new_a is not self.a or new_b is not self.b:
-            # If one of the sub-matchers changed, return a new Require
-            return self.__class__(new_a, self.b)
-        else:
-            return self
-
-    def max_quality(self):
-        return self.a.max_quality()
-
-    def block_quality(self):
-        return self.a.block_quality()
-
-    def skip_to_quality(self, minquality):
-        skipped = self.a.skip_to_quality(minquality)
-        self.child._find_next()
-        return skipped
-
-    def weight(self):
-        return self.a.weight()
-
-    def score(self):
-        return self.a.score()
-
-    def supports(self, astype):
-        return self.a.supports(astype)
-
-    def value(self):
-        return self.a.value()
-
-    def value_as(self, astype):
-        return self.a.value_as(astype)
-
-
-class ConstantScoreWrapperMatcher(WrappingMatcher):
-    def __init__(self, child, score=1.0):
-        WrappingMatcher.__init__(self, child)
-        self._score = score
-
-    def copy(self):
-        return self.__class__(self.child.copy(), score=self._score)
-
-    def _replacement(self, newchild):
-        return self.__class__(newchild, score=self._score)
-
-    def max_quality(self):
-        return self._score
-
-    def block_quality(self):
-        return self._score
-
-    def score(self):
-        return self._score
+        return False
 
 
 class SingleTermMatcher(WrappingMatcher):
-    """Makes a tree of matchers act as if they were a matcher for a single
+    """
+    Makes a tree of matchers act as if they were a matcher for a single
     term for the purposes of "what terms are matching?" questions.
     """
 
-    def __init__(self, child, term):
-        WrappingMatcher.__init__(self, child)
+    def __init__(self, child: matchers.Matcher, term: Tuple[str, bytes]):
+        super(SingleTermMatcher, self).__init__(child)
         self._term = term
 
-    def term(self):
-        return self._term
+    def _rewrap(self, newchild: matchers.Matcher) -> matchers.Matcher:
+        return self.__class__(newchild, self._term)
 
-    def replace(self, minquality=0):
-        return self
+    def term(self) -> Tuple[str, bytes]:
+        return self._term
 
 
 class CoordMatcher(WrappingMatcher):
-    """Modifies the computed score to penalize documents that don't match all
+    """
+    Modifies the computed score to penalize documents that don't match all
     terms in the matcher tree.
 
     Because this matcher modifies the score, it may give unexpected results
     when compared to another matcher returning the unmodified score.
     """
 
-    def __init__(self, child, scale=1.0):
-        WrappingMatcher.__init__(self, child)
-        self._termcount = len(list(child.term_matchers()))
+    def __init__(self, child: matchers.Matcher, scale: float=1.0,
+                 termcount: int=0):
+        """
+        :param child: the matcher to boost scores on.
+        :param scale: a scaling factor on the score boost.
+        :param termcount: used when the matcher is re-wrapped.
+        """
+
+        super(CoordMatcher, self).__init__(child)
+        self._termcount = termcount or len(list(child.term_matchers()))
         self._maxqual = child.max_quality()
         self._scale = scale
 
-    def _replacement(self, newchild):
-        return self.__class__(newchild, scale=self._scale)
+    def _rewrap(self, newchild):
+        return self.__class__(newchild, self._scale, self._termcount)
 
-    def _sqr(self, score, matching):
+    def _sqr(self, score: float, matching):
         # This is the "SQR" (Short Query Ranking) function used by Apple's old
         # V-twin search library, described in the paper "V-Twin: A Lightweight
         # Engine for Interactive Use".
@@ -551,9 +634,11 @@ class CoordMatcher(WrappingMatcher):
         termcount = self._termcount  # Number of terms in this tree
         scale = self._scale  # Scaling factor
 
-        sqr = ((score + ((matching - 1) / (termcount - scale) ** 2))
-               * ((termcount - 1) / termcount))
+        sqr = ((score + ((matching - 1) / (termcount - scale) ** 2)) *
+               ((termcount - 1) / termcount))
         return sqr
+
+    # Override interface
 
     def max_quality(self):
         return self._sqr(self.child.max_quality(), self._termcount)
@@ -569,4 +654,231 @@ class CoordMatcher(WrappingMatcher):
         for _ in child.matching_terms(child.id()):
             matching += 1
 
-        return self._sqr(score, matching)
+        sqr = self._sqr(score, matching)
+        return sqr
+
+
+class AndNotMatcher(WrappingMatcher):
+    """
+    Matches the postings in the first sub-matcher that are NOT present in
+    the second sub-matcher.
+    """
+
+    def __init__(self, child: matchers.Matcher, nots: matchers.Matcher):
+        super(AndNotMatcher, self).__init__(child)
+        self.neg = nots
+
+        if (
+            self.child.is_active() and
+            self.neg.is_active() and
+            self.child.id() == self.neg.id()
+        ):
+            self.next()
+
+    def _rewrap(self, newchild: matchers.Matcher) -> 'AndNotMatcher':
+        return self.__class__(newchild, self.neg)
+
+    def _find_next(self):
+        child = self.child
+        neg = self.neg
+
+        # If the second ("negative") matcher is inactive, we don't need to skip
+        # at all
+        if not self.neg.is_active():
+            return
+
+        if self.neg.id() < child.id():
+            # The negative matcher is behind, so skip it to at least the
+            # positive matcher's document
+            neg.skip_to(child.id())
+            if not neg.is_active():
+                return
+
+        # As long as the positive and negative matchers are on the same document
+        # we need to advance
+        r = False
+        while child.is_active() and child.id() == neg.id():
+            # Advance the positive matcher
+            nr = self.child.next()
+            if not self.child.is_active():
+                return True
+            r = r or nr
+
+            # Skip the negative matcher to where the positive matcher is now
+            self.neg.skip_to(self.child.id())
+            if not self.neg.is_active():
+                return r
+
+        return r
+
+    # Override methods that advance the matcher to avoid negative matches
+
+    def next(self) -> bool:
+        ar = self.child.next()
+        nr = self._find_next()
+        return ar or nr
+
+    def skip_to(self, docid: int) -> bool:
+        ar = self.child.skip_to(docid)
+        nr = self._find_next()
+        return ar or nr
+
+    def save(self) -> Tuple[Any, Any]:
+        return self.child.save(), self.neg.save()
+
+    def restore(self, place: Tuple[Any, Any]):
+        self.child.restore(place[0])
+        self.neg.restore(place[1])
+
+    def copy(self) -> matchers.Matcher:
+        return self.__class__(self.child.copy(), self.neg.copy())
+
+    def replace(self, minquality: float=0) -> matchers.Matcher:
+        # If the child matcher is  inactive, or can't contribute, return a null
+        # matcher
+        if not self.child.is_active() or self.max_quality() <= minquality:
+            return matchers.NullMatcher()
+
+        child = self.child.replace(minquality)
+
+        # If the second matcher is inactive, we don't need to worry about it
+        # anymore, so just replace with the first matcher
+        if not self.neg.is_active():
+            return child
+
+        # Replace the second matcher, in case it can become more efficient
+        neg = self.neg.replace()
+        if child is not self.child or neg is not self.neg:
+            return self.__class__(child, neg)
+        else:
+            return self
+
+    def skip_to_quality(self, minquality: float) -> int:
+        skipped = self.child.skip_to_quality(minquality)
+        self._find_next()
+        return skipped
+
+    def all_ids(self) -> Iterable[int]:
+        return matchers.Matcher.all_ids(self)
+
+
+class AndMaybeMatcher(WrappingMatcher):
+    """
+    Matches postings in the first sub-matcher, and if the same posting is
+    in the second sub-matcher, adds their scores.
+    """
+
+    def __init__(self, child: matchers.Matcher, maybe: matchers.Matcher):
+        super(AndMaybeMatcher, self).__init__(child)
+        self.maybe = maybe
+        self._keep_up()
+
+    def _keep_up(self) -> bool:
+        # As long as "maybe" is active it must be on or ahead of child
+        if (
+            self.child.is_active() and self.maybe.is_active() and
+            self.maybe.id() < self.child.id()
+        ):
+            return self.maybe.skip_to(self.child.id())
+
+    # Override advancing methods to also advance the maybe matcher
+
+    def next(self):
+        ar = self.child.next()
+        kr = self._keep_up()
+        return ar or kr
+
+    def skip_to(self, id):
+        ar = self.child.skip_to(id)
+        kr = self._keep_up()
+        return ar or kr
+
+    def save(self) -> Tuple[Any, Any]:
+        return self.child.save(), self.maybe.save()
+
+    def restore(self, place: Tuple[Any, Any]):
+        self.child.restore(place[0])
+        self.maybe.restore(place[1])
+
+    def copy(self) -> matchers.Matcher:
+        return self.__class__(self.child.copy(), self.maybe.copy())
+
+    def replace(self, minquality: float=0) -> matchers.Matcher:
+        # If the child matcher is  inactive, return a null matcher
+        if not self.child.is_active():
+            return matchers.NullMatcher()
+
+        # If the maybe matcher isn't active, we don't have to worry about it
+        # anymore, just replace the child
+        if not self.maybe.is_active():
+            return self.child.replace(minquality)
+
+        if minquality:
+            if self.child.max_quality() + self.maybe.max_quality() < minquality:
+                # The combined max quality of the sub-matchers isn't high
+                # enough to possibly contribute, return an inactive matcher
+                return matchers.NullMatcher()
+
+            elif self.child.max_quality() < minquality:
+                # If the max quality of the main sub-matcher isn't high enough
+                # to ever contribute without the optional sub-matcher, convert
+                # into an IntersectionMatcher
+                from whoosh.matching.binary import IntersectionMatcher
+
+                return IntersectionMatcher(self.child, self.maybe)
+
+        # Try to replace the sub-matchers
+        child = self.child.replace(minquality - self.maybe.max_quality())
+        maybe = self.maybe.replace(minquality - self.child.max_quality())
+        if child is not self.child or maybe is not self.maybe:
+            # If one of the sub-matchers changed, return a new object
+            return self.__class__(child, maybe)
+        else:
+            return self
+
+    # Override score/quality methods to add the scores when the sub-matchers
+    # are on the same document
+
+    def max_quality(self) -> float:
+        q = self.child.max_quality()
+        if self.maybe.is_active():
+            q += self.maybe.max_quality()
+        return q
+
+    def skip_to_quality(self, minquality: float) -> int:
+        if not self.child.is_active():
+            raise matchers.ReadTooFar
+
+        # If the maybe matcher isn't active, ignore it
+        if not self.maybe.is_active():
+            return self.child.skip_to_quality(minquality)
+
+        # As long as the two sub-matchers together can't contribute, skip the
+        # lower quality one
+        skipped = 0
+        cq = self.child.block_quality()
+        mq = self.maybe.block_quality()
+        while (self.child.is_active() and self.maybe.is_active() and
+               cq + mq <= minquality):
+            if cq < mq:
+                skipped += self.child.skip_to_quality(minquality - mq)
+                cq = self.child.block_quality()
+            else:
+                skipped += self.maybe.skip_to_quality(minquality - cq)
+                mq = self.maybe.block_quality()
+
+        return skipped
+
+    def weight(self) -> float:
+        v = self.child.weight()
+        if self.maybe.is_active() and self.child.id() == self.maybe.id():
+            v += self.maybe.weight()
+        return v
+
+    def score(self) -> float:
+        v = self.child.score()
+        if self.maybe.is_active() and self.child.id() == self.maybe.id():
+            v += self.maybe.score()
+        return v
+
+

@@ -245,7 +245,7 @@ The easiest way to create a custom formatter is to subclass
         def format_token(self, text, token, replace=False):
             # Use the get_text function to get the text corresponding to the
             # token
-            tokentext = highlight.get_text(text, token, replace)
+            tokentext = highlight.get_text(text, token)
 
             # Return the text as you want it to appear in the highlighted
             # string

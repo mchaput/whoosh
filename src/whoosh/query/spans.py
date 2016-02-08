@@ -43,26 +43,43 @@ For example, to find documents containing "whoosh" at most 5 positions before
 
 """
 
-from whoosh.matching import mcore, wrappers, binary
-from whoosh.query import Query, And, AndMaybe, Or, Term
+from abc import abstractmethod
+from typing import List, Sequence
+
+from whoosh import postings
+from whoosh.ifaces import queries
+from whoosh.query import wrappers as qwrappers
+from whoosh.ifaces import matchers
+from whoosh.matching import wrappers, binary
 from whoosh.util import make_binary_tree
+
+
+__all__ = ("Span", "SpanWrappingMatcher", "SpanBiMatcher", "SpanQuery",
+           "SpanFirst", "SpanNear", "SpanOr", "SpanBiQuery", "SpanNot",
+           "SpanContains", "SpanBefore", "SpanCondition")
 
 
 # Span class
 
+# TODO: Add fieldname and termbytes to Span object
 class Span(object):
-    __slots__ = ("start", "end", "startchar", "endchar", "boost")
+    __slots__ = ("start", "end", "startchar", "endchar", "boost", "payload",
+                 "fieldname", "text")
 
-    def __init__(self, start, end=None, startchar=None, endchar=None,
-                 boost=1.0):
+    def __init__(self, start: int, end: int=None, startchar: int=None,
+                 endchar: int=None, boost: float=1.0, payload: bytes=None,
+                 fieldname: str=None, text: str=None):
         if end is None:
-            end = start
+            end = start + 1
         assert start <= end
         self.start = start
         self.end = end
         self.startchar = startchar
         self.endchar = endchar
         self.boost = boost
+        self.payload = payload
+        self.fieldname = fieldname
+        self.text = text
 
     def __repr__(self):
         if self.startchar is not None or self.endchar is not None:
@@ -71,34 +88,40 @@ class Span(object):
         else:
             return "<%d-%d>" % (self.start, self.end)
 
-    def __eq__(self, span):
-        return (self.start == span.start
-                and self.end == span.end
-                and self.startchar == span.startchar
-                and self.endchar == span.endchar)
+    def __eq__(self, span: 'Span') -> bool:
+        return (self.start == span.start and
+                self.end == span.end and
+                self.startchar == span.startchar and
+                self.endchar == span.endchar and
+                self.boost == span.boost and
+                self.payload == span.payload)
 
-    def __ne__(self, span):
-        return self.start != span.start or self.end != span.end
+    def __ne__(self, span: 'Span') -> bool:
+        return not self == span
 
-    def __lt__(self, span):
+    def __lt__(self, span: 'Span') -> bool:
         return self.start < span.start
 
-    def __gt__(self, span):
+    def __gt__(self, span: 'Span') -> bool:
         return self.start > span.start
 
     def __hash__(self):
-        return hash((self.start, self.end))
+        return hash((self.start, self.end, self.startchar, self.endchar,
+                     self.boost, self.payload))
 
     @classmethod
-    def merge(cls, spans):
-        """Merges overlapping and touches spans in the given list of spans.
+    def merge(cls, spans: 'List[Span]'):
+        """
+        Merges overlapping and touching spans in the given list.
 
-        Note that this modifies the original list.
+        Note that this modifies the original list in place.
 
         >>> spans = [Span(1,2), Span(3)]
         >>> Span.merge(spans)
         >>> spans
         [<1-3>]
+
+        :param spans: the list of spans to merge in-place.
         """
 
         i = 0
@@ -118,7 +141,14 @@ class Span(object):
             i += 1
         return spans
 
-    def to(self, span):
+    def to(self, span: 'Span') -> 'Span':
+        """
+        Generates a new span using this span as the start and the other span as
+        the end.
+
+        :param span: the span representing the end of the new span.
+        """
+
         if self.startchar is None:
             minchar = span.startchar
         elif span.startchar is None:
@@ -136,28 +166,87 @@ class Span(object):
         maxpos = max(self.end, span.end)
         return self.__class__(minpos, maxpos, minchar, maxchar)
 
-    def overlaps(self, span):
-        return ((self.start >= span.start and self.start <= span.end)
-                or (self.end >= span.start and self.end <= span.end)
-                or (span.start >= self.start and span.start <= self.end)
-                or (span.end >= self.start and span.end <= self.end))
+    def overlaps(self, span: 'Span') -> bool:
+        """
+        Returns True if this span and the given span overlap or touch.
 
-    def surrounds(self, span):
+        :param span: the span to check for touching/overlap.
+        """
+
+        return ((span.start <= self.start <= span.end) or
+                (span.start <= self.end <= span.end) or
+                (self.start <= span.start <= self.end) or
+                (self.start <= span.end <= self.end))
+
+    def intersects(self, span: 'Span') -> bool:
+        """
+        Returns True if this span and the given span overlap (not if they are
+        merely touching).
+
+        :param span: the span to check for overlap.
+        """
+
+        return ((span.start <= self.start < span.end) or
+                (span.start < self.end <= span.end) or
+                (self.start <= span.start < self.end) or
+                (self.start < span.end <= self.end))
+
+    def surrounds(self, span: 'Span') -> bool:
+        """
+        Returns True if the given span is within this one. (Not true if the
+        spans are identical.)
+
+        :param span: the span to check.
+        """
+
         return self.start < span.start and self.end > span.end
 
-    def is_within(self, span):
+    def is_within(self, span: 'Span') -> bool:
+        """
+        Returns True if this span is within the given span, or the two spans
+        are identical. The logical opposite of the ``surrounds()`` method.
+
+        :param span: the span to check.
+        """
+
         return self.start >= span.start and self.end <= span.end
 
-    def is_before(self, span):
-        return self.end < span.start
+    def is_before(self, span: 'Span') -> bool:
+        """
+        Returns True if this span appears before the given span.
 
-    def is_after(self, span):
-        return self.start > span.end
+        :param span: the span to check.
+        """
 
-    def touches(self, span):
-        return self.start == span.end + 1 or self.end == span.start - 1
+        return self.end <= span.start
 
-    def distance_to(self, span):
+    def is_after(self, span: 'Span') -> bool:
+        """
+        Returns True if this span appears after the given span.
+
+        :param span: the span to check.
+        """
+
+        return self.start >= span.end
+
+    def touches(self, span: 'Span') -> bool:
+        """
+        Returns True if this span touches the given span (that is, the start
+        of one matches the end of the other).
+
+        :param span: the span to check.
+        """
+
+        return self.start == span.end or self.end == span.start
+
+    def distance_to(self, span: 'Span') -> int:
+        """
+        Returns the difference between this span and the given span, in
+        positions. Returns 0 if the two spans overlap.
+
+        :param span: the span to measure to.
+        """
+
         if self.overlaps(span):
             return 0
         elif self.is_before(span):
@@ -166,7 +255,17 @@ class Span(object):
             return self.start - span.end
 
 
-def bisect_spans(spans, start):
+# Helper functions
+
+def bisect_spans(spans: Sequence[Span], start: int) -> int:
+    """
+    Given a list of spans and a position, return the index of the span
+    nearest span that **starts** at or after the position.
+
+    :param spans: a list of spans to search.
+    :param start: the start position to look for.
+    """
+
     lo = 0
     hi = len(spans)
     while lo < hi:
@@ -178,22 +277,57 @@ def bisect_spans(spans, start):
     return lo
 
 
+def posting_to_spans(post: 'postings.PostTuple') -> 'List[Span]':
+    """
+    Takes a posting tuple (as produced by :func:`whoosh.postings.posting`) and
+    converts it into a list of :class:`Span` objects.
+
+    :param post: a posting tuple.
+    """
+
+    weight = post[postings.WEIGHT] or 1.0
+    poses = post[postings.POSITIONS]
+    chars = post[postings.CHARS]
+    pays = post[postings.PAYLOADS]
+    if not poses:
+        raise Exception("No positions")
+    if chars:
+        assert len(chars) == len(poses)
+    if pays:
+        assert len(pays) == len(poses)
+
+    spans = []
+    for i, pos in enumerate(poses):
+        sp = Span(pos, boost=weight)
+        if chars:
+            sp.startchar, sp.endchar = chars[i]
+        if pays:
+            sp.payload = pays[i]
+        spans.append(sp)
+    return spans
+
+
 # Base matchers
 
 class SpanWrappingMatcher(wrappers.WrappingMatcher):
-    """An abstract matcher class that wraps a "regular" matcher. This matcher
+    """
+    An abstract matcher class that wraps a "regular" matcher. This matcher
     uses the sub-matcher's matching logic, but only matches documents that have
-    matching spans, i.e. where ``_get_spans()`` returns a non-empty list.
+    matching spans, i.e. where ``spans()`` returns a non-empty list.
 
     Subclasses must implement the ``_get_spans()`` method, which returns a list
     of valid spans for the current document.
     """
 
-    def __init__(self, child):
+    def __init__(self, child: 'matchers.Matcher'):
         super(SpanWrappingMatcher, self).__init__(child)
         self._spans = None
         if self.is_active():
             self._find_next()
+
+    @abstractmethod
+    def _get_spans(self) -> List[Span]:
+        raise NotImplementedError
 
     def copy(self):
         m = self.__class__(self.child.copy())
@@ -242,265 +376,72 @@ class SpanBiMatcher(SpanWrappingMatcher):
     def copy(self):
         return self.__class__(self.a.copy(), self.b.copy())
 
-    def depth(self):
-        return 1 + max(self.a.depth(), self.b.depth())
-
     def replace(self, minquality=0):
         # TODO: fix this
         if not self.is_active():
-            return mcore.NullMatcher()
+            return matchers.NullMatcher()
         return self
 
 
 # Queries
 
-class SpanQuery(Query):
-    """Abstract base class for span-based queries. Each span query type wraps
-    a "regular" query that implements the basic document-matching functionality
-    (for example, SpanNear wraps an And query, because SpanNear requires that
-    the two sub-queries occur in the same documents. The wrapped query is
-    stored in the ``q`` attribute.
-
-    Subclasses usually only need to implement the initializer to set the
-    wrapped query, and ``matcher()`` to return a span-aware matcher object.
-    """
-
-    def _subm(self, s, context=None):
-        return self.q.matcher(s, context)
-
-    def __repr__(self):
-        return "%s(%r)" % (self.__class__.__name__, self.q)
-
-    def __eq__(self, other):
-        return (other and self.__class__ is other.__class__
-                and self.q == other.q)
-
-    def __hash__(self):
-        return hash(self.__class__.__name__) ^ hash(self.q)
-
-    def field(self):
-        return None
-
-    def needs_spans(self):
-        return True
+class SpanQuery(queries.Query):
+    pass
 
 
-class WrappingSpan(SpanQuery):
-    def is_leaf(self):
-        return False
-
-    def apply(self, fn):
-        return self.__class__(fn(self.q), limit=self.limit)
-
-    def field(self):
-        return self.q.field()
-
-
-class SpanFirst(WrappingSpan):
+class SpanFirst(qwrappers.WrappingQuery):
     """Matches spans that end within the first N positions. This lets you
     for example only match terms near the beginning of the document.
     """
 
-    def __init__(self, q, limit=0):
+    def __init__(self, child, limit=1, boost=1.0):
         """
-        :param q: the query to match.
-        :param limit: the query must match within this position at the start
-            of a document. The default is ``0``, which means the query must
-            match at the first position.
+        :param child: the query to match.
+        :param limit: the query must match within this end position, measured
+            from the start of a document. The default is ``1``, which means the
+            query must match at the first position.
         """
 
-        self.q = q
+        self.child = child
         self.limit = limit
+        self.boost = boost
+
+    def _rewrap(self, child):
+        return self.__class__(child, self.limit)
 
     def __eq__(self, other):
         return (other and self.__class__ is other.__class__
-                and self.q == other.q and self.limit == other.limit)
+                and self.child == other.child and self.limit == other.limit)
 
     def __hash__(self):
-        return hash(self.q) ^ hash(self.limit)
+        return hash(self.child) ^ hash(self.limit)
 
     def matcher(self, searcher, context=None):
-        m = self._subm(searcher, context)
-        return SpanFirst.SpanFirstMatcher(m, limit=self.limit)
+        m = self.child.matcher(searcher, context)
+        return SpanFirstMatcher(m, limit=self.limit)
 
-    class SpanFirstMatcher(SpanWrappingMatcher):
-        def __init__(self, child, limit=0):
-            self.limit = limit
-            super(SpanFirst.SpanFirstMatcher, self).__init__(child)
 
-        def copy(self):
-            return self.__class__(self.child.copy(), limit=self.limit)
+class SpanFirstMatcher(SpanWrappingMatcher):
+    def __init__(self, child, limit=0):
+        self.limit = limit
+        super(SpanFirstMatcher, self).__init__(child)
 
-        def _replacement(self, newchild):
-            return self.__class__(newchild, limit=self.limit)
+    def copy(self):
+        return self.__class__(self.child.copy(), limit=self.limit)
 
-        def _get_spans(self):
-            return [span for span in self.child.spans()
-                    if span.end <= self.limit]
+    def _replacement(self, newchild):
+        return self.__class__(newchild, limit=self.limit)
+
+    def _get_spans(self):
+        return [span for span in self.child.spans()
+                if span.end <= self.limit]
 
 
 class SpanNear(SpanQuery):
     """
-    Note: for new code, use :class:`SpanNear2` instead of this class. SpanNear2
-    takes a list of sub-queries instead of requiring you to create a binary
-    tree of query objects.
-
     Matches queries that occur near each other. By default, only matches
     queries that occur right next to each other (slop=1) and in order
     (ordered=True).
-
-    For example, to find documents where "whoosh" occurs next to "library"
-    in the "text" field::
-
-        from whoosh import query, spans
-        t1 = query.Term("text", "whoosh")
-        t2 = query.Term("text", "library")
-        q = spans.SpanNear(t1, t2)
-
-    To find documents where "whoosh" occurs at most 5 positions before
-    "library"::
-
-        q = spans.SpanNear(t1, t2, slop=5)
-
-    To find documents where "whoosh" occurs at most 5 positions before or after
-    "library"::
-
-        q = spans.SpanNear(t1, t2, slop=5, ordered=False)
-
-    You can use the ``phrase()`` class method to create a tree of SpanNear
-    queries to match a list of terms::
-
-        q = spans.SpanNear.phrase("text", ["whoosh", "search", "library"],
-                                  slop=2)
-    """
-
-    def __init__(self, a, b, slop=1, ordered=True, mindist=1):
-        """
-        :param a: the first query to match.
-        :param b: the second query that must occur within "slop" positions of
-            the first query.
-        :param slop: the number of positions within which the queries must
-            occur. Default is 1, meaning the queries must occur right next
-            to each other.
-        :param ordered: whether a must occur before b. Default is True.
-        :pram mindist: the minimum distance allowed between the queries.
-        """
-
-        self.q = And([a, b])
-        self.a = a
-        self.b = b
-        self.slop = slop
-        self.ordered = ordered
-        self.mindist = mindist
-
-    def __repr__(self):
-        return ("%s(%r, slop=%d, ordered=%s, mindist=%d)"
-                % (self.__class__.__name__, self.q, self.slop, self.ordered,
-                   self.mindist))
-
-    def __eq__(self, other):
-        return (other and self.__class__ == other.__class__
-                and self.q == other.q and self.slop == other.slop
-                and self.ordered == other.ordered
-                and self.mindist == other.mindist)
-
-    def __hash__(self):
-        return (hash(self.a) ^ hash(self.b) ^ hash(self.slop)
-                ^ hash(self.ordered) ^ hash(self.mindist))
-
-    def is_leaf(self):
-        return False
-
-    def apply(self, fn):
-        return self.__class__(fn(self.a), fn(self.b), slop=self.slop,
-                              ordered=self.ordered, mindist=self.mindist)
-
-    def matcher(self, searcher, context=None):
-        ma = self.a.matcher(searcher, context)
-        mb = self.b.matcher(searcher, context)
-        return SpanNear.SpanNearMatcher(ma, mb, slop=self.slop,
-                                        ordered=self.ordered,
-                                        mindist=self.mindist)
-
-    @classmethod
-    def phrase(cls, fieldname, words, slop=1, ordered=True):
-        """Returns a tree of SpanNear queries to match a list of terms.
-
-        This class method is a convenience for constructing a phrase query
-        using a binary tree of SpanNear queries::
-
-            SpanNear.phrase("content", ["alfa", "bravo", "charlie", "delta"])
-
-        :param fieldname: the name of the field to search in.
-        :param words: a sequence of texts to search for.
-        :param slop: the number of positions within which the terms must
-            occur. Default is 1, meaning the terms must occur right next
-            to each other.
-        :param ordered: whether the terms must occur in order. Default is True.
-        """
-
-        terms = [Term(fieldname, word) for word in words]
-        return make_binary_tree(cls, terms, slop=slop, ordered=ordered)
-
-    class SpanNearMatcher(SpanWrappingMatcher):
-        def __init__(self, a, b, slop=1, ordered=True, mindist=1):
-            self.a = a
-            self.b = b
-            self.slop = slop
-            self.ordered = ordered
-            self.mindist = mindist
-            isect = binary.IntersectionMatcher(a, b)
-            super(SpanNear.SpanNearMatcher, self).__init__(isect)
-
-        def copy(self):
-            return self.__class__(self.a.copy(), self.b.copy(), slop=self.slop,
-                                  ordered=self.ordered, mindist=self.mindist)
-
-        def replace(self, minquality=0):
-            # TODO: fix this
-            if not self.is_active():
-                return mcore.NullMatcher()
-            return self
-
-        def _get_spans(self):
-            slop = self.slop
-            mindist = self.mindist
-            ordered = self.ordered
-            spans = set()
-
-            bspans = self.b.spans()
-            for aspan in self.a.spans():
-                for bspan in bspans:
-                    if (bspan.end < aspan.start - slop
-                        or (ordered and aspan.start > bspan.start)):
-                        # B is too far in front of A, or B is in front of A
-                        # *at all* when ordered is True
-                        continue
-                    if bspan.start > aspan.end + slop:
-                        # B is too far from A. Since spans are listed in
-                        # start position order, we know that all spans after
-                        # this one will also be too far.
-                        break
-
-                    # Check the distance between the spans
-                    dist = aspan.distance_to(bspan)
-                    if mindist <= dist <= slop:
-                        spans.add(aspan.to(bspan))
-
-            return sorted(spans)
-
-
-class SpanNear2(SpanQuery):
-    """
-    Matches queries that occur near each other. By default, only matches
-    queries that occur right next to each other (slop=1) and in order
-    (ordered=True).
-
-    New code should use this query type instead of :class:`SpanNear`.
-
-    (Unlike :class:`SpanNear`, this query takes a list of subqueries instead of
-    requiring you to build a binary tree of query objects. This query should
-    also be slightly faster due to less overhead.)
 
     For example, to find documents where "whoosh" occurs next to "library"
     in the "text" field::
@@ -521,7 +462,8 @@ class SpanNear2(SpanQuery):
         q = spans.SpanNear2(t1, t2, slop=5, ordered=False)
     """
 
-    def __init__(self, qs, slop=1, ordered=True, mindist=1):
+    def __init__(self, qs: Sequence[queries.Query], slop: int=0,
+                 ordered: bool=True, mindist: int=0):
         """
         :param qs: a sequence of sub-queries to match.
         :param slop: the number of positions within which the queries must
@@ -553,15 +495,6 @@ class SpanNear2(SpanQuery):
             h ^= hash(q)
         return h
 
-    def _and_query(self):
-        return q.And(self.qs)
-
-    def estimate_size(self, ixreader):
-        return self._and_query().estimate_size(ixreader)
-
-    def estimate_min_size(self, ixreader):
-        return self._and_query().estimate_min_size(ixreader)
-
     def is_leaf(self):
         return False
 
@@ -574,27 +507,17 @@ class SpanNear2(SpanQuery):
 
     def matcher(self, searcher, context=None):
         ms = [q.matcher(searcher, context) for q in self.qs]
-        return self.SpanNear2Matcher(ms, slop=self.slop, ordered=self.ordered,
-                                     mindist=self.mindist)
+        return self.SpanNearMatcher(ms, self.slop, self.ordered, self.mindist)
 
-    class SpanNear2Matcher(SpanWrappingMatcher):
-        def __init__(self, ms, slop=1, ordered=True, mindist=1):
+    class SpanNearMatcher(SpanWrappingMatcher):
+        def __init__(self, ms: Sequence[matchers.Matcher], slop: int,
+                     ordered: bool, mindist: int):
             self.ms = ms
             self.slop = slop
             self.ordered = ordered
             self.mindist = mindist
             isect = make_binary_tree(binary.IntersectionMatcher, ms)
-            super(SpanNear2.SpanNear2Matcher, self).__init__(isect)
-
-        def copy(self):
-            return self.__class__([m.copy() for m in self.ms], slop=self.slop,
-                                  ordered=self.ordered, mindist=self.mindist)
-
-        def replace(self, minquality=0):
-            # TODO: fix this
-            if not self.is_active():
-                return mcore.NullMatcher()
-            return self
+            super(SpanNear.SpanNearMatcher, self).__init__(isect)
 
         def _get_spans(self):
             slop = self.slop
@@ -613,18 +536,25 @@ class SpanNear2(SpanQuery):
                     if ordered:
                         start = aspan.start
                     else:
-                        start = max(0, aspan.start - slop)
+                        start = max(0, aspan.start - (slop + 1))
                     j = bisect_spans(bspans, start)
 
                     while j < len(bspans):
                         bspan = bspans[j]
                         j += 1
 
-                        if (bspan.end < aspan.start - slop
-                            or (ordered and aspan.start > bspan.start)):
+                        if aspan.intersects(bspan):
+                            # Don't match overlapping spans
+                            continue
+
+                        if (
+                            bspan.end < aspan.start - slop or
+                            (ordered and aspan.start > bspan.start)
+                        ):
                             # B is too far in front of A, or B is in front of A
                             # *at all* when ordered is True
                             continue
+
                         if bspan.start > aspan.end + slop:
                             # B is too far from A. Since spans are listed in
                             # start position order, we know that all spans after
@@ -635,6 +565,7 @@ class SpanNear2(SpanQuery):
                         dist = aspan.distance_to(bspan)
                         if mindist <= dist <= slop:
                             spans.add(aspan.to(bspan))
+
                 aspans = sorted(spans)
                 i += 1
 
@@ -645,7 +576,8 @@ class SpanNear2(SpanQuery):
 
 
 class SpanOr(SpanQuery):
-    """Matches documents that match any of a list of sub-queries. Unlike
+    """
+    Matches documents that match any of a list of sub-queries. Unlike
     query.Or, this class merges together matching spans from the different
     sub-queries when they overlap.
     """
@@ -655,8 +587,16 @@ class SpanOr(SpanQuery):
         :param subqs: a list of queries to match.
         """
 
+        from whoosh.query.compound import Or
+
         self.q = Or(subqs)
         self.subqs = subqs
+
+    def __eq__(self, other: 'SpanOr'):
+        return type(self) is type(other) and self.subqs == other.subqs
+
+    def __hash__(self):
+        return hash(type(self)) ^ hash(self.q)
 
     def is_leaf(self):
         return False
@@ -702,6 +642,13 @@ class SpanOr(SpanQuery):
 class SpanBiQuery(SpanQuery):
     # Intermediate base class for methods common to "a/b" span query types
 
+    def __eq__(self, other: 'SpanBiQuery'):
+        return (type(self) is type(other) and
+                self.a == other.a and self.b == other.b)
+
+    def __hash__(self):
+        return hash(type(self)) ^ hash(self.a) ^ hash(self.b)
+
     def is_leaf(self):
         return False
 
@@ -736,15 +683,19 @@ class SpanNot(SpanBiQuery):
             query.
         """
 
+        from whoosh.query.compound import AndMaybe
+
         self.q = AndMaybe(a, b)
         self.a = a
         self.b = b
 
     class _Matcher(SpanBiMatcher):
         def __init__(self, a, b):
+            from whoosh.matching.wrappers import AndMaybeMatcher
+
             self.a = a
             self.b = b
-            amm = binary.AndMaybeMatcher(a, b)
+            amm = AndMaybeMatcher(a, b)
             super(SpanNot._Matcher, self).__init__(amm)
 
         def _get_spans(self):
@@ -765,7 +716,8 @@ class SpanNot(SpanBiQuery):
 
 
 class SpanContains(SpanBiQuery):
-    """Matches documents where the spans of the first query contain any spans
+    """
+    Matches documents where the spans of the first query contain any spans
     of the second query.
 
     For example, to match documents where "apple" occurs at most 10 places
@@ -784,6 +736,8 @@ class SpanContains(SpanBiQuery):
         :param b: the query whose spans must occur within the matching spans
             of the first query.
         """
+
+        from whoosh.query.compound import And
 
         self.q = And([a, b])
         self.a = a
@@ -831,6 +785,8 @@ class SpanBefore(SpanBiQuery):
         :param b: the query that must occur after the first.
         """
 
+        from whoosh.query.compound import And
+
         self.a = a
         self.b = b
         self.q = And([a, b])
@@ -862,6 +818,8 @@ class SpanCondition(SpanBiQuery):
     """
 
     def __init__(self, a, b):
+        from whoosh.query.compound import And
+
         self.a = a
         self.b = b
         self.q = And([a, b])

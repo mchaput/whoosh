@@ -28,10 +28,16 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from itertools import chain
+from typing import Any, Dict, Iterable, Sequence, Set, Union
 
-from whoosh.compat import next, xrange
-from whoosh.analysis.acore import Composable
+from whoosh.ifaces import analysis
+from whoosh.compat import next, text_type
 from whoosh.util.text import rcompile
+
+
+# Type aliases
+
+StrSet = Union[Sequence[str], Set[str]]
 
 
 # Default list of stop words (words so common it's usually wasteful to index
@@ -60,43 +66,25 @@ url_pattern = rcompile("""
 
 # Filters
 
-class Filter(Composable):
-    """Base class for Filter objects. A Filter subclass must implement a
-    filter() method that takes a single argument, which is an iterator of Token
-    objects, and yield a series of Token objects in return.
-
-    Filters that do morphological transformation of tokens (e.g. stemming)
-    should set their ``is_morph`` attribute to True.
+class PassFilter(analysis.Filter):
+    """
+    An identity filter: passes the tokens through untouched.
     """
 
-    def __eq__(self, other):
-        return (other
-                and self.__class__ is other.__class__
-                and self.__dict__ == other.__dict__)
-
-    def __ne__(self, other):
-        return not self == other
-
-    def __call__(self, tokens):
-        raise NotImplementedError
-
-
-class PassFilter(Filter):
-    """An identity filter: passes the tokens through untouched.
-    """
-
-    def __call__(self, tokens):
+    def filter(self, tokens: Iterable[analysis.Token]
+               ) -> Iterable[analysis.Token]:
         return tokens
 
 
-class LoggingFilter(Filter):
-    """Prints the contents of every filter that passes through as a debug
+class LoggingFilter(analysis.Filter):
+    """
+    Prints the contents of every filter that passes through as a debug
     log entry.
     """
 
     def __init__(self, logger=None):
         """
-        :param target: the logger to use. If omitted, the "whoosh.analysis"
+        :param logger: the logger to use. If omitted, the "whoosh.analysis"
             logger is used.
         """
 
@@ -105,24 +93,27 @@ class LoggingFilter(Filter):
             logger = logging.getLogger("whoosh.analysis")
         self.logger = logger
 
-    def __call__(self, tokens):
+    def filter(self, tokens: Iterable[analysis.Token]
+               ) -> Iterable[analysis.Token]:
         logger = self.logger
         for t in tokens:
             logger.debug(repr(t))
             yield t
 
 
-class MultiFilter(Filter):
-    """Chooses one of two or more sub-filters based on the 'mode' attribute
+class MultiFilter(analysis.Filter):
+    """
+    Chooses one of two or more sub-filters based on the 'mode' attribute
     of the token stream.
     """
 
     default_filter = PassFilter()
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Dict[str, analysis.Filter]):
         """Use keyword arguments to associate mode attribute values with
         instantiated filters.
 
+        >>> from whoosh.analysis.intraword import IntraWordFilter
         >>> iwf_for_index = IntraWordFilter(mergewords=True, mergenums=False)
         >>> iwf_for_query = IntraWordFilter(mergewords=False, mergenums=False)
         >>> mf = MultiFilter(index=iwf_for_index, query=iwf_for_query)
@@ -132,24 +123,23 @@ class MultiFilter(Filter):
         """
         self.filters = kwargs
 
-    def __eq__(self, other):
-        return (other
-                and self.__class__ is other.__class__
-                and self.filters == other.filters)
-
-    def __call__(self, tokens):
+    def filter(self, tokens: Iterable[analysis.Token]
+               ) -> Iterable[analysis.Token]:
         # Only selects on the first token
         t = next(tokens)
-        filter = self.filters.get(t.mode, self.default_filter)
-        return filter(chain([t], tokens))
+        if not t.mode: raise Exception
+        f = self.filters.get(t.mode, self.default_filter)
+        return f.filter(chain([t], tokens))
 
 
-class TeeFilter(Filter):
-    """Interleaves the results of two or more filters (or filter chains).
+class TeeFilter(analysis.Filter):
+    """
+    Interleaves the results of two or more filters (or filter chains).
 
     NOTE: because it needs to create copies of each token for each sub-filter,
     this filter is quite slow.
 
+    >>> from whoosh.analysis.tokenizers import RegexTokenizer
     >>> target = "ALFA BRAVO CHARLIE"
     >>> # In one branch, we'll lower-case the tokens
     >>> f1 = LowercaseFilter()
@@ -162,6 +152,7 @@ class TeeFilter(Filter):
     To combine the incoming token stream with the output of a filter chain, use
     ``TeeFilter`` and make one of the filters a :class:`PassFilter`.
 
+    >>> from whoosh.analysis.intraword import BiWordFilter
     >>> f1 = PassFilter()
     >>> f2 = BiWordFilter()
     >>> ana = RegexTokenizer(r"\S+") | TeeFilter(f1, f2) | LowercaseFilter()
@@ -169,22 +160,19 @@ class TeeFilter(Filter):
     ["alfa", "alfa-bravo", "bravo", "bravo-charlie", "charlie"]
     """
 
-    def __init__(self, *filters):
+    def __init__(self, *filters: Sequence[analysis.Filter]):
         if len(filters) < 2:
             raise Exception("TeeFilter requires two or more filters")
         self.filters = filters
 
-    def __eq__(self, other):
-        return (self.__class__ is other.__class__
-                and self.filters == other.fitlers)
-
-    def __call__(self, tokens):
+    def filter(self, tokens: Iterable[analysis.Token]
+               ) -> Iterable[analysis.Token]:
         from itertools import tee
 
         count = len(self.filters)
         # Tee the token iterator and wrap each teed iterator with the
         # corresponding filter
-        gens = [filter(t.copy() for t in gen) for filter, gen
+        gens = [f.filter(t.copy() for t in gen) for f, gen
                 in zip(self.filters, tee(tokens, count))]
         # Keep a count of the number of running iterators
         running = count
@@ -198,51 +186,61 @@ class TeeFilter(Filter):
                         running -= 1
 
 
-class ReverseTextFilter(Filter):
-    """Reverses the text of each token.
+class ReverseTextFilter(analysis.Filter):
+    """
+    Reverses the text of each token.
 
+    >>> from whoosh.analysis.tokenizers import RegexTokenizer
     >>> ana = RegexTokenizer() | ReverseTextFilter()
     >>> [token.text for token in ana("hello there")]
     ["olleh", "ereht"]
     """
 
-    def __call__(self, tokens):
+    def filter(self, tokens: Iterable[analysis.Token]
+               ) -> Iterable[analysis.Token]:
         for t in tokens:
             t.text = t.text[::-1]
             yield t
 
 
-class LowercaseFilter(Filter):
-    """Uses unicode.lower() to lowercase token text.
+class LowercaseFilter(analysis.Filter):
+    """
+    Uses unicode.lower() to lowercase token text.
 
+    >>> from whoosh.analysis.tokenizers import RegexTokenizer
     >>> rext = RegexTokenizer()
     >>> stream = rext("This is a TEST")
     >>> [token.text for token in LowercaseFilter(stream)]
     ["this", "is", "a", "test"]
     """
 
-    def __call__(self, tokens):
+    def filter(self, tokens: Iterable[analysis.Token]
+               ) -> Iterable[analysis.Token]:
         for t in tokens:
             t.text = t.text.lower()
             yield t
 
 
-class StripFilter(Filter):
-    """Calls unicode.strip() on the token text.
+class StripFilter(analysis.Filter):
+    """
+    Calls unicode.strip() on the token text.
     """
 
-    def __call__(self, tokens):
+    def filter(self, tokens: Iterable[analysis.Token]
+               ) -> Iterable[analysis.Token]:
         for t in tokens:
             t.text = t.text.strip()
             yield t
 
 
-class StopFilter(Filter):
-    """Marks "stop" words (words too common to index) in the stream (and by
+class StopFilter(analysis.Filter):
+    """
+    Marks "stop" words (words too common to index) in the stream (and by
     default removes them).
 
     Make sure you precede this filter with a :class:`LowercaseFilter`.
 
+    >>> from whoosh.analysis.tokenizers import RegexTokenizer
     >>> stopper = RegexTokenizer() | StopFilter()
     >>> [token.text for token in stopper(u"this is a test")]
     ["test"]
@@ -255,8 +253,9 @@ class StopFilter(Filter):
     has a stop word list available.
     """
 
-    def __init__(self, stoplist=STOP_WORDS, minsize=2, maxsize=None,
-                 renumber=True, lang=None):
+    def __init__(self, stoplist: StrSet=STOP_WORDS,
+                 minsize: int=2, maxsize: int=None,
+                 renumber: bool=True, lang: str=None):
         """
         :param stoplist: A collection of words to remove from the stream.
             This is converted to a frozenset. The default is a list of
@@ -284,14 +283,8 @@ class StopFilter(Filter):
         self.max = maxsize
         self.renumber = renumber
 
-    def __eq__(self, other):
-        return (other
-                and self.__class__ is other.__class__
-                and self.stops == other.stops
-                and self.min == other.min
-                and self.renumber == other.renumber)
-
-    def __call__(self, tokens):
+    def filter(self, tokens: Iterable[analysis.Token]
+               ) -> Iterable[analysis.Token]:
         stoplist = self.stops
         minsize = self.min
         maxsize = self.max
@@ -320,13 +313,15 @@ class StopFilter(Filter):
                     yield t
 
 
-class CharsetFilter(Filter):
-    """Translates the text of tokens by calling unicode.translate() using the
+class CharsetFilter(analysis.Filter):
+    """
+    Translates the text of tokens by calling unicode.translate() using the
     supplied character mapping object. This is useful for case and accent
     folding.
 
     The ``whoosh.support.charset`` module has a useful map for accent folding.
 
+    >>> from whoosh.analysis.tokenizers import RegexTokenizer
     >>> from whoosh.support.charset import accent_map
     >>> retokenizer = RegexTokenizer()
     >>> chfilter = CharsetFilter(accent_map)
@@ -351,7 +346,7 @@ class CharsetFilter(Filter):
 
     __inittypes__ = dict(charmap=dict)
 
-    def __init__(self, charmap):
+    def __init__(self, charmap: Dict[int, text_type]):
         """
         :param charmap: a dictionary mapping from integer character numbers to
             unicode characters, as required by the unicode.translate() method.
@@ -359,12 +354,8 @@ class CharsetFilter(Filter):
 
         self.charmap = charmap
 
-    def __eq__(self, other):
-        return (other
-                and self.__class__ is other.__class__
-                and self.charmap == other.charmap)
-
-    def __call__(self, tokens):
+    def filter(self, tokens: Iterable[analysis.Token]
+               ) -> Iterable[analysis.Token]:
         assert hasattr(tokens, "__iter__")
         charmap = self.charmap
         for t in tokens:
@@ -372,7 +363,7 @@ class CharsetFilter(Filter):
             yield t
 
 
-class DelimitedAttributeFilter(Filter):
+class DelimitedAttributeFilter(analysis.Filter):
     """Looks for delimiter characters in the text of each token and stores the
     data after the delimiter in a named attribute on the token.
 
@@ -391,8 +382,8 @@ class DelimitedAttributeFilter(Filter):
     data as part of the token!
     """
 
-    def __init__(self, delimiter="^", attribute="boost", default=1.0,
-                 type=float):
+    def __init__(self, delimiter: str="^", attribute: str="boost",
+                 default: Any=1.0, type=float):
         """
         :param delimiter: a string that, when present in a token's text,
             separates the actual text from the "data" payload.
@@ -410,13 +401,8 @@ class DelimitedAttributeFilter(Filter):
         self.default = default
         self.type = type
 
-    def __eq__(self, other):
-        return (other and self.__class__ is other.__class__
-                and self.delim == other.delim
-                and self.attr == other.attr
-                and self.default == other.default)
-
-    def __call__(self, tokens):
+    def filter(self, tokens: Iterable[analysis.Token]
+               ) -> Iterable[analysis.Token]:
         delim = self.delim
         attr = self.attr
         default = self.default
@@ -436,8 +422,9 @@ class DelimitedAttributeFilter(Filter):
             yield t
 
 
-class SubstitutionFilter(Filter):
-    """Performs a regular expression substitution on the token text.
+class SubstitutionFilter(analysis.Filter):
+    """
+    Performs a regular expression substitution on the token text.
 
     This is especially useful for removing text from tokens, for example
     hyphens::
@@ -455,7 +442,7 @@ class SubstitutionFilter(Filter):
         ana = rt | sf
     """
 
-    def __init__(self, pattern, replacement):
+    def __init__(self, pattern: str, replacement: text_type):
         """
         :param pattern: a pattern string or compiled regular expression object
             describing the text to replace.
@@ -465,12 +452,8 @@ class SubstitutionFilter(Filter):
         self.pattern = rcompile(pattern)
         self.replacement = replacement
 
-    def __eq__(self, other):
-        return (other and self.__class__ is other.__class__
-                and self.pattern == other.pattern
-                and self.replacement == other.replacement)
-
-    def __call__(self, tokens):
+    def filter(self, tokens: Iterable[analysis.Token]
+               ) -> Iterable[analysis.Token]:
         pattern = self.pattern
         replacement = self.replacement
 

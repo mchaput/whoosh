@@ -29,6 +29,7 @@ import math, struct
 from array import array
 from bisect import bisect_left
 from struct import pack, unpack
+from typing import Iterable, Tuple
 
 from whoosh.compat import b, long_type
 from whoosh.system import pack_byte, unpack_byte, pack_ushort, unpack_ushort
@@ -37,7 +38,7 @@ from whoosh.system import pack_long, unpack_long, pack_ulong, unpack_ulong
 from whoosh.system import pack_float, unpack_float, pack_double, unpack_double
 
 
-NaN = struct.unpack("<d", b('\xff\xff\xff\xff\xff\xff\xff\xff'))[0]
+NaN = struct.unpack("<d", b'\xff\xff\xff\xff\xff\xff\xff\xff')[0]
 
 typecode_max = {"b": 127, "B": 255, "h": 2 ** 15 - 1, "H": 2 ** 16 - 1,
                 "i": 2 ** 31 - 1, "I": 2 ** 32 - 1,
@@ -55,15 +56,24 @@ typecode_unpack = {"B": unpack_byte, "H": unpack_ushort, "i": unpack_int,
 
 # Functions related to binary representations
 
-def bits_required(maxnum):
-    """Returns the number of bits required to represent the given (unsigned)
+def bits_required(maxnum: int) -> int:
+    """
+    Returns the number of bits required to represent the given (unsigned)
     integer.
+
+    :param: the maximum value.
     """
 
     return max(1, math.ceil(math.log(maxnum, 2)))
 
 
-def typecode_required(maxnum):
+def typecode_required(maxnum: int) -> str:
+    """
+    Returns the smallest typecode string able to hold the given value.
+
+    :param maxnum: the maximum value.
+    """
+
     if maxnum < 256:
         return "B"
     elif maxnum < 2 ** 16:
@@ -78,17 +88,26 @@ def typecode_required(maxnum):
         return "Q"
 
 
-def max_value(bitcount):
-    """Returns the maximum (unsigned) integer representable in the given number
+def max_value(bitcount: int) -> int:
+    """
+    Returns the maximum (unsigned) integer representable in the given number
     of bits.
+
+    :param bitcount: the number of bits available.
     """
 
     return ~(~0 << bitcount)
 
 
-def bytes_for_bits(bitcount):
-    r = int(math.ceil((bitcount + 1) / 8.0))
-    return r
+def bytes_for_bits(bitcount: int) -> int:
+    """
+    Returns the number of whole bytes required to accomodate the given number of
+    bits.
+
+    :param bitcount: the number of bits.
+    """
+
+    return int(math.ceil((bitcount + 1) / 8.0))
 
 
 # Functions for converting numbers to and from sortable representations
@@ -101,7 +120,7 @@ _qpack, _qunpack = _qstruct.pack, _qstruct.unpack
 _dpack, _dunpack = _dstruct.pack, _dstruct.unpack
 
 
-def to_sortable(numtype, intsize, signed, x):
+def to_sortable(numtype: type, intsize: int, signed: bool, x: float) -> int:
     if numtype is int or numtype is long_type:
         if signed:
             x += (1 << intsize - 1)
@@ -110,8 +129,8 @@ def to_sortable(numtype, intsize, signed, x):
         return float_to_sortable_long(x, signed)
 
 
-def from_sortable(numtype, intsize, signed, x):
-    if numtype is int or numtype is long_type:
+def from_sortable(numtype: type, intsize: int, signed: bool, x: int) -> float:
+    if numtype is int:
         if signed:
             x -= (1 << intsize - 1)
         return x
@@ -119,7 +138,7 @@ def from_sortable(numtype, intsize, signed, x):
         return sortable_long_to_float(x, signed)
 
 
-def float_to_sortable_long(x, signed):
+def float_to_sortable_long(x: float, signed: bool) -> int:
     x = _qunpack(_dpack(x))[0]
     if x < 0:
         x ^= 0x7fffffffffffffff
@@ -129,7 +148,7 @@ def float_to_sortable_long(x, signed):
     return x
 
 
-def sortable_long_to_float(x, signed):
+def sortable_long_to_float(x: int, signed: bool) -> float:
     if signed:
         x -= 1 << 63
     if x < 0:
@@ -140,8 +159,10 @@ def sortable_long_to_float(x, signed):
 
 # Functions for generating tiered ranges
 
-def split_ranges(intsize, step, start, end):
-    """Splits a range of numbers (from ``start`` to ``end``, inclusive)
+def split_ranges(intsize: int, step: int, start: int,
+                 end: int) -> Iterable[Tuple[int, int, int]]:
+    """
+    Splits a range of numbers (from ``start`` to ``end``, inclusive)
     into a sequence of trie ranges of the form ``(start, end, shift)``. The
     consumer of these tuples is expected to shift the ``start`` and ``end``
     right by ``shift``.
@@ -149,22 +170,34 @@ def split_ranges(intsize, step, start, end):
     This is used for generating term ranges for a numeric field. The queries
     for the edges of the range are generated at high precision and large blocks
     in the middle are generated at low precision.
+
+    :param intsize: the number of bits in the values to encode.
+    :param step: the increase in bitshift at each level.
+    :param start: the start of the range.
+    :param end: the end of the range.
     """
 
     shift = 0
+    all_ones = (1 << intsize + 1) - 1
+
     while True:
         diff = 1 << (shift + step)
         mask = ((1 << step) - 1) << shift
-        setbits = lambda x: x | ((1 << shift) - 1)
+
+        def setbits(x):
+            return x | ((1 << shift) - 1)
 
         haslower = (start & mask) != 0
         hasupper = (end & mask) != mask
 
-        not_mask = ~mask & ((1 << intsize + 1) - 1)
+        not_mask = ~mask & all_ones
         nextstart = (start + diff if haslower else start) & not_mask
         nextend = (end - diff if hasupper else end) & not_mask
 
-        if shift + step >= intsize or nextstart > nextend:
+        swrap = nextstart < start
+        ewrap = nextend > end
+
+        if shift + step >= intsize or nextstart > nextend or swrap or ewrap:
             yield (start, setbits(end), shift)
             break
 
@@ -178,37 +211,15 @@ def split_ranges(intsize, step, start, end):
         shift += step
 
 
-def tiered_ranges(numtype, intsize, signed, start, end, shift_step,
-                  startexcl, endexcl):
-    assert numtype in (int, float)
-    assert intsize in (8, 16, 32, 64)
-
-    # Convert start and end values to sortable ints
-    if start is None:
-        start = 0
-    else:
-        start = to_sortable(numtype, intsize, signed, start)
-        if startexcl:
-            start += 1
-
-    if end is None:
-        end = 2 ** intsize - 1
-    else:
-        end = to_sortable(numtype, intsize, signed, end)
-        if endexcl:
-            end -= 1
-
-    if not shift_step:
-        return ((start, end, 0),)
-
-    # Yield (rstart, rend, shift) ranges for the different resolutions
-    return split_ranges(intsize, shift_step, start, end)
-
-
 # Float-to-byte encoding/decoding
 
-def float_to_byte(value, mantissabits=5, zeroexp=2):
-    """Encodes a floating point number in a single byte.
+def float_to_byte(value: float, mantissabits: int=5, zeroexp: int=2) -> bytes:
+    """
+    Encodes a floating point number in a single byte.
+
+    :param value: the floating point value to encode.
+    :param mantissabits: the number of bits for the mantissa.
+    :param zeroexp:
     """
 
     # Assume int size == float size
@@ -228,11 +239,16 @@ def float_to_byte(value, mantissabits=5, zeroexp=2):
         result = chr(255)
     else:
         result = chr(smallfloat - fzero)
-    return b(result)
+    return bytes(result)
 
 
-def byte_to_float(b, mantissabits=5, zeroexp=2):
-    """Decodes a floating point number stored in a single byte.
+def byte_to_float(b: bytes, mantissabits: int=5, zeroexp: int=2) -> float:
+    """
+    Decodes a floating point number stored in a single byte.
+
+    :param value: the byte value to decode.
+    :param mantissabits: the number of bits for the mantissa.
+    :param zeroexp:
     """
     if type(b) is not int:
         b = ord(b)
@@ -306,7 +322,14 @@ _length_byte_cache = array('i', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14,
 79414, 82035, 84743, 87541, 90430, 93416, 96499, 99684, 102975, 106374])
 
 
-def length_to_byte(length):
+def length_to_byte(length: int) -> int:
+    """
+    Takes a free integer value and lossily compresses it to an 8-bit number
+    (from 0-255).
+
+    :param length: the length value to encode.
+    """
+
     if length is None:
         return 0
     if length >= 106374:
@@ -314,4 +337,14 @@ def length_to_byte(length):
     else:
         return bisect_left(_length_byte_cache, length)
 
-byte_to_length = _length_byte_cache.__getitem__
+
+def byte_to_length(bytevalue: int) -> int:
+    """
+    Takes en encoded 8-bit value (from 0-255) and de-compresses it into an
+    integer somewhat similar to the original length.
+
+    :param bytevalue: an 8-bit compressed length to decode.
+    """
+
+    return _length_byte_cache[bytevalue]
+

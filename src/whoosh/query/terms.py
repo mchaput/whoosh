@@ -29,17 +29,22 @@ from __future__ import division
 import copy
 import fnmatch
 import re
-from collections import defaultdict
+from typing import Iterable, Tuple
 
-from whoosh import matching
-from whoosh.analysis import Token
-from whoosh.compat import bytes_type, text_type, u
+from whoosh import collectors
+from whoosh.compat import bytes_type, text_type
+from whoosh.ifaces import analysis, matchers, queries, readers, searchers
 from whoosh.lang.morph_en import variations
-from whoosh.query import qcore
 
 
-class Term(qcore.Query):
-    """Matches documents containing the given term (fieldname+text pair).
+__all__ = ("Term", "MultiTerm", "PatternQuery", "Prefix", "Wildcard", "Regex",
+           "ExpandingTerm", "FuzzyTerm", "Variations")
+
+
+@collectors.register("term")
+class Term(queries.Query):
+    """
+    Matches documents containing the given term (fieldname+text pair).
 
     >>> Term("content", u"render")
     """
@@ -52,7 +57,7 @@ class Term(qcore.Query):
         self.boost = boost
         self.minquality = minquality
 
-    def __eq__(self, other):
+    def __eq__(self, other: queries.Query):
         return (other
                 and self.__class__ is other.__class__
                 and self.fieldname == other.fieldname
@@ -74,9 +79,9 @@ class Term(qcore.Query):
             except UnicodeDecodeError:
                 text = repr(text)
 
-        t = u("%s:%s") % (self.fieldname, text)
+        t = u"%s:%s" % (self.fieldname, text)
         if self.boost != 1:
-            t += u("^") + text_type(self.boost)
+            t += u"^%s" % text_type(self.boost)
         return t
 
     __str__ = __unicode__
@@ -84,48 +89,61 @@ class Term(qcore.Query):
     def __hash__(self):
         return hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
 
-    def has_terms(self):
+    def set_text(self, text):
+        self.text = text
+
+    def has_terms(self) -> bool:
         return True
 
-    def tokens(self, boost=1.0):
-        yield Token(fieldname=self.fieldname, text=self.text,
-                    boost=boost * self.boost, startchar=self.startchar,
-                    endchar=self.endchar, chars=True)
+    def _terms(self, reader: 'readers.IndexReader'=None,
+               phrases: bool=True) -> Iterable[Tuple[str, text_type]]:
+        fieldname = self.field()
+        if not fieldname:
+            return
 
-    def terms(self, phrases=False):
-        if self.field():
-            yield (self.field(), self.text)
+        text = self.text
+        if reader:
+            if (fieldname, text) not in reader:
+                return
+            fieldobj = reader.schema[fieldname]
+            text = fieldobj.to_bytes(text)
 
-    def replace(self, fieldname, oldtext, newtext):
-        q = copy.copy(self)
-        if q.fieldname == fieldname and q.text == oldtext:
-            q.text = newtext
-        return q
+        yield fieldname, text
 
-    def estimate_size(self, ixreader):
+    def _tokens(self, reader: 'readers.IndexReader'=None, phrases: bool=True,
+                boost=1.0) -> 'Iterable[analysis.Token]':
+        fieldname = self.field()
+        if not fieldname:
+            return
+
+        yield analysis.Token(fieldname=fieldname, text=self.text,
+                             boost=boost * self.boost, startchar=self.startchar,
+                             endchar=self.endchar, chars=True)
+
+    def estimate_size(self, ixreader: 'readers.IndexReader') -> int:
         fieldname = self.fieldname
         if fieldname not in ixreader.schema:
             return 0
+        return ixreader.doc_frequency(fieldname, self.text)
 
-        field = ixreader.schema[fieldname]
-        try:
-            text = field.to_bytes(self.text)
-        except ValueError:
-            return 0
+    def matcher(self, searcher: 'searchers.Searcher',
+                context: 'searchers.SearchContext'=None) -> 'matchers.Matcher':
+        from whoosh.matching.wrappers import WrappingMatcher
 
-        return ixreader.doc_frequency(fieldname, text)
-
-    def matcher(self, searcher, context=None):
+        assert isinstance(searcher, searchers.Searcher)
         fieldname = self.fieldname
-        text = self.text
         if fieldname not in searcher.schema:
-            return matching.NullMatcher()
-
+            return matchers.NullMatcher()
         field = searcher.schema[fieldname]
-        try:
-            text = field.to_bytes(text)
-        except ValueError:
-            return matching.NullMatcher()
+        include = context.include if context else None
+        exclude = context.exclude if context else None
+
+        text = self.text
+        if not isinstance(text, bytes):
+            try:
+                text = field.to_bytes(text)
+            except ValueError:
+                return matchers.NullMatcher()
 
         if (self.fieldname, text) in searcher.reader():
             if context is None:
@@ -133,65 +151,61 @@ class Term(qcore.Query):
             else:
                 w = context.weighting
 
-            m = searcher.postings(self.fieldname, text, weighting=w)
-            if self.minquality:
-                m.set_min_quality(self.minquality)
+            m = searcher.matcher(fieldname, text, weighting=w,
+                                 include=include, exclude=exclude)
+            # if self.minquality:
+            #     m.set_min_quality(self.minquality)
             if self.boost != 1.0:
-                m = matching.WrappingMatcher(m, boost=self.boost)
+                m = WrappingMatcher(m, boost=self.boost)
             return m
         else:
-            return matching.NullMatcher()
+            return matchers.NullMatcher()
 
 
-class MultiTerm(qcore.Query):
-    """Abstract base class for queries that operate on multiple terms in the
+class MultiTerm(queries.Query):
+    """
+    Abstract base class for queries that operate on multiple terms in the
     same field.
     """
 
-    constantscore = False
+    def __init__(self, fieldname, text):
+        self.fieldname = fieldname
+        self.text = text
+        self.constantscore = False
+
+    def set_text(self, text):
+        self.text = text
 
     def _btexts(self, ixreader):
         raise NotImplementedError(self.__class__.__name__)
 
-    def expanded_terms(self, ixreader, phrases=False):
+    def _terms(self, reader: 'readers.IndexReader'=None,
+               phrases: bool=True) -> Iterable[Tuple[str, text_type]]:
         fieldname = self.field()
-        if fieldname:
-            for btext in self._btexts(ixreader):
-                yield (fieldname, btext)
+        if reader and fieldname:
+            for btext in self._btexts(reader):
+                yield fieldname, btext
 
-    def tokens(self, boost=1.0, exreader=None):
+    def _tokens(self, reader: 'readers.IndexReader'=None, phrases: bool=True,
+                boost=1.0) -> 'Iterable[analysis.Token]':
         fieldname = self.field()
-        if exreader is None:
-            btexts = [self.text]
+        if not fieldname:
+            return
+
+        if reader:
+            fieldobj = reader.schema[fieldname]
+            texts = (fieldobj.from_bytes(tbytes) for tbytes
+                     in self._btexts(reader))
         else:
-            btexts = self._btexts(exreader)
+            texts = [self.text]
 
-        for btext in btexts:
-            yield Token(fieldname=fieldname, text=btext,
-                        boost=boost * self.boost, startchar=self.startchar,
-                        endchar=self.endchar, chars=True)
+        for text in texts:
+            yield analysis.Token(fieldname=fieldname, text=text,
+                                 boost=boost * self.boost,
+                                 startchar=self.startchar, endchar=self.endchar,
+                                 chars=True)
 
-    def simplify(self, ixreader):
-        fieldname = self.field()
-
-        if fieldname not in ixreader.schema:
-            return qcore.NullQuery()
-        field = ixreader.schema[fieldname]
-
-        existing = []
-        for btext in sorted(set(self._btexts(ixreader))):
-            text = field.from_bytes(btext)
-            existing.append(Term(fieldname, text, boost=self.boost))
-
-        if len(existing) == 1:
-            return existing[0]
-        elif existing:
-            from whoosh.query import Or
-            return Or(existing)
-        else:
-            return qcore.NullQuery
-
-    def estimate_size(self, ixreader):
+    def estimate_size(self, ixreader: 'readers.IndexReader') -> int:
         fieldname = self.field()
         return sum(ixreader.doc_frequency(fieldname, btext)
                    for btext in self._btexts(ixreader))
@@ -201,37 +215,38 @@ class MultiTerm(qcore.Query):
         return min(ixreader.doc_frequency(fieldname, text)
                    for text in self._btexts(ixreader))
 
-    def matcher(self, searcher, context=None):
-        from whoosh.query import Or
+    def simplify(self, reader: 'readers.IndexReader') -> queries.Query:
+        from whoosh.query.compound import Or
 
         fieldname = self.field()
-        constantscore = self.constantscore
 
-        reader = searcher.reader()
-        qs = [Term(fieldname, word) for word in self._btexts(reader)
-              if word]
+        qs = [Term(fieldname, tbytes, boost=self.boost)
+              for tbytes in self._btexts(reader)]
+
         if not qs:
-            return matching.NullMatcher()
-
-        if len(qs) == 1:
-            # If there's only one term, just use it
-            m = qs[0].matcher(searcher, context)
+            q = queries.NullQuery()
+        elif len(qs) == 1:
+            q = qs[0]
         else:
-            if constantscore:
-                # To tell the sub-query that score doesn't matter, set weighting
-                # to None
-                if context:
-                    context = context.set(weighting=None)
-                else:
-                    from whoosh.searching import SearchContext
-                    context = SearchContext(weighting=None)
             # Or the terms together
-            m = Or(qs, boost=self.boost).matcher(searcher, context)
-        return m
+            q = Or(qs)
+        return q
+
+    def matcher(self, searcher, context=None):
+        if self.constantscore:
+            # To tell the sub-query that score doesn't matter, set weighting
+            # to None
+            if context:
+                context = context.set(weighting=None)
+            else:
+                context = searcher.context(weighting=None)
+        sq = self.simplify(searcher.reader())
+        return sq.matcher(searcher, context)
 
 
 class PatternQuery(MultiTerm):
-    """An intermediate base class for common methods of Prefix and Wildcard.
+    """
+    An intermediate base class for common methods of Prefix and Wildcard.
     """
 
     __inittypes__ = dict(fieldname=str, text=text_type, boost=float)
@@ -289,8 +304,10 @@ class PatternQuery(MultiTerm):
                 yield btext
 
 
+@collectors.register("prefix")
 class Prefix(PatternQuery):
-    """Matches documents that contain any terms that start with the given text.
+    """
+    Matches documents that contain any terms that start with the given text.
 
     >>> # Match documents containing words starting with 'comp'
     >>> Prefix("content", u"comp")
@@ -310,9 +327,10 @@ class Prefix(PatternQuery):
             eq = Every(self.fieldname, boost=self.boost)
             return eq.matcher(searcher, context)
         else:
-            return PatternQuery.matcher(self, searcher, context)
+            return super(Prefix, self).matcher(searcher, context)
 
 
+@collectors.register("wildcard")
 class Wildcard(PatternQuery):
     """Matches documents that contain any terms that match a "glob" pattern.
     See the Python ``fnmatch`` module for information about globs.
@@ -331,11 +349,12 @@ class Wildcard(PatternQuery):
         return fnmatch.translate(self.text)
 
     def normalize(self):
+        from whoosh.query import Every
+
         # If there are no wildcard characters in this "wildcard", turn it into
         # a simple Term
         text = self.text
         if text == "*":
-            from whoosh.query import Every
             return Every(self.fieldname, boost=self.boost)
         if "*" not in text and "?" not in text:
             # If no wildcard chars, convert to a normal term.
@@ -359,6 +378,7 @@ class Wildcard(PatternQuery):
     # _btexts() implemented in PatternQuery
 
 
+@collectors.register("regex")
 class Regex(PatternQuery):
     """Matches documents that contain any terms that match a regular
     expression. See the Python ``re`` module for information about regular
@@ -406,20 +426,29 @@ class Regex(PatternQuery):
 
 
 class ExpandingTerm(MultiTerm):
-    """Intermediate base class for queries such as FuzzyTerm and Variations
+    """
+    Intermediate base class for queries such as FuzzyTerm and Variations
     that expand into multiple queries, but come from a single term.
     """
 
     def has_terms(self):
         return True
 
-    def terms(self, phrases=False):
-        if self.field():
-            yield (self.field(), self.text)
+    def _terms(self, reader: 'readers.IndexReader'=None,
+               phrases: bool=True) -> Iterable[Tuple[str, text_type]]:
+        fieldname = self.field()
+        if fieldname:
+            if reader:
+                for btext in self._btexts(reader):
+                    yield fieldname, btext
+            else:
+                yield fieldname, self.text
 
 
+@collectors.register("fuzzy_term")
 class FuzzyTerm(ExpandingTerm):
-    """Matches documents containing words similar to the given term.
+    """
+    Matches documents containing words similar to the given term.
     """
 
     __inittypes__ = dict(fieldname=str, text=text_type, boost=float,
@@ -461,11 +490,11 @@ class FuzzyTerm(ExpandingTerm):
                     self.boost, self.maxdist, self.prefixlength)
 
     def __unicode__(self):
-        r = u("%s:%s") % (self.fieldname, self.text) + u("~")
+        r = u"%s:%s" % (self.fieldname, self.text) + u"~"
         if self.maxdist > 1:
-            r += u("%d") % self.maxdist
+            r += u"%d" % self.maxdist
         if self.boost != 1.0:
-            r += u("^%f") % self.boost
+            r += u"^%f" % self.boost
         return r
 
     __str__ = __unicode__
@@ -486,15 +515,18 @@ class FuzzyTerm(ExpandingTerm):
         return q
 
 
+@collectors.register("variations")
 class Variations(ExpandingTerm):
-    """Query that automatically searches for morphological variations of the
+    """
+    Query that automatically searches for morphological variations of the
     given word in the same field.
     """
 
-    def __init__(self, fieldname, text, boost=1.0):
+    def __init__(self, fieldname, text, boost=1.0, constantscore=False):
         self.fieldname = fieldname
         self.text = text
         self.boost = boost
+        self.constantscore = constantscore
 
     def __repr__(self):
         r = "%s(%r, %r" % (self.__class__.__name__, self.fieldname, self.text)
@@ -524,7 +556,7 @@ class Variations(ExpandingTerm):
                 yield btext
 
     def __unicode__(self):
-        return u("%s:<%s>") % (self.fieldname, self.text)
+        return u"%s:<%s>" % (self.fieldname, self.text)
 
     __str__ = __unicode__
 

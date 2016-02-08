@@ -1,41 +1,74 @@
+import struct
 from array import array
+from typing import Iterable, Sequence
 
 from whoosh.compat import xrange
+from whoosh.filedb.structfile import StructFile
 from whoosh.system import emptybytes
 from whoosh.system import pack_byte, unpack_byte
 from whoosh.system import pack_ushort_le, unpack_ushort_le
 from whoosh.system import pack_uint_le, unpack_uint_le
 
 
-def delta_encode(nums):
-    base = 0
+def delta_encode(nums: Sequence[int], base: int=0) -> Iterable[int]:
     for n in nums:
+        if n < base:
+            raise ValueError("Out of order: %s to %s" % (base, n))
         yield n - base
         base = n
 
 
-def delta_decode(nums):
-    base = 0
+def delta_decode(nums: Iterable[int], base: int=0) -> Iterable[int]:
     for n in nums:
         base += n
         yield base
 
 
+def delta_decode_inplace(nums: Sequence):
+    print("nums=", nums)
+    for i in xrange(1, len(nums)):
+        nums[i] += nums[i - 1]
+
+
+def min_array_code(maxval: int) -> str:
+    if maxval <= 255:
+        return "B"
+    elif maxval <= 2**16:
+        return "H"
+    elif maxval <= 2**31 - 1:
+        return "i"
+    elif maxval <= 2**32:
+        return "I"
+    else:
+        return "q"
+
+
+def min_signed_code(minval: int, maxval: int) -> str:
+    if minval >= 128 and maxval <= 127:
+        return "b"
+    elif minval >= -32768 and maxval <= 32767:
+        return "h"
+    elif minval >= -2147483648 and maxval <= 2147483647:
+        return "i"
+    else:
+        return "q"
+
+
 class GrowableArray(object):
-    def __init__(self, inittype="B", allow_longs=True):
+    def __init__(self, inittype: str="B", allow_longs: bool=True):
         self.array = array(inittype)
         self._allow_longs = allow_longs
 
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.array)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.array)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterable[int]:
         return iter(self.array)
 
-    def _retype(self, maxnum):
+    def _retype(self, maxnum: int):
         if maxnum < 2 ** 16:
             newtype = "H"
         elif maxnum < 2 ** 31:
@@ -52,26 +85,26 @@ class GrowableArray(object):
         except ValueError:
             self.array = list(self.array)
 
-    def append(self, n):
+    def append(self, n: int):
         try:
             self.array.append(n)
         except OverflowError:
             self._retype(n)
             self.array.append(n)
 
-    def extend(self, ns):
+    def extend(self, ns: Iterable[int]):
         append = self.append
         for n in ns:
             append(n)
 
     @property
-    def typecode(self):
+    def typecode(self) -> str:
         if isinstance(self.array, array):
             return self.array.typecode
         else:
             return "q"
 
-    def to_file(self, dbfile):
+    def to_file(self, dbfile: StructFile):
         if isinstance(self.array, array):
             dbfile.write_array(self.array)
         else:
@@ -300,7 +333,8 @@ class GInts(NumberEncoding):
     12, 13, 14, 12, 13, 14, 15, 13, 14, 15, 16])
 
     def key_to_sizes(self, key):
-        """Returns a list of the sizes of the next four numbers given a key
+        """
+        Returns a list of the sizes of the next four numbers given a key
         byte.
         """
 
@@ -338,7 +372,8 @@ class GInts(NumberEncoding):
             f.write(buf)
 
     def read_nums(self, f, n):
-        """Read N integers from the bytes stream dbfile. Expects that the file
+        """
+        Read N integers from the bytes stream dbfile. Expects that the file
         is positioned at a key byte.
         """
 
@@ -371,3 +406,52 @@ class GInts(NumberEncoding):
 #        for n in self.read_nums(f, (i + 1) - base):
 #            pass
 #        return n
+
+
+class MmapArray(object):
+    """
+    Implements an array-like interface similar to a ``cast()``-ed ``memorymap``,
+    but fakes item access using ``Struct.unpack()``, for Python versions that
+    do not support ``memorymap.cast()``.
+    """
+
+    def __init__(self, mm, fmt, offset, length):
+        """
+        :param mm: a ``mmap`` or ``FileMap`` object.
+        :param fmt: the ``struct`` format string to use to access items.
+        :param offset: the offset of the beginning of the array in the file.
+        :param length: the number of items in the array.
+        """
+        self._mm = mm
+        self._struct = struct.Struct(fmt)
+        self._offset = offset
+        self._length = length
+
+    def __len__(self):
+        return self._length
+
+    def __iter__(self):
+        _mm = self._mm
+        size = self._struct.size
+        unpack = self._struct.unpack
+        for i in xrange(self._length):
+            pos = self._offset + i * size
+            yield unpack(_mm[pos:pos + size])[0]
+
+    def __getitem__(self, n):
+        _mm = self._mm
+        _struct = self._struct
+        _offset = self._offset
+        _unpack = _struct.unpack
+        _size = _struct.size
+
+        if isinstance(n, slice):
+            out = []
+            start, stop, step = n.indices(self._length)
+            for i in xrange(start, stop, step):
+                pos = _offset + i * _size
+                out.append(_unpack(_mm[pos:pos + _size])[0])
+            return out
+        else:
+            pos = _offset + n * _struct.size
+            return _unpack(_mm[pos:pos + _size])[0]

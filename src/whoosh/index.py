@@ -29,19 +29,29 @@
 an index.
 """
 
-from __future__ import division
-import os.path, re, sys
-from time import time, sleep
+from __future__ import division, absolute_import
+
+import concurrent.futures
+import re
+import struct
+import sys
+from datetime import datetime
+from time import sleep
+from typing import Dict, Sequence, Tuple
 
 from whoosh import __version__
-from whoosh.legacy import toc_loaders
-from whoosh.compat import pickle, string_type
-from whoosh.fields import ensure_schema
-from whoosh.system import _INT_SIZE, _FLOAT_SIZE, _LONG_SIZE
+from whoosh import fields, writing
+from whoosh.ifaces import codecs, readers, storage, searchers
+from whoosh.compat import xrange
+from whoosh.filedb import filestore
+from whoosh.metadata import MetaData
+from whoosh.util.times import datetime_to_long, long_to_datetime
 
 
-_DEF_INDEX_NAME = "MAIN"
-_CURRENT_TOC_VERSION = -111
+# Constants
+
+DEFAULT_INDEX_NAME = "MAIN"
+CURRENT_TOC_VERSION = -112
 
 
 # Exceptions
@@ -50,12 +60,13 @@ class LockError(Exception):
     pass
 
 
-class IndexError(Exception):
-    """Generic index error."""
+class WhooshIndexError(Exception):
+    pass
 
 
-class IndexVersionError(IndexError):
-    """Raised when you try to open an index using a format that the current
+class IndexVersionError(WhooshIndexError):
+    """
+    Raised when you try to open an index using a format that the current
     version of Whoosh cannot read. That is, when the index you're trying to
     open is either not backward or forward compatible with this version of
     Whoosh.
@@ -67,21 +78,426 @@ class IndexVersionError(IndexError):
         self.release = release
 
 
-class OutOfDateError(IndexError):
-    """Raised when you try to commit changes to an index which is not the
+class OutOfDateError(WhooshIndexError):
+    """
+    Raised when you try to commit changes to an index which is not the
     latest generation.
     """
 
 
-class EmptyIndexError(IndexError):
-    """Raised when you try to work with an index that has no indexed terms.
+class EmptyIndexError(WhooshIndexError):
     """
+    Raised when you try to work with an index that has no indexed terms.
+    """
+
+
+# TOC
+
+# Length of codec name, length of segment bytes
+segment_entry = struct.Struct("<Hi")
+
+
+class TocHeader(MetaData):
+    magic_bytes = b"Indx"
+    field_order = ("toc_version release_major release_minor release_build "
+                   "generation created schema_len segment_count")
+
+    toc_version = "i"  # TOC format revision number
+    release_major = "B"  # Major version number
+    release_minor = "B"  # Minor version number
+    release_build = "H"  # Build version number
+    generation = "I"  # current generation number
+    created = "q"  # long representation of creation datetime
+    schema_len = "i"  # length of the encoded schema in bytes
+    segment_count = "i"  # number of segments
+
+
+class Toc(object):
+    """
+    Holds information about a particular revision of the index, including the
+    schema and a list of segments.
+    """
+
+    def __init__(self, schema: 'fields.Schema',
+                 segments: 'Sequence[codecs.Segment]',
+                 generation: int, toc_version: int=CURRENT_TOC_VERSION,
+                 release: Tuple[int, int, int]=__version__,
+                 created: datetime=None):
+        self.schema = schema
+        self.segments = segments
+        self.generation = generation
+        self.toc_version = toc_version
+        self.release = release
+        self.created = created or datetime.utcnow()
+
+    @staticmethod
+    def make_filename(indexname: str, generation: int, ext="toc") -> str:
+        return "_%s_%s.%s" % (indexname, generation, ext)
+
+    @staticmethod
+    def toc_regex(indexname):
+        return re.compile("^_%s_([0-9]+).toc$" % indexname)
+
+    @staticmethod
+    def segment_regex(indexname):
+        return re.compile("(%s_[0-9a-z]+)[.][A-Za-z0-9_.]+" % indexname)
+
+    def to_bytes(self) -> bytes:
+        output = bytearray()
+
+        schema_bytes = self.schema.to_bytes()
+        created_int = datetime_to_long(self.created)
+        assert self.generation >= 0
+
+        # Generate the header
+        output += TocHeader(
+            toc_version=self.toc_version,
+            release_major=self.release[0],
+            release_minor=self.release[1],
+            release_build=self.release[2],
+            generation=self.generation, created=created_int,
+            schema_len=len(schema_bytes),
+            segment_count=len(self.segments)
+        ).encode()
+
+        # Add the schema
+        output += schema_bytes
+
+        # Add the segments
+        for segment in self.segments:
+            name_bytes = segment.codec_name().encode("utf8")
+            segment_bytes = segment.to_bytes()
+            output += segment_entry.pack(len(name_bytes), len(segment_bytes))
+            output += name_bytes
+            output += segment_bytes
+
+        return output
+
+    @classmethod
+    def from_bytes(cls, bs: bytes, offset: int=0) -> 'Toc':
+        head = TocHeader.decode(bs, offset)
+        release = head.release_major, head.release_minor, head.release_build
+        created = long_to_datetime(head.created)
+
+        # Read the schema
+        schema_start = offset + head.get_size()
+        schema_end = schema_start + head.schema_len
+        schema = fields.Schema.from_bytes(bs[schema_start:schema_end])
+
+        # Read the segments
+        segments = []
+        pos = schema_end
+        for i in xrange(head.segment_count):
+            namestart = pos + segment_entry.size
+            namelen, seglen = segment_entry.unpack(bs[pos:namestart])
+            name = bytes(bs[namestart:namestart + namelen]).decode("utf8")
+
+            c = codecs.codec_by_name(name)
+            segstart = namestart + namelen
+            segment = c.segment_from_bytes(bs[segstart:segstart + seglen])
+            segments.append(segment)
+
+            pos = segstart + seglen
+
+        return cls(schema, segments, head.generation, head.toc_version, release,
+                   created)
+
+
+# Index class
+
+class Index(object):
+    """
+    Represents an indexed collection of documents.
+    """
+
+    def __init__(self, store: 'storage.Storage', indexname: str, toc: Toc=None):
+        self.store = store
+        self.indexname = indexname
+
+    @property
+    def toc(self):
+        with self.store.open(self.indexname) as session:
+            return self.store.load_toc(session)
+
+    @property
+    def schema(self):
+        return self.toc.schema
+
+    def storage(self) -> 'storage.Storage':
+        return self.store
+
+    def segments(self) -> 'Sequence[codecs.Segment]':
+        return self.toc.segments
+
+    def release_version(self) -> Tuple[int, int, int]:
+        """
+        Returns the version of Whoosh that created this index as tuple of
+        ``(major_ver, minor_ver, build_ver)``.
+        """
+
+        return self.toc.release
+
+    def toc_version(self) -> int:
+        """
+        Returns the version number of the index format.
+        """
+
+        return self.toc.toc_version
+
+    def close(self):
+        pass
+
+    def add_field(self, fieldname: str, fieldspec: 'fields.FieldType'):
+        """
+        Adds a field to the index's schema.
+
+        :param fieldname: the name of the field to add.
+        :param fieldspec: an instantiated :class:`whoosh.fields.FieldType`
+            object.
+        """
+
+        with self.writer() as w:
+            w.add_field(fieldname, fieldspec)
+
+    def remove_field(self, fieldname: str):
+        """
+        Removes the named field from the index's schema. Depending on the
+        backend implementation, this may or may not actually remove existing
+        data for the field from the index. Optimizing the index should always
+        clear out existing data for a removed field.
+        """
+
+        with self.writer() as w:
+            w.remove_field(fieldname)
+
+    def latest_generation(self) -> int:
+        """
+        Returns the generation number of the latest generation of this
+        index, or -1 if the backend doesn't support versioning.
+        """
+
+        with self.store.open(indexname=self.indexname) as session:
+            return self.store.latest_generation(session)
+
+    def up_to_date(self) -> bool:
+        """
+        Returns True if this object represents the latest generation of
+        this index. Returns False if this object is not the latest generation
+        (that is, someone else has updated the index since you opened this
+        object).
+        """
+
+        return self.toc.generation == self.latest_generation()
+
+    def creation_time(self) -> datetime:
+        """
+        Returns the creation time of the index.
+        """
+
+        return self.toc.created
+
+    def is_empty(self) -> bool:
+        """
+        Returns True if this index is "fresh" (that is, it has never had any
+        documents successfully written to it.
+        """
+
+        return self.doc_count() == 0
+
+    def doc_count(self) -> int:
+        segments = self.toc.segments
+        if not segments:
+            return 0
+        return sum(seg.doc_count() for seg in segments)
+
+    def doc_count_all(self) -> int:
+        segments = self.toc.segments
+        if not segments:
+            return 0
+        return sum(seg.doc_count_all() for seg in segments)
+
+    def optimize(self):
+        """
+        Optimizes this index, if necessary.
+        """
+
+        with self.writer() as w:
+            w.optimize = True
+
+    def searcher(self, **kwargs) -> 'searchers.Searcher':
+        """
+        Returns a Searcher object for this index. Keyword arguments are
+        passed to the Searcher object's constructor.
+
+        :rtype: :class:`whoosh.searching.Searcher`
+        """
+
+        from whoosh.searching import ConcreteSearcher
+
+        reader = self.reader()
+        return ConcreteSearcher(reader, fromindex=self, **kwargs)
+
+    def _reader(self, schema: 'fields.Schema',
+                segments: 'Sequence[codecs.Segment]',
+                generation: int, reuse: 'readers.IndexReader'):
+        # Returns a reader for the given segments, possibly reusing already
+        # opened readers
+        from whoosh.reading import EmptyReader, SegmentReader, MultiReader
+
+        if not segments:
+            if reuse:
+                reuse.close()
+            return EmptyReader(schema)
+
+        reusable = {}  # type: Dict[str, readers.IndexReader]
+        try:
+            # Put all atomic readers in a dictionary keyed by their segment ID,
+            # so we can re-use them if possible
+            if reuse:
+                for r, _ in reuse.leaf_readers():
+                    segid = r.segment_id()
+                    if not segid:
+                        raise Exception("Reader %r has no segment ID" % r)
+                    reusable[segid] = r
+
+            # Make a function to get a reader for a segment, which reuses
+            # readers from the old reader when available.
+            # It removes any readers it reuses from the "reusable" dictionary,
+            # so later we can close any readers left in the dictionary.
+            def segreader(segment):
+                segid = segment.segment_id()
+                if segid in reusable:
+                    return reusable.pop(segid)
+                else:
+                    return SegmentReader(self.store, schema, segment,
+                                         generation=generation)
+
+            if len(segments) == 1:
+                reader = segreader(segments[0])
+            else:
+                rs = [segreader(segment) for segment in segments]
+                reader = MultiReader(rs, generation=generation)
+            return reader
+        finally:
+            for r in reusable.values():
+                r.close()
+
+    def reader_for(self, segment: 'codecs.Segment',
+                   schema: 'fields.Schema'=None) -> 'readers.IndexReader':
+        from whoosh.reading import SegmentReader
+
+        schema = schema or self.schema
+        return SegmentReader(self.store, schema, segment)
+
+    def reader(self, reuse: 'readers.IndexReader'=None
+               ) -> 'readers.IndexReader':
+        """
+        Returns an IndexReader object for this index.
+
+        :param reuse: an existing reader. Some implementations may recycle
+            resources from this existing reader to create the new reader. Note
+            that any resources in the "recycled" reader that are not used by
+            the new reader will be CLOSED, so you CANNOT use it afterward.
+        """
+
+        retries = 10
+        while retries > 0:
+            try:
+                toc = self.toc
+                return self._reader(toc.schema, toc.segments, toc.generation,
+                                    reuse=reuse)
+            except IOError:
+                # Presume that we got a "file not found error" because a writer
+                # deleted one of the files just as we were trying to open it,
+                # and so retry a few times before actually raising the
+                # exception
+                e = sys.exc_info()[1]
+                retries -= 1
+                if retries <= 0:
+                    raise e
+                sleep(0.05)
+
+    def writer(self, executor=None,
+               multiproc: bool=False, multithreaded: bool=False,
+               procs=None, threads=None,
+               **kwargs) -> 'writing.SegmentWriter':
+        """
+        Returns an writer object for this index.
+
+        :param executor: a ``conccurent.futures.Executor`` object for the writer
+            to use for concurrent operation. If you pass this argument, it
+            overrides any default executor implied by the other arguments.
+        :param multiproc: use a multi-processing executor to index in background
+            processes.
+        :param multithreaded: use a multi-threaded executor to index in
+            background threads.
+        :param procs: when multiproc is True, configure the executor to use a
+            pool of this many processes. The default (None) uses the process
+            pool executor's default (usually the number of CPUs).
+        :param threads: when multithreaded is True, configure the executor to
+            use a pool of this many threads. The default (None) uses the
+            thread pool executor's default (the number of CPUs times 5).
+        :param kwargs: keyword arguments are passed to the writer's constructor.
+            See :class:`whoosh.writing.SegmentWriter` for the options available.
+        """
+
+        toc = self.toc
+
+        cls = writing.SegmentWriter
+        if multiproc or multithreaded:
+            cls = writing.MultiWriter
+
+        if not executor:
+            if multiproc:
+                executor = concurrent.futures.ProcessPoolExecutor(procs)
+            elif multithreaded:
+                executor = concurrent.futures.ThreadPoolExecutor(threads)
+
+        return cls(self.storage(), self.indexname, toc.schema,
+                   toc.generation + 1, toc.segments, executor=executor,
+                   **kwargs)
+
+
+# Codec-based index implementation
+
+# def clean_files(storage: 'filestore.FileStorage', indexname, gen, segments):
+#     # Attempts to remove unused index files (called when a new generation
+#     # is created). If existing Index and/or reader objects have the files
+#     # open, they may not be deleted immediately (i.e. on Windows) but will
+#     # probably be deleted eventually by a later call to clean_files.
+#
+#     current_segment_names = set(s.segment_id() for s in segments)
+#     tocpattern = TOC._pattern(indexname)
+#     segpattern = TOC._segment_pattern(indexname)
+#
+#     todelete = set()
+#     for filename in storage:
+#         if filename.startswith("."):
+#             continue
+#         tocm = tocpattern.match(filename)
+#         segm = segpattern.match(filename)
+#         if tocm:
+#             if int(tocm.group(1)) != gen:
+#                 todelete.add(filename)
+#         elif segm:
+#             name = segm.group(1)
+#             if name not in current_segment_names:
+#                 todelete.add(filename)
+#
+#     for filename in todelete:
+#         try:
+#             storage.delete_file(filename)
+#         except OSError:
+#             # Another process still has this file open, I guess
+#             pass
 
 
 # Convenience functions
 
-def create_in(dirname, schema, indexname=None):
-    """Convenience function to create an index in a directory. Takes care of
+def create_in(dirname: str, schema: 'fields.Schema',
+              indexname: str=None) -> Index:
+    """
+    Convenience function to create an index in a directory. Takes care of
     creating a FileStorage object for you.
 
     :param dirname: the path string of the directory in which to create the
@@ -94,16 +510,15 @@ def create_in(dirname, schema, indexname=None):
     :returns: :class:`Index`
     """
 
-    from whoosh.filedb.filestore import FileStorage
-
-    if not indexname:
-        indexname = _DEF_INDEX_NAME
-    storage = FileStorage(dirname)
-    return FileIndex.create(storage, schema, indexname)
+    store = filestore.FileStorage(dirname)
+    indexname = indexname or DEFAULT_INDEX_NAME
+    return store.create_index(schema, indexname)
 
 
-def open_dir(dirname, indexname=None, readonly=False, schema=None):
-    """Convenience function for opening an index in a directory. Takes care of
+def open_dir(dirname: str, indexname: str=None, readonly: bool=False,
+             use_mmap: bool=True, schema: 'fields.Schema'=None):
+    """
+    Convenience function for opening an index in a directory. Takes care of
     creating a FileStorage object for you. dirname is the filename of the
     directory in containing the index. indexname is the name of the index to
     create; you only need to specify this if you have multiple indexes within
@@ -113,47 +528,33 @@ def open_dir(dirname, indexname=None, readonly=False, schema=None):
         index.
     :param indexname: the name of the index to create; you only need to specify
         this if you have multiple indexes within the same storage object.
+    :param readonly: open the directory as read-only (not currently used).
+    :param schema: use this schema instead of the one saved with the index.
     """
 
-    from whoosh.filedb.filestore import FileStorage
-
-    if indexname is None:
-        indexname = _DEF_INDEX_NAME
-    storage = FileStorage(dirname, readonly=readonly)
-    return FileIndex(storage, schema=schema, indexname=indexname)
+    store = filestore.FileStorage(dirname, readonly=readonly,
+                                  supports_mmap=use_mmap)
+    indexname = indexname or DEFAULT_INDEX_NAME
+    return store.open_index(indexname, schema=schema)
 
 
-def exists_in(dirname, indexname=None):
-    """Returns True if dirname contains a Whoosh index.
+def exists_in(dirname: str, indexname: str=None):
+    """
+    Returns True if dirname contains a Whoosh index.
 
     :param dirname: the file path of a directory.
     :param indexname: the name of the index. If None, the default index name is
         used.
     """
 
-    if os.path.exists(dirname):
-        try:
-            ix = open_dir(dirname, indexname=indexname)
-            return ix.latest_generation() > -1
-        except EmptyIndexError:
-            pass
-
-    return False
+    store = filestore.FileStorage(dirname)
+    indexname = indexname or DEFAULT_INDEX_NAME
+    return store.index_exists(indexname)
 
 
-def exists(storage, indexname=None):
-    """Deprecated; use ``storage.index_exists()``.
-
-    :param storage: a store.Storage object.
-    :param indexname: the name of the index. If None, the default index name is
-        used.
+def version_in(dirname: str, indexname: str=None):
     """
-
-    return storage.index_exists(indexname)
-
-
-def version_in(dirname, indexname=None):
-    """Returns a tuple of (release_version, format_version), where
+    Returns a tuple of (release_version, format_version), where
     release_version is the release version number of the Whoosh code that
     created the index -- e.g. (0, 1, 24) -- and format_version is the version
     number of the on-disk format used for the index -- e.g. -102.
@@ -173,13 +574,15 @@ def version_in(dirname, indexname=None):
     :returns: ((major_ver, minor_ver, build_ver), format_ver)
     """
 
-    from whoosh.filedb.filestore import FileStorage
-    storage = FileStorage(dirname)
-    return version(storage, indexname=indexname)
+    store = filestore.FileStorage(dirname)
+    indexname = indexname or DEFAULT_INDEX_NAME
+    return version(store, indexname=indexname)
 
 
-def version(storage, indexname=None):
-    """Returns a tuple of (release_version, format_version), where
+def version(store: 'storage.Storage', indexname: str=None
+            ) -> Tuple[Tuple[int, int, int], int]:
+    """
+    Returns a tuple of (release_version, format_version), where
     release_version is the release version number of the Whoosh code that
     created the index -- e.g. (0, 1, 24) -- and format_version is the version
     number of the on-disk format used for the index -- e.g. -102.
@@ -193,515 +596,13 @@ def version(storage, indexname=None):
     Note that the release and format version are available as attributes on the
     Index object in Index.release and Index.version.
 
-    :param storage: a store.Storage object.
+    :param store: a Storage object.
     :param indexname: the name of the index. If None, the default index name is
         used.
-    :returns: ((major_ver, minor_ver, build_ver), format_ver)
     """
 
-    try:
-        if indexname is None:
-            indexname = _DEF_INDEX_NAME
-
-        ix = storage.open_index(indexname)
-        return (ix.release, ix.version)
-    except IndexVersionError:
-        e = sys.exc_info()[1]
-        return (None, e.version)
-
-
-# Index base class
-
-class Index(object):
-    """Represents an indexed collection of documents.
-    """
-
-    def close(self):
-        """Closes any open resources held by the Index object itself. This may
-        not close all resources being used everywhere, for example by a
-        Searcher object.
-        """
-        pass
-
-    def add_field(self, fieldname, fieldspec):
-        """Adds a field to the index's schema.
-
-        :param fieldname: the name of the field to add.
-        :param fieldspec: an instantiated :class:`whoosh.fields.FieldType`
-            object.
-        """
-
-        w = self.writer()
-        w.add_field(fieldname, fieldspec)
-        w.commit()
-
-    def remove_field(self, fieldname):
-        """Removes the named field from the index's schema. Depending on the
-        backend implementation, this may or may not actually remove existing
-        data for the field from the index. Optimizing the index should always
-        clear out existing data for a removed field.
-        """
-
-        w = self.writer()
-        w.remove_field(fieldname)
-        w.commit()
-
-    def latest_generation(self):
-        """Returns the generation number of the latest generation of this
-        index, or -1 if the backend doesn't support versioning.
-        """
-        return -1
-
-    def refresh(self):
-        """Returns a new Index object representing the latest generation
-        of this index (if this object is the latest generation, or the backend
-        doesn't support versioning, returns self).
-
-        :returns: :class:`Index`
-        """
-        return self
-
-    def up_to_date(self):
-        """Returns True if this object represents the latest generation of
-        this index. Returns False if this object is not the latest generation
-        (that is, someone else has updated the index since you opened this
-        object).
-        """
-        return True
-
-    def last_modified(self):
-        """Returns the last modified time of the index, or -1 if the backend
-        doesn't support last-modified times.
-        """
-        return -1
-
-    def is_empty(self):
-        """Returns True if this index is empty (that is, it has never had any
-        documents successfully written to it.
-        """
-        raise NotImplementedError
-
-    def optimize(self):
-        """Optimizes this index, if necessary.
-        """
-        pass
-
-    def doc_count_all(self):
-        """Returns the total number of documents, DELETED OR UNDELETED,
-        in this index.
-        """
-
-        r = self.reader()
-        try:
-            return r.doc_count_all()
-        finally:
-            r.close()
-
-    def doc_count(self):
-        """Returns the total number of UNDELETED documents in this index.
-        """
-
-        r = self.reader()
-        try:
-            return r.doc_count()
-        finally:
-            r.close()
-
-    def searcher(self, **kwargs):
-        """Returns a Searcher object for this index. Keyword arguments are
-        passed to the Searcher object's constructor.
-
-        :rtype: :class:`whoosh.searching.Searcher`
-        """
-
-        from whoosh.searching import Searcher
-        return Searcher(self.reader(), fromindex=self, **kwargs)
-
-    def field_length(self, fieldname):
-        """Returns the total length of the field across all documents.
-        """
-
-        r = self.reader()
-        try:
-            return r.field_length(fieldname)
-        finally:
-            r.close()
-
-    def max_field_length(self, fieldname):
-        """Returns the maximum length of the field across all documents.
-        """
-
-        r = self.reader()
-        try:
-            return r.max_field_length(fieldname)
-        finally:
-            r.close()
-
-    def reader(self, reuse=None):
-        """Returns an IndexReader object for this index.
-
-        :param reuse: an existing reader. Some implementations may recycle
-            resources from this existing reader to create the new reader. Note
-            that any resources in the "recycled" reader that are not used by
-            the new reader will be CLOSED, so you CANNOT use it afterward.
-        :rtype: :class:`whoosh.reading.IndexReader`
-        """
-
-        raise NotImplementedError
-
-    def writer(self, **kwargs):
-        """Returns an IndexWriter object for this index.
-
-        :rtype: :class:`whoosh.writing.IndexWriter`
-        """
-        raise NotImplementedError
-
-    def delete_by_term(self, fieldname, text, searcher=None):
-        w = self.writer()
-        w.delete_by_term(fieldname, text, searcher=searcher)
-        w.commit()
-
-    def delete_by_query(self, q, searcher=None):
-        w = self.writer()
-        w.delete_by_query(q, searcher=searcher)
-        w.commit()
-
-
-# Codec-based index implementation
-
-def clean_files(storage, indexname, gen, segments):
-    # Attempts to remove unused index files (called when a new generation
-    # is created). If existing Index and/or reader objects have the files
-    # open, they may not be deleted immediately (i.e. on Windows) but will
-    # probably be deleted eventually by a later call to clean_files.
-
-    current_segment_names = set(s.segment_id() for s in segments)
-    tocpattern = TOC._pattern(indexname)
-    segpattern = TOC._segment_pattern(indexname)
-
-    todelete = set()
-    for filename in storage:
-        if filename.startswith("."):
-            continue
-        tocm = tocpattern.match(filename)
-        segm = segpattern.match(filename)
-        if tocm:
-            if int(tocm.group(1)) != gen:
-                todelete.add(filename)
-        elif segm:
-            name = segm.group(1)
-            if name not in current_segment_names:
-                todelete.add(filename)
-
-    for filename in todelete:
-        try:
-            storage.delete_file(filename)
-        except OSError:
-            # Another process still has this file open, I guess
-            pass
-
-
-class FileIndex(Index):
-    def __init__(self, storage, schema=None, indexname=_DEF_INDEX_NAME):
-        from whoosh.filedb.filestore import Storage
-
-        if not isinstance(storage, Storage):
-            raise ValueError("%r is not a Storage object" % storage)
-        if not isinstance(indexname, string_type):
-            raise ValueError("indexname %r is not a string" % indexname)
-
-        if schema:
-            schema = ensure_schema(schema)
-
-        self.storage = storage
-        self._schema = schema
-        self.indexname = indexname
-
-        # Try reading the TOC to see if it's possible
-        TOC.read(self.storage, self.indexname, schema=self._schema)
-
-    @classmethod
-    def create(cls, storage, schema, indexname=_DEF_INDEX_NAME):
-        TOC.create(storage, schema, indexname)
-        return cls(storage, schema, indexname)
-
-    def __repr__(self):
-        return "%s(%r, %r)" % (self.__class__.__name__,
-                               self.storage, self.indexname)
-
-    def close(self):
-        pass
-
-    # add_field
-    # remove_field
-
-    def latest_generation(self):
-        return TOC._latest_generation(self.storage, self.indexname)
-
-    # refresh
-    # up_to_date
-
-    def last_modified(self):
-        gen = self.latest_generation()
-        filename = TOC._filename(self.indexname, gen)
-        return self.storage.file_modified(filename)
-
-    def is_empty(self):
-        return len(self._read_toc().segments) == 0
-
-    def optimize(self, **kwargs):
-        w = self.writer(**kwargs)
-        w.commit(optimize=True)
-
-    # searcher
-
-    def writer(self, procs=1, **kwargs):
-        if procs > 1:
-            from whoosh.multiproc import MpWriter
-            return MpWriter(self, procs=procs, **kwargs)
-        else:
-            from whoosh.writing import SegmentWriter
-            return SegmentWriter(self, **kwargs)
-
-    def lock(self, name):
-        """Returns a lock object that you can try to call acquire() on to
-        lock the index.
-        """
-
-        return self.storage.lock(self.indexname + "_" + name)
-
-    def _read_toc(self):
-        return TOC.read(self.storage, self.indexname, schema=self._schema)
-
-    def _segments(self):
-        return self._read_toc().segments
-
-    def _current_schema(self):
-        return self._read_toc().schema
-
-    @property
-    def schema(self):
-        return self._current_schema()
-
-    @property
-    def release(self):
-        return self._read_toc().release
-
-    @property
-    def version(self):
-        return self._read_toc().version
-
-    @classmethod
-    def _reader(cls, storage, schema, segments, generation, reuse=None):
-        # Returns a reader for the given segments, possibly reusing already
-        # opened readers
-        from whoosh.reading import SegmentReader, MultiReader, EmptyReader
-
-        reusable = {}
-        try:
-            if len(segments) == 0:
-                # This index has no segments! Return an EmptyReader object,
-                # which simply returns empty or zero to every method
-                return EmptyReader(schema)
-
-            if reuse:
-                # Put all atomic readers in a dictionary keyed by their
-                # generation, so we can re-use them if them if possible
-                readers = [r for r, _ in reuse.leaf_readers()]
-                reusable = dict((r.generation(), r) for r in readers)
-
-            # Make a function to open readers, which reuses reusable readers.
-            # It removes any readers it reuses from the "reusable" dictionary,
-            # so later we can close any readers left in the dictionary.
-            def segreader(segment):
-                segid = segment.segment_id()
-                if segid in reusable:
-                    r = reusable[segid]
-                    del reusable[segid]
-                    return r
-                else:
-                    return SegmentReader(storage, schema, segment,
-                                         generation=generation)
-
-            if len(segments) == 1:
-                # This index has one segment, so return a SegmentReader object
-                # for the segment
-                return segreader(segments[0])
-            else:
-                # This index has multiple segments, so create a list of
-                # SegmentReaders for the segments, then composite them with a
-                # MultiReader
-
-                readers = [segreader(segment) for segment in segments]
-                return MultiReader(readers, generation=generation)
-        finally:
-            for r in reusable.values():
-                r.close()
-
-    def reader(self, reuse=None):
-        retries = 10
-        while retries > 0:
-            # Read the information from the TOC file
-            try:
-                info = self._read_toc()
-                return self._reader(self.storage, info.schema, info.segments,
-                                    info.generation, reuse=reuse)
-            except IOError:
-                # Presume that we got a "file not found error" because a writer
-                # deleted one of the files just as we were trying to open it,
-                # and so retry a few times before actually raising the
-                # exception
-                e = sys.exc_info()[1]
-                retries -= 1
-                if retries <= 0:
-                    raise e
-                sleep(0.05)
-
-
-# TOC class
-
-class TOC(object):
-    """Object representing the state of the index after a commit. Essentially
-    a container for the index's schema and the list of segment objects.
-    """
-
-    def __init__(self, schema, segments, generation,
-                 version=_CURRENT_TOC_VERSION, release=__version__):
-        self.schema = schema
-        self.segments = segments
-        self.generation = generation
-        self.version = version
-        self.release = release
-
-    @classmethod
-    def _filename(cls, indexname, gen):
-        return "_%s_%s.toc" % (indexname, gen)
-
-    @classmethod
-    def _pattern(cls, indexname):
-        return re.compile("^_%s_([0-9]+).toc$" % indexname)
-
-    @classmethod
-    def _segment_pattern(cls, indexname):
-        return re.compile("(%s_[0-9a-z]+)[.][A-Za-z0-9_.]+" % indexname)
-
-    @classmethod
-    def _latest_generation(cls, storage, indexname):
-        pattern = cls._pattern(indexname)
-
-        mx = -1
-        for filename in storage:
-            m = pattern.match(filename)
-            if m:
-                mx = max(int(m.group(1)), mx)
-        return mx
-
-    @classmethod
-    def create(cls, storage, schema, indexname=_DEF_INDEX_NAME):
-        schema = ensure_schema(schema)
-
-        # Clear existing files
-        prefix = "_%s_" % indexname
-        for filename in storage:
-            if filename.startswith(prefix):
-                storage.delete_file(filename)
-
-        # Write a TOC file with an empty list of segments
-        toc = cls(schema, [], 0)
-        toc.write(storage, indexname)
-
-    @classmethod
-    def read(cls, storage, indexname, gen=None, schema=None):
-        if gen is None:
-            gen = cls._latest_generation(storage, indexname)
-            if gen < 0:
-                raise EmptyIndexError("Index %r does not exist in %r"
-                                      % (indexname, storage))
-
-        # Read the content of this index from the .toc file.
-        tocfilename = cls._filename(indexname, gen)
-        stream = storage.open_file(tocfilename)
-
-        def check_size(name, target):
-            sz = stream.read_varint()
-            if sz != target:
-                raise IndexError("Index was created on different architecture:"
-                                 " saved %s = %s, this computer = %s"
-                                 % (name, sz, target))
-
-        check_size("int", _INT_SIZE)
-        check_size("long", _LONG_SIZE)
-        check_size("float", _FLOAT_SIZE)
-
-        if not stream.read_int() == -12345:
-            raise IndexError("Number misread: byte order problem")
-
-        version = stream.read_int()
-        release = (stream.read_varint(), stream.read_varint(),
-                   stream.read_varint())
-
-        if version != _CURRENT_TOC_VERSION:
-            if version in toc_loaders:
-                loader = toc_loaders[version]
-                schema, segments = loader(stream, gen, schema, version)
-            else:
-                raise IndexVersionError("Can't read format %s" % version,
-                                        version)
-        else:
-            # If the user supplied a schema object with the constructor, don't
-            # load the pickled schema from the saved index.
-            if schema:
-                stream.skip_string()
-            else:
-                schema = pickle.loads(stream.read_string())
-            schema = ensure_schema(schema)
-
-            # Generation
-            index_gen = stream.read_int()
-            assert gen == index_gen
-
-            _ = stream.read_int()  # Unused
-            segments = stream.read_pickle()
-
-        stream.close()
-        return cls(schema, segments, gen, version=version, release=release)
-
-    def write(self, storage, indexname):
-        schema = ensure_schema(self.schema)
-        schema.clean()
-
-        # Use a temporary file for atomic write.
-        tocfilename = self._filename(indexname, self.generation)
-        tempfilename = '%s.%s' % (tocfilename, time())
-        stream = storage.create_file(tempfilename)
-
-        stream.write_varint(_INT_SIZE)
-        stream.write_varint(_LONG_SIZE)
-        stream.write_varint(_FLOAT_SIZE)
-        stream.write_int(-12345)
-
-        stream.write_int(_CURRENT_TOC_VERSION)
-        for num in __version__[:3]:
-            stream.write_varint(num)
-
-        try:
-            stream.write_string(pickle.dumps(schema, 2))
-        except pickle.PicklingError:
-            # Try to narrow down the error to a single field
-            for fieldname, field in schema.items():
-                try:
-                    pickle.dumps(field)
-                except pickle.PicklingError:
-                    e = sys.exc_info()[1]
-                    raise pickle.PicklingError("%s %s=%r" % (e, fieldname, field))
-            # Otherwise, re-raise the original exception
-            raise
-
-        stream.write_int(self.generation)
-        stream.write_int(0)  # Unused
-        stream.write_pickle(self.segments)
-        stream.close()
-
-        # Rename temporary file to the proper filename
-        storage.rename_file(tempfilename, tocfilename, safe=True)
+    indexname = indexname or DEFAULT_INDEX_NAME
+    with store.open(indexname) as session:
+        toc = store.load_toc(session)
+        return toc.release, toc.toc_version
 

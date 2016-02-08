@@ -2,11 +2,11 @@ from __future__ import with_statement
 from random import randint, choice, sample
 
 from whoosh import fields, matching, qparser, query
-from whoosh.compat import b, u, xrange, permutations
-from whoosh.filedb.filestore import RamStorage
+from whoosh.compat import xrange, permutations
 from whoosh.query import And, Term
 from whoosh.util import make_binary_tree
-from whoosh.scoring import WeightScorer
+from whoosh.ifaces.weights import WeightScorer
+from whoosh.util.testing import TempIndex
 
 
 def _keys(searcher, docnums):
@@ -33,7 +33,10 @@ def test_listmatcher():
     lm = matching.ListMatcher(ids)
     assert list(lm.all_ids()) == ids
 
-    lm = matching.ListMatcher(ids, position=3)
+    lm = matching.ListMatcher(ids)
+    lm.next()
+    lm.next()
+    lm.next()
     ls = []
     while lm.is_active():
         ls.append(lm.id())
@@ -53,7 +56,7 @@ def test_listmatcher():
 
 def test_listmatcher_skip_to_quality_identical_scores():
     ids = [1, 2, 5, 9, 10]
-    lm = matching.ListMatcher(ids, scorer=WeightScorer(1.0))
+    lm = matching.ListMatcher(ids, all_weights=1.0)
     lm.skip_to_quality(0.3)
     ls = []
     while lm.is_active():
@@ -255,97 +258,90 @@ def test_andmaybe():
 def test_intersection():
     schema = fields.Schema(key=fields.ID(stored=True),
                            value=fields.TEXT(stored=True))
-    st = RamStorage()
-    ix = st.create_index(schema)
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            w.add_document(key=u"a", value=u"alpha bravo charlie delta")
+            w.add_document(key=u"b", value=u"echo foxtrot alpha bravo")
+            w.add_document(key=u"c", value=u"charlie delta golf hotel")
 
-    w = ix.writer()
-    w.add_document(key=u("a"), value=u("alpha bravo charlie delta"))
-    w.add_document(key=u("b"), value=u("echo foxtrot alpha bravo"))
-    w.add_document(key=u("c"), value=u("charlie delta golf hotel"))
-    w.commit()
+        with ix.writer() as w:
+            w.add_document(key=u"d", value=u"india alpha bravo charlie")
+            w.add_document(key=u"e", value=u"delta bravo india bravo")
 
-    w = ix.writer()
-    w.add_document(key=u("d"), value=u("india alpha bravo charlie"))
-    w.add_document(key=u("e"), value=u("delta bravo india bravo"))
-    w.commit()
+        with ix.searcher() as s:
+            q = And([Term("value", u"bravo"), Term("value", u"delta")])
+            m = q.matcher(s)
+            assert _keys(s, m.all_ids()) == ["a", "e"]
 
-    with ix.searcher() as s:
-        q = And([Term("value", u("bravo")), Term("value", u("delta"))])
-        m = q.matcher(s)
-        assert _keys(s, m.all_ids()) == ["a", "e"]
-
-        q = And([Term("value", u("bravo")), Term("value", u("alpha"))])
-        m = q.matcher(s)
-        assert _keys(s, m.all_ids()) == ["a", "b", "d"]
+            q = And([Term("value", u"bravo"), Term("value", u"alpha")])
+            m = q.matcher(s)
+            assert _keys(s, m.all_ids()) == ["a", "b", "d"]
 
 
 def test_random_intersections():
-    domain = [u("alpha"), u("bravo"), u("charlie"), u("delta"), u("echo"),
-              u("foxtrot"), u("golf"), u("hotel"), u("india"), u("juliet"),
-              u("kilo"), u("lima"), u("mike")]
+    domain = [u"alpha", u"bravo", u"charlie", u"delta", u"echo",
+              u"foxtrot", u"golf", u"hotel", u"india", u"juliet",
+              u"kilo", u"lima", u"mike"]
     segments = 5
     docsperseg = 50
     fieldlimits = (3, 10)
     documents = []
 
     schema = fields.Schema(key=fields.STORED, value=fields.TEXT(stored=True))
-    st = RamStorage()
-    ix = st.create_index(schema)
+    with TempIndex(schema) as ix:
+        # Create docsperseg * segments documents containing random words from
+        # the domain list. Add the documents to the index, but also keep them
+        # in the "documents" list for the sanity check
+        for i in xrange(segments):
+            with ix.writer() as w:
+                for j in xrange(docsperseg):
+                    docnum = i * docsperseg + j
+                    # Create a string of random words
+                    doc = u" ".join(choice(domain)
+                                    for _ in xrange(randint(*fieldlimits)))
+                    # Add the string to the index
+                    w.add_document(key=docnum, value=doc)
+                    # Add a (docnum, string) tuple to the documents list
+                    documents.append((docnum, doc))
+        assert len(ix.segments()) != 1
 
-    # Create docsperseg * segments documents containing random words from
-    # the domain list. Add the documents to the index, but also keep them
-    # in the "documents" list for the sanity check
-    for i in xrange(segments):
-        w = ix.writer()
-        for j in xrange(docsperseg):
-            docnum = i * docsperseg + j
-            # Create a string of random words
-            doc = u(" ").join(choice(domain)
-                            for _ in xrange(randint(*fieldlimits)))
-            # Add the string to the index
-            w.add_document(key=docnum, value=doc)
-            # Add a (docnum, string) tuple to the documents list
-            documents.append((docnum, doc))
-        w.commit()
-    assert len(ix._segments()) != 1
+        testcount = 20
+        testlimits = (2, 5)
 
-    testcount = 20
-    testlimits = (2, 5)
+        with ix.searcher() as s:
+            for i in xrange(s.doc_count_all()):
+                assert s.stored_fields(i).get("key") is not None
 
-    with ix.searcher() as s:
-        for i in xrange(s.doc_count_all()):
-            assert s.stored_fields(i).get("key") is not None
+            for _ in xrange(testcount):
+                # Create a random list of words and manually do an intersection
+                # of items in "documents" that contain the words ("target").
+                words = sample(domain, randint(*testlimits))
+                target = []
+                for docnum, doc in documents:
+                    if all((doc.find(w) > -1) for w in words):
+                        target.append(docnum)
+                target.sort()
 
-        for _ in xrange(testcount):
-            # Create a random list of words and manually do an intersection of
-            # items in "documents" that contain the words ("target").
-            words = sample(domain, randint(*testlimits))
-            target = []
-            for docnum, doc in documents:
-                if all((doc.find(w) > -1) for w in words):
-                    target.append(docnum)
-            target.sort()
+                # Create a query from the list of words and get two matchers
+                # from it.
+                q = And([Term("value", w) for w in words])
+                m1 = q.matcher(s)
+                m2 = q.matcher(s)
 
-            # Create a query from the list of words and get two matchers from
-            # it.
-            q = And([Term("value", w) for w in words])
-            m1 = q.matcher(s)
-            m2 = q.matcher(s)
+                # Try getting the list of IDs from all_ids()
+                ids1 = list(m1.all_ids())
 
-            # Try getting the list of IDs from all_ids()
-            ids1 = list(m1.all_ids())
+                # Try getting the list of IDs using id()/next()
+                ids2 = []
+                while m2.is_active():
+                    ids2.append(m2.id())
+                    m2.next()
 
-            # Try getting the list of IDs using id()/next()
-            ids2 = []
-            while m2.is_active():
-                ids2.append(m2.id())
-                m2.next()
+                # Check that the two methods return the same list
+                assert ids1 == ids2
 
-            # Check that the two methods return the same list
-            assert ids1 == ids2
-
-            # Check that the IDs match the ones we manually calculated
-            assert _keys(s, ids1) == target
+                # Check that the IDs match the ones we manually calculated
+                assert _keys(s, ids1) == target
 
 
 def test_union():
@@ -445,51 +441,55 @@ def test_random_andnot():
 
 
 def test_current_terms():
-    domain = u("alfa bravo charlie delta").split()
+    domain = u"alfa bravo charlie delta".split()
     schema = fields.Schema(text=fields.TEXT(stored=True))
-    ix = RamStorage().create_index(schema)
-    w = ix.writer()
-    for ls in permutations(domain, 3):
-        w.add_document(text=" ".join(ls), _stored_text=ls)
-    w.commit()
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            for ls in permutations(domain, 3):
+                w.add_document(text=" ".join(ls), _stored_text=ls)
 
-    with ix.searcher() as s:
-        q = query.And([query.Term("text", "alfa"),
-                       query.Term("text", "charlie")])
-        m = q.matcher(s)
+        with ix.searcher() as s:
+            q = query.And([query.Term("text", "alfa"),
+                           query.Term("text", "charlie")])
+            m = q.matcher(s)
 
-        while m.is_active():
-            assert sorted(m.matching_terms()) == [("text", b("alfa")), ("text", b("charlie"))]
-            m.next()
+            while m.is_active():
+                assert sorted(m.matching_terms()) == [
+                    ("text", b"alfa"), ("text", b"charlie")
+                ]
+                m.next()
 
 
 def test_exclusion():
     from datetime import datetime
 
     schema = fields.Schema(id=fields.ID(stored=True), date=fields.DATETIME)
-    ix = RamStorage().create_index(schema)
-    dt1 = datetime(1950, 1, 1)
-    dt2 = datetime(1960, 1, 1)
-    with ix.writer() as w:
-        # Make 39 documents with dates != dt1 and then make a last document
-        # with feed == dt1.
-        for i in xrange(40):
-            w.add_document(id=u(str(i)), date=(dt2 if i >= 1 else dt1))
+    with TempIndex(schema) as ix:
+        dt1 = datetime(1950, 1, 1)
+        dt2 = datetime(1960, 1, 1)
+        with ix.writer() as w:
+            # Make 39 documents with dates != dt1 and then make a last document
+            # with feed == dt1.
+            for i in xrange(40):
+                w.add_document(id=str(i), date=(dt2 if i >= 1 else dt1))
 
-    with ix.searcher() as s:
-        qp = qparser.QueryParser("id", schema)
-        # Find documents where date != dt1
-        q = qp.parse("NOT (date:(19500101000000))")
+        with ix.searcher() as s:
+            qp = qparser.QueryParser("id", schema)
+            # Find documents where date != dt1
+            q = qp.parse("NOT (date:(19500101000000))")
 
-        r = s.search(q, limit=None)
-        assert len(r) == 39  # Total number of matched documents
-        assert r.scored_length() == 39  # Number of docs in the results
+            r = s.search(q, limit=None)
+            assert len(r) == 39  # Total number of matched documents
+            assert r.scored_length() == 39  # Number of docs in the results
 
 
 def test_arrayunion():
+    from whoosh.matching.binary import UnionMatcher
+
     l1 = matching.ListMatcher([10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
     l2 = matching.ListMatcher([100, 200, 300, 400, 500, 600])
-    aum = matching.ArrayUnionMatcher([l1, l2], 600, partsize=5)
+    um = UnionMatcher(l1, l2)
+    aum = matching.ArrayUnionMatcher([l1, l2], um, doccount=601, partsize=5)
     assert aum.id() == 10
     aum.skip_to(45)
     assert aum.id() == 50
@@ -498,10 +498,13 @@ def test_arrayunion():
 
 
 def test_arrayunion2():
+    from whoosh.matching.binary import UnionMatcher
+
     l1 = matching.ListMatcher([1, 2])
     l2 = matching.ListMatcher([1, 2, 10, 20])
     l3 = matching.ListMatcher([1, 5, 10, 50])
-    aum = matching.ArrayUnionMatcher([l1, l2, l3], 51, partsize=2)
+    um = UnionMatcher(l1, UnionMatcher(l2, l3))
+    aum = matching.ArrayUnionMatcher([l1, l2, l3], um, 51, partsize=2)
 
     assert aum.id() == 1
     assert not l1.is_active()
@@ -554,3 +557,6 @@ def test_every_matcher():
                     pass
             return 0
 
+
+def test_multimatcher():
+    pass

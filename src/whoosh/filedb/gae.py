@@ -23,8 +23,8 @@ from google.appengine.api import memcache  # @UnresolvedImport
 from google.appengine.ext import db  # @UnresolvedImport
 
 from whoosh.compat import BytesIO
-from whoosh.index import TOC, FileIndex, _DEF_INDEX_NAME
-from whoosh.filedb.filestore import ReadOnlyError, Storage
+from whoosh.index import TOC, FileIndex, DEFAULT_INDEX_NAME
+from whoosh.filedb.filestore import ReadOnlyError, BaseFileStorage
 from whoosh.filedb.structfile import StructFile
 
 
@@ -99,20 +99,22 @@ class MemcacheLock(object):
         memcache.delete(self.name, namespace="whooshlocks")
 
 
-class DatastoreStorage(Storage):
+class DatastoreBaseFileStorage(BaseFileStorage):
     """An implementation of :class:`whoosh.store.Storage` that stores files in
     the app engine datastore as blob properties.
     """
 
-    def create_index(self, schema, indexname=_DEF_INDEX_NAME):
+    def create_index(self, schema, indexname=DEFAULT_INDEX_NAME):
         if self.readonly:
             raise ReadOnlyError
 
         TOC.create(self, schema, indexname)
         return FileIndex(self, schema, indexname)
 
-    def open_index(self, indexname=_DEF_INDEX_NAME, schema=None):
-        return FileIndex(self, schema=schema, indexname=indexname)
+    def open_index(self, indexname=DEFAULT_INDEX_NAME, schema=None):
+        try:
+            return FileIndex(self, schema=schema, indexname=indexname)
+        except
 
     def list(self):
         query = DatastoreFile.all()
@@ -160,5 +162,5 @@ class DatastoreStorage(Storage):
         return MemcacheLock(name)
 
     def temp_storage(self, name=None):
-        tempstore = DatastoreStorage()
+        tempstore = DatastoreBaseFileStorage()
         return tempstore.create()

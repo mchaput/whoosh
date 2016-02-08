@@ -53,8 +53,9 @@ from collections import deque
 from heapq import nlargest
 from itertools import groupby
 
+from whoosh import results
+from whoosh.ifaces import analysis
 from whoosh.compat import htmlescape
-from whoosh.analysis import Token
 
 
 # The default value for the maximum chars to examine when fragmenting
@@ -822,46 +823,6 @@ class Highlighter(object):
         self.order = order
         self.always_retokenize = always_retokenize
 
-    def can_load_chars(self, results, fieldname):
-        # Is it possible to build a mapping between the matched terms/docs and
-        # their start and end chars for "pinpoint" highlighting (ie not require
-        # re-tokenizing text)?
-
-        if self.always_retokenize:
-            # No, we've been configured to always retokenize some text
-            return False
-        if not results.has_matched_terms():
-            # No, we don't know what the matched terms are yet
-            return False
-        if self.fragmenter.must_retokenize():
-            # No, the configured fragmenter doesn't support it
-            return False
-
-        # Maybe, if the field was configured to store characters
-        field = results.searcher.schema[fieldname]
-        return field.supports("characters")
-
-    @staticmethod
-    def _load_chars(results, fieldname, texts, to_bytes):
-        # For each docnum, create a mapping of text -> [(startchar, endchar)]
-        # for the matched terms
-
-        results._char_cache[fieldname] = cache = {}
-        sorted_ids = sorted(docnum for _, docnum in results.top_n)
-
-        for docnum in sorted_ids:
-            cache[docnum] = {}
-
-        for text in texts:
-            btext = to_bytes(text)
-            m = results.searcher.postings(fieldname, btext)
-            docset = set(results.termdocs[(fieldname, btext)])
-            for docnum in sorted_ids:
-                if docnum in docset:
-                    m.skip_to(docnum)
-                    assert m.id() == docnum
-                    cache[docnum][text] = m.value_as("characters")
-
     @staticmethod
     def _merge_matched_tokens(tokens):
         # Merges consecutive matched tokens together, so they are highlighted
@@ -886,17 +847,16 @@ class Highlighter(object):
             else:
                 yield token
                 token = None
-                # t was not merged, also has to be yielded
-                yield t
 
         if token is not None:
             yield token
 
     def highlight_hit(self, hitobj, fieldname, text=None, top=3, minscore=1):
         results = hitobj.results
+        hitdata = hitobj.data
+        reader = results.searcher.reader()
         schema = results.searcher.schema
         field = schema[fieldname]
-        to_bytes = field.to_bytes
         from_bytes = field.from_bytes
 
         if text is None:
@@ -906,34 +866,39 @@ class Highlighter(object):
 
         # Get the terms searched for/matched in this field
         if results.has_matched_terms():
+            # The collector recorded the matched terms, so use those
             bterms = (term for term in results.matched_terms()
                       if term[0] == fieldname)
         else:
-            bterms = results.query_terms(expand=True, fieldname=fieldname)
+            # Get the terms that are in the query tree (even though they might
+            # not have matched)
+            bterms = [term for term in results.q.terms(reader)
+                      if term[0] == fieldname]
+
         # Convert bytes to unicode
         words = frozenset(from_bytes(term[1]) for term in bterms)
 
         # If we can do "pinpoint" highlighting...
-        if self.can_load_chars(results, fieldname):
-            # Build the docnum->[(startchar, endchar),] map
-            if fieldname not in results._char_cache:
-                self._load_chars(results, fieldname, words, to_bytes)
+        if "spans" in hitdata and field.format.has_chars:
+            from collections import defaultdict
 
-            hitterms = (from_bytes(term[1]) for term in hitobj.matched_terms()
-                        if term[0] == fieldname)
+            # Make a word->[(pos, startchar, endchar)] map for this document
+            charmap = defaultdict(list)
+            for span in hitdata["spans"]:
+                if span.fieldname == fieldname:
+                    charmap[span.text].append((span.pos, span.startchar,
+                                               span.endchar))
 
-            # Grab the word->[(startchar, endchar)] map for this docnum
-            cmap = results._char_cache[fieldname][hitobj.docnum]
             # A list of Token objects for matched words
             tokens = []
             charlimit = self.fragmenter.charlimit
-            for word in hitterms:
-                chars = cmap[word]
-                for pos, startchar, endchar in chars:
+            for word in charmap:
+                for pos, startchar, endchar in charmap[word]:
                     if charlimit and endchar > charlimit:
                         break
-                    tokens.append(Token(text=word, pos=pos,
-                                        startchar=startchar, endchar=endchar))
+                    tokens.append(analysis.Token(text=word, pos=pos,
+                                                 startchar=startchar,
+                                                 endchar=endchar))
             tokens.sort(key=lambda t: t.startchar)
             tokens = [max(group, key=lambda t: t.endchar - t.startchar)
                       for key, group in groupby(tokens, lambda t: t.startchar)]

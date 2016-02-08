@@ -26,16 +26,19 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import division
-from array import array
+from typing import Callable, Iterable, Sequence
 
-from whoosh import matching
-from whoosh.compat import text_type, u, xrange
-from whoosh.query import qcore
+from whoosh import collectors
+from whoosh.compat import text_type
+from whoosh.ifaces import matchers, queries, readers, searchers
 
 
-class WrappingQuery(qcore.Query):
-    def __init__(self, child):
-        self.child = child
+__all__ = ("WrappingQuery", "Not", "ConstantScoreQuery", "WeightingQuery")
+
+
+class WrappingQuery(queries.Query):
+    def __init__(self, child: queries.Query):
+        self.child = collectors.as_query(child)
 
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.child)
@@ -43,39 +46,56 @@ class WrappingQuery(qcore.Query):
     def __hash__(self):
         return hash(self.__class__.__name__) ^ hash(self.child)
 
-    def _rewrap(self, child):
+    @classmethod
+    def combine_collector(cls, collector: 'collectors.Collector',
+                          args, kwargs) -> 'collectors.Collector':
+        q = collector.query()
+        return collector.with_query(cls(q, *args, **kwargs))
+
+    def _rewrap(self, child: queries.Query) -> queries.Query:
         return self.__class__(child)
 
-    def is_leaf(self):
+    def is_leaf(self) -> bool:
         return False
 
-    def children(self):
+    def children(self) -> Iterable[queries.Query]:
         yield self.child
 
-    def apply(self, fn):
+    def set_children(self, children: 'Sequence[queries.Query]'):
+        assert len(children) == 1
+        self.child = children[0]
+
+    def apply(self, fn: Callable[[queries.Query], queries.Query]) -> queries.Query:
         return self._rewrap(fn(self.child))
 
-    def requires(self):
-        return self.child.requires()
+    def normalize(self) -> queries.Query:
+        q = self.child.normalize()
+        if isinstance(q, queries.NullQuery):
+            return q
+        else:
+            return self._rewrap(q)
 
-    def field(self):
+    def simplify(self, reader: 'readers.IndexReader') -> queries.Query:
+        return self._rewrap(self.child.simplify(reader))
+
+    def field(self) -> str:
         return self.child.field()
 
-    def with_boost(self, boost):
-        return self._rewrap(self.child.with_boost(boost))
-
-    def estimate_size(self, ixreader):
+    def estimate_size(self, ixreader: 'readers.IndexReader') -> int:
         return self.child.estimate_size(ixreader)
 
-    def estimate_min_size(self, ixreader):
-        return self.child.estimate_min_size(ixreader)
-
-    def matcher(self, searcher, context=None):
+    def matcher(self, searcher: 'searchers.Searcher',
+                context: 'searchers.SearchContext'=None) -> 'matchers.Matcher':
         return self.child.matcher(searcher, context)
 
 
-class Not(qcore.Query):
-    """Excludes any documents that match the subquery.
+# Not could be a subclass of WrappingQuery, but since its essence is to negate
+# the wrapped query, it seems wrong to subclass WQ, whose default behavior is
+# to forward calls to the wrapped query
+@collectors.register("not_")
+class Not(queries.Query):
+    """
+    Excludes any documents that match the subquery.
 
     >>> # Match documents that contain 'render' but not 'texture'
     >>> And([Term("content", u"render"),
@@ -84,52 +104,53 @@ class Not(qcore.Query):
     >>> Term("content", u"render") - Term("content", u"texture")
     """
 
-    __inittypes__ = dict(query=qcore.Query)
-
-    def __init__(self, query, boost=1.0):
+    def __init__(self, q: queries.Query, boost: float=1.0):
         """
-        :param query: A :class:`Query` object. The results of this query
+        :param q: A :class:`Query` object. The results of this query
             are *excluded* from the parent query.
         :param boost: Boost is meaningless for excluded documents but this
             keyword argument is accepted for the sake of a consistent
             interface.
         """
 
-        self.query = query
+        self.query = collectors.as_query(q)
         self.boost = boost
 
-    def __eq__(self, other):
-        return other and self.__class__ is other.__class__ and\
-        self.query == other.query
+    def __eq__(self, other: 'Not') -> bool:
+        return (other and self.__class__ is other.__class__ and
+                self.query == other.query)
 
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, repr(self.query))
 
     def __unicode__(self):
-        return u("NOT ") + text_type(self.query)
+        return u"NOT " + text_type(self.query)
 
     __str__ = __unicode__
 
     def __hash__(self):
-        return (hash(self.__class__.__name__)
-                ^ hash(self.query)
-                ^ hash(self.boost))
+        return (hash(self.__class__.__name__) ^
+                hash(self.query) ^ hash(self.boost))
 
-    def is_leaf(self):
+    def is_leaf(self) -> bool:
         return False
 
-    def children(self):
+    def children(self) -> Iterable[queries.Query]:
         yield self.query
 
-    def apply(self, fn):
-        return self.__class__(fn(self.query))
+    def set_children(self, children: 'Sequence[queries.Query]'):
+        assert len(children) == 1
+        self.query = children[0]
 
-    def normalize(self):
+    def apply(self, fn: Callable[[queries.Query], queries.Query]) -> queries.Query:
+        return self.__class__(fn(self.child))
+
+    def normalize(self) -> queries.Query:
         q = self.query.normalize()
-        if q is qcore.NullQuery:
+        if isinstance(q, queries.NullQuery):
             return q
         else:
-            return self.__class__(q, boost=self.boost)
+            return Not(q, boost=self.boost)
 
     def field(self):
         return None
@@ -137,32 +158,33 @@ class Not(qcore.Query):
     def estimate_size(self, ixreader):
         return ixreader.doc_count()
 
-    def estimate_min_size(self, ixreader):
-        return 1 if ixreader.doc_count() else 0
-
     def matcher(self, searcher, context=None):
+        from whoosh.matching.wrappers import InverseMatcher
+
         # Usually only called if Not is the root query. Otherwise, queries such
         # as And and Or do special handling of Not subqueries.
         reader = searcher.reader()
         child = self.query.matcher(searcher, searcher.boolean_context())
-        return matching.InverseMatcher(child, reader.doc_count_all(),
-                                       missing=reader.is_deleted)
+        return InverseMatcher(child, reader.doc_count_all(),
+                              missing=reader.is_deleted)
 
 
+@collectors.register("constant_score")
 class ConstantScoreQuery(WrappingQuery):
-    """Wraps a query and uses a matcher that always gives a constant score
+    """
+    Wraps a query and uses a matcher that always gives a constant score
     to all matching documents. This is a useful optimization when you don't
     care about scores from a certain branch of the query tree because it is
     simply acting as a filter. See also the :class:`AndMaybe` query.
     """
 
     def __init__(self, child, score=1.0):
-        WrappingQuery.__init__(self, child)
+        super(ConstantScoreQuery, self).__init__(child)
         self.score = score
 
     def __eq__(self, other):
-        return (other and self.__class__ is other.__class__
-                and self.child == other.child and self.score == other.score)
+        return (other and self.__class__ is other.__class__ and
+                self.child == other.child and self.score == other.score)
 
     def __hash__(self):
         return hash(self.child) ^ hash(self.score)
@@ -171,28 +193,28 @@ class ConstantScoreQuery(WrappingQuery):
         return self.__class__(child, self.score)
 
     def matcher(self, searcher, context=None):
-        from whoosh.searching import SearchContext
+        from whoosh.ifaces.searchers import SearchContext
+        from whoosh.matching.wrappers import ConstantScoreMatcher
 
         context = context or SearchContext()
         m = self.child.matcher(searcher, context)
-        if context.needs_current or isinstance(m, matching.NullMatcherClass):
+        if isinstance(m, matchers.NullMatcherClass):
             return m
         else:
-            ids = array("I", m.all_ids())
-            return matching.ListMatcher(ids, all_weights=self.score,
-                                        term=m.term())
+            return ConstantScoreMatcher(m, self.score)
 
 
 class WeightingQuery(WrappingQuery):
-    """Wraps a query and uses a specific :class:`whoosh.sorting.WeightingModel`
-    to score documents that match the wrapped query.
+    """
+    Uses a specific :class:`whoosh.sorting.WeightingModel` to score documents
+    that match the wrapped query.
     """
 
     def __init__(self, child, weighting):
-        WrappingQuery.__init__(self, child)
+        super(WeightingQuery, self).__init__(child)
         self.weighting = weighting
 
     def matcher(self, searcher, context=None):
         # Replace the passed-in weighting with the one configured on this query
-        context.set(weighting=self.weighting)
-        return self.child.matcher(searcher, context)
+        ctx = context.set(weighting=self.weighting)
+        return self.child.matcher(searcher, ctx)

@@ -32,16 +32,17 @@ This module implements a "codec" for writing/reading Whoosh X indexes.
 import struct
 from array import array
 from collections import defaultdict
+from typing import Sequence
 
 from whoosh import columns, formats
-from whoosh.compat import b, bytes_type, string_type, integer_types
+from whoosh.compat import bytes_type, string_type, integer_types
 from whoosh.compat import dumps, loads, iteritems, xrange
-from whoosh.codec import base
+from whoosh.ifaces import codecs
 from whoosh.filedb import compound, filetables
 from whoosh.matching import ListMatcher, ReadTooFar, LeafMatcher
 from whoosh.reading import TermInfo, TermNotFound
 from whoosh.system import emptybytes
-from whoosh.system import _SHORT_SIZE, _INT_SIZE, _LONG_SIZE, _FLOAT_SIZE
+from whoosh.system import SHORT_SIZE, INT_SIZE, LONG_SIZE, FLOAT_SIZE
 from whoosh.system import pack_ushort, unpack_ushort
 from whoosh.system import pack_int, unpack_int, pack_long, unpack_long
 from whoosh.util.numlists import delta_encode, delta_decode
@@ -55,7 +56,7 @@ except ImportError:
 
 # This byte sequence is written at the start of a posting list to identify the
 # codec/version
-WHOOSH3_HEADER_MAGIC = b("W3Bl")
+WHOOSH3_HEADER_MAGIC = b"W3Bl"
 
 # Column type to store field length info
 LENGTHS_COLUMN = columns.NumericColumn("B", default=0)
@@ -67,12 +68,13 @@ VECTOR_LEN_COLUMN = columns.NumericColumn("i")
 STORED_COLUMN = columns.PickleColumn(columns.CompressedBytesColumn())
 
 
-class W3Codec(base.Codec):
+class W3Codec(codecs.Codec):
     # File extensions
     TERMS_EXT = ".trm"  # Term index
     POSTS_EXT = ".pst"  # Term postings
     VPOSTS_EXT = ".vps"  # Vector postings
     COLUMN_EXT = ".col"  # Per-document value columns
+    COMPOUND_EXT = ".seg"  # Extension for compound segment files
 
     def __init__(self, blocklimit=128, compression=3, inlinelimit=1):
         self._blocklimit = blocklimit
@@ -123,8 +125,6 @@ class W3Codec(base.Codec):
 
         return W3TermsReader(self, tifile, tilen, postfile)
 
-    # Graph methods provided by CodecWithGraph
-
     # Columns
 
     def supports_columns(self):
@@ -153,7 +153,7 @@ def _lenfield(fieldname):
 
 # Per-doc information writer
 
-class W3PerDocWriter(base.PerDocWriterWithColumns):
+class W3PerDocWriter(codecs.PerDocumentWriter):
     def __init__(self, codec, storage, segment):
         self._codec = codec
         self._storage = storage
@@ -196,7 +196,7 @@ class W3PerDocWriter(base.PerDocWriterWithColumns):
         self._vpostfile = self._create_file(W3Codec.VPOSTS_EXT)
         # We'll use offset==0 as a marker for "no vectors", so we can't start
         # postings at position 0, so just write a few header bytes :)
-        self._vpostfile.write(b("VPST"))
+        self._vpostfile.write(b"VPST")
 
     def start_doc(self, docnum):
         if self._indoc:
@@ -222,10 +222,6 @@ class W3PerDocWriter(base.PerDocWriterWithColumns):
             self._fieldlengths[fieldname] += length
 
     def add_vector_items(self, fieldname, fieldobj, items):
-        if not items:
-            # Don't do anything if the list of items is empty
-            return
-
         if self._vpostfile is None:
             self._prep_vectors()
 
@@ -272,7 +268,7 @@ class W3PerDocWriter(base.PerDocWriterWithColumns):
         self.is_closed = True
 
 
-class W3FieldWriter(base.FieldWriter):
+class W3FieldWriter(codecs.FieldWriter):
     def __init__(self, codec, storage, segment):
         self._codec = codec
         self._storage = storage
@@ -346,7 +342,7 @@ class W3FieldWriter(base.FieldWriter):
 
 # Reader objects
 
-class W3PerDocReader(base.PerDocumentReader):
+class W3PerDocReader(codecs.PerDocumentReader):
     def __init__(self, storage, segment):
         self._storage = storage
         self._segment = segment
@@ -393,11 +389,12 @@ class W3PerDocReader(base.PerDocumentReader):
         colfile = self._storage.open_file(filename)
         return colfile, 0, length
 
-    def column_reader(self, fieldname, column):
+    def column_reader(self, fieldname, column, reverse=False):
         if fieldname not in self._colfiles:
             self._colfiles[fieldname] = self._get_column_file(fieldname)
         colfile, offset, length = self._colfiles[fieldname]
-        return column.reader(colfile, offset, length, self._doccount)
+        return column.reader(colfile, offset, length, self._doccount,
+                             reverse=reverse)
 
     # Lengths
 
@@ -492,7 +489,7 @@ class W3PerDocReader(base.PerDocumentReader):
         return v
 
 
-class W3FieldCursor(base.FieldCursor):
+class W3TermCursor(codecs.TermCursor):
     def __init__(self, tindex, fieldname, keycoder, keydecoder, fieldobj):
         self._tindex = tindex
         self._fieldname = fieldname
@@ -550,7 +547,7 @@ class W3FieldCursor(base.FieldCursor):
         return self._pos is not None
 
 
-class W3TermsReader(base.TermsReader):
+class W3TermsReader(codecs.TermsReader):
     def __init__(self, codec, dbfile, length, postfile):
         self._codec = codec
         self._dbfile = dbfile
@@ -568,8 +565,8 @@ class W3TermsReader(base.TermsReader):
         return pack_ushort(fnum) + tbytes
 
     def _keydecoder(self, keybytes):
-        fieldid = unpack_ushort(keybytes[:_SHORT_SIZE])[0]
-        return self._fieldunmap[fieldid], keybytes[_SHORT_SIZE:]
+        fieldid = unpack_ushort(keybytes[:SHORT_SIZE])[0]
+        return self._fieldunmap[fieldid], keybytes[SHORT_SIZE:]
 
     def _range_for_key(self, fieldname, tbytes):
         return self._tindex.range_for_key(self._keycoder(fieldname, tbytes))
@@ -577,14 +574,14 @@ class W3TermsReader(base.TermsReader):
     def __contains__(self, term):
         return self._keycoder(*term) in self._tindex
 
-    def indexed_field_names(self):
+    def indexed_field_names(self) -> Sequence[str]:
         return self._fieldmap.keys()
 
     def cursor(self, fieldname, fieldobj):
         tindex = self._tindex
         coder = self._keycoder
         decoder = self._keydecoder
-        return W3FieldCursor(tindex, fieldname, coder, decoder, fieldobj)
+        return W3TermCursor(tindex, fieldname, coder, decoder, fieldobj)
 
     def terms(self):
         keydecoder = self._keydecoder
@@ -637,7 +634,7 @@ class W3TermsReader(base.TermsReader):
 
 # Postings
 
-class W3PostingsWriter(base.PostingsWriter):
+class W3PostingsWriter(object):
     """This object writes posting lists to the postings file. It groups postings
     into blocks and tracks block level statistics to makes it easier to skip
     through the postings.
@@ -755,7 +752,7 @@ class W3PostingsWriter(base.PostingsWriter):
         # Minify the IDs, weights, and values, and put them in a tuple
         data = (self._mini_ids(), self._mini_weights(), self._mini_values())
         # Pickle the tuple
-        databytes = dumps(data, 2)
+        databytes = dumps(data)
         # If the pickle is less than 20 bytes, don't bother compressing
         if len(databytes) < 20:
             comp = 0
@@ -778,7 +775,7 @@ class W3PostingsWriter(base.PostingsWriter):
         infobytes = dumps((len(ids), ids[-1], self._maxweight, comp,
                            length_to_byte(self._minlength),
                            length_to_byte(self._maxlength),
-                           ), 2)
+                           ))
 
         # Write block length
         postfile = self._postfile
@@ -930,7 +927,7 @@ class W3LeafMatcher(LeafMatcher):
             length *= -1
 
         # Remember the offset of the next block
-        self._nextoffset = position + _INT_SIZE + length
+        self._nextoffset = position + INT_SIZE + length
         # Read the pickled block info tuple
         info = postfile.read_pickle()
         # Remember the offset of the block's data
@@ -1185,7 +1182,7 @@ class W3TermInfo(TermInfo):
 
         if isinlined:
             # Postings are inlined - dump them using the pickle protocol
-            postbytes = dumps(self._inlined, 2)
+            postbytes = dumps(self._inlined, -1)
         else:
             postbytes = pack_long(self._offset) + pack_int(self._length)
         st += postbytes
@@ -1212,9 +1209,9 @@ class W3TermInfo(TermInfo):
         else:
             # Last bytes are pointer into posting file and length
             offpos = st.size
-            lenpos = st.size + _LONG_SIZE
+            lenpos = st.size + LONG_SIZE
             terminfo._offset = unpack_long(s[offpos:lenpos])[0]
-            terminfo._length = unpack_int(s[lenpos:lenpos + _INT_SIZE])
+            terminfo._length = unpack_int(s[lenpos:lenpos + INT_SIZE])
 
         return terminfo
 
@@ -1224,24 +1221,24 @@ class W3TermInfo(TermInfo):
 
     @classmethod
     def read_doc_freq(cls, dbfile, datapos):
-        return dbfile.get_uint(datapos + 1 + _FLOAT_SIZE)
+        return dbfile.get_uint(datapos + 1 + FLOAT_SIZE)
 
     @classmethod
     def read_min_and_max_length(cls, dbfile, datapos):
-        lenpos = datapos + 1 + _FLOAT_SIZE + _INT_SIZE
+        lenpos = datapos + 1 + FLOAT_SIZE + INT_SIZE
         ml = byte_to_length(dbfile.get_byte(lenpos))
         xl = byte_to_length(dbfile.get_byte(lenpos + 1))
         return ml, xl
 
     @classmethod
     def read_max_weight(cls, dbfile, datapos):
-        weightspos = datapos + 1 + _FLOAT_SIZE + _INT_SIZE + 2
+        weightspos = datapos + 1 + FLOAT_SIZE + INT_SIZE + 2
         return dbfile.get_float(weightspos)
 
 
 # Segment implementation
 
-class W3Segment(base.Segment):
+class W3Segment(codecs.Segment):
     def __init__(self, codec, indexname, doccount=0, segid=None, deleted=None):
         self.indexname = indexname
         self.segid = self._random_id() if segid is None else segid
@@ -1250,6 +1247,55 @@ class W3Segment(base.Segment):
         self._doccount = doccount
         self._deleted = deleted
         self.compound = False
+
+    def is_compound(self):
+        return self.compound
+
+    # File convenience methods
+
+    def make_filename(self, ext):
+        return "%s%s" % (self.segment_id(), ext)
+
+    def list_files(self, storage):
+        prefix = "%s." % self.segment_id()
+        return [name for name in storage.list() if name.startswith(prefix)]
+
+    def create_file(self, storage, ext, **kwargs):
+        """Convenience method to create a new file in the given storage named
+        with this segment's ID and the given extension. Any keyword arguments
+        are passed to the storage's create_file method.
+        """
+
+        fname = self.make_filename(ext)
+        return storage.create_file(fname, **kwargs)
+
+    def open_file(self, storage, ext, **kwargs):
+        """Convenience method to open a file in the given storage named with
+        this segment's ID and the given extension. Any keyword arguments are
+        passed to the storage's open_file method.
+        """
+
+        fname = self.make_filename(ext)
+        return storage.open_file(fname, **kwargs)
+
+    def create_compound_file(self, storage):
+        from whoosh.filedb.compound import CompoundStorage
+
+        ext = self._codec.COMPOUND_EXT
+        segfiles = self.list_files(storage)
+        assert not any(name.endswith(ext) for name in segfiles)
+        cfile = self.create_file(storage, ext)
+        CompoundStorage.assemble(cfile, storage, segfiles)
+        for name in segfiles:
+            storage.delete_file(name)
+        self.compound = True
+
+    def open_compound_file(self, storage):
+        from whoosh.filedb.compound import CompoundStorage
+
+        name = self.make_filename(self._codec.COMPOUND_EXT)
+        dbfile = storage.open_file(name)
+        return CompoundStorage(dbfile, use_mmap=storage.supports_mmap)
 
     def codec(self, **kwargs):
         return self._codec

@@ -74,6 +74,13 @@ class LockBase(object):
             except:
                 pass
 
+    def __enter__(self):
+        self.acquire(blocking=True)
+        return self
+
+    def __exit__(self, *args):
+        self.release()
+
     def acquire(self, blocking=False):
         """Acquire the lock. Returns True if the lock was acquired.
 

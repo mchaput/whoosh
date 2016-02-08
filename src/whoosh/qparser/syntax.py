@@ -400,7 +400,7 @@ class ErrorNode(SyntaxNode):
         else:
             q = query.NullQuery
 
-        return attach(query.error_query(self.message, q), self)
+        return attach(query.ErrorQuery(self.message, q), self)
 
 
 class AndGroup(GroupNode):
@@ -470,14 +470,15 @@ class RangeNode(SyntaxNode):
             field = parser.schema[fieldname]
             if field.self_parsing():
                 try:
-                    q = field.parse_range(fieldname, start, end,
-                                          self.startexcl, self.endexcl,
-                                          boost=self.boost)
+                    q = field.parse_range(
+                        fieldname, start, end, self.startexcl, self.endexcl,
+                        boost=self.boost
+                    )
                     if q is not None:
                         return attach(q, self)
                 except QueryParserError:
                     e = sys.exc_info()[1]
-                    return attach(query.error_query(e), self)
+                    return attach(query.ErrorQuery(e), self)
 
             if start:
                 start = get_single_text(field, start, tokenize=False,

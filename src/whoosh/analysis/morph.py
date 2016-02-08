@@ -25,19 +25,28 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from whoosh.analysis.filters import Filter
+from typing import Callable, Iterable, Sequence, Set, Union
+
+from whoosh.ifaces import analysis
 from whoosh.compat import integer_types
 from whoosh.lang.dmetaphone import double_metaphone
 from whoosh.lang.porter import stem
 from whoosh.util.cache import lfu_cache, unbound_cache
 
 
-class StemFilter(Filter):
-    """Stems (removes suffixes from) the text of tokens using the Porter
+# Type aliases
+
+StrSet = Union[Sequence[str], Set[str]]
+
+
+class StemFilter(analysis.Filter):
+    """
+    Stems (removes suffixes from) the text of tokens using the Porter
     stemming algorithm. Stemming attempts to reduce multiple forms of the same
     root word (for example, "rendering", "renders", "rendered", etc.) to a
     single word in the index.
 
+    >>> from whoosh.analysis.tokenizers import RegexTokenizer
     >>> stemmer = RegexTokenizer() | StemFilter()
     >>> [token.text for token in stemmer("fundamentally willows")]
     ["fundament", "willow"]
@@ -70,7 +79,8 @@ class StemFilter(Filter):
 
     is_morph = True
 
-    def __init__(self, stemfn=stem, lang=None, ignore=None, cachesize=50000):
+    def __init__(self, stemfn: Callable[[str], str]=stem,
+                 lang: str=None, ignore: StrSet=None, cachesize: int=50000):
         """
         :param stemfn: the function to use for stemming.
         :param lang: if not None, overrides the stemfn with a language stemmer
@@ -88,6 +98,11 @@ class StemFilter(Filter):
         self.cachesize = cachesize
         # clear() sets the _stem attr to a cached wrapper around self.stemfn
         self.clear()
+
+    def __eq__(self, other: 'PyStemmerFilter'):
+        return (other and isinstance(other, StemFilter) and
+                self.stemfn == other.stemfn and
+                self.lang == other.lang and self.ignore == other.ignore)
 
     def __getstate__(self):
         # Can't pickle a dynamic function, so we have to remove the _stem
@@ -133,11 +148,8 @@ class StemFilter(Filter):
             return None
         return self._stem.cache_info()
 
-    def __eq__(self, other):
-        return (other and self.__class__ is other.__class__
-                and self.stemfn == other.stemfn)
-
-    def __call__(self, tokens):
+    def filter(self, tokens: Iterable[analysis.Token]
+               ) -> Iterable[analysis.Token]:
         stemfn = self._stem
         ignore = self.ignore
 
@@ -157,7 +169,8 @@ class PyStemmerFilter(StemFilter):
     >>> PyStemmerFilter("spanish")
     """
 
-    def __init__(self, lang="english", ignore=None, cachesize=10000):
+    def __init__(self, lang: str="english", ignore: StrSet=None,
+                 cachesize: int=10000):
         """
         :param lang: a string identifying the stemming algorithm to use. You
             can get a list of available algorithms by with the
@@ -174,8 +187,13 @@ class PyStemmerFilter(StemFilter):
         self.cachesize = cachesize
         self._stem = self._get_stemmer_fn()
 
+    def __eq__(self, other: 'PyStemmerFilter'):
+        return (other and isinstance(other, PyStemmerFilter) and
+                self.lang == other.lang and self.ignore == other.ignore)
+
     def algorithms(self):
-        """Returns a list of stemming algorithms provided by the py-stemmer
+        """
+        Returns a list of stemming algorithms provided by the py-stemmer
         library.
         """
 
@@ -216,8 +234,9 @@ class PyStemmerFilter(StemFilter):
         self._stem = self._get_stemmer_fn()
 
 
-class DoubleMetaphoneFilter(Filter):
-    """Transforms the text of the tokens using Lawrence Philips's Double
+class DoubleMetaphoneFilter(analysis.Filter):
+    """
+    Transforms the text of the tokens using Lawrence Philips's Double
     Metaphone algorithm. This algorithm attempts to encode words in such a way
     that similar-sounding words reduce to the same code. This may be useful for
     fields containing the names of people and places, and other uses where
@@ -226,7 +245,8 @@ class DoubleMetaphoneFilter(Filter):
 
     is_morph = True
 
-    def __init__(self, primary_boost=1.0, secondary_boost=0.5, combine=False):
+    def __init__(self, primary_boost: float=1.0, secondary_boost: float=0.5,
+                 combine: bool=False):
         """
         :param primary_boost: the boost to apply to the token containing the
             primary code.
@@ -240,12 +260,8 @@ class DoubleMetaphoneFilter(Filter):
         self.secondary_boost = secondary_boost
         self.combine = combine
 
-    def __eq__(self, other):
-        return (other
-                and self.__class__ is other.__class__
-                and self.primary_boost == other.primary_boost)
-
-    def __call__(self, tokens):
+    def filter(self, tokens: Iterable[analysis.Token]
+               ) -> Iterable[analysis.Token]:
         primary_boost = self.primary_boost
         secondary_boost = self.secondary_boost
         combine = self.combine

@@ -32,13 +32,12 @@ D. J. Bernstein's CDB format (http://cr.yp.to/cdb.html).
 
 import os, struct
 from binascii import crc32
-from bisect import bisect_left
 from hashlib import md5  # @UnresolvedImport
 
-from whoosh.compat import b, bytes_type
+from whoosh.compat import bytes_type
 from whoosh.compat import xrange
 from whoosh.util.numlists import GrowableArray
-from whoosh.system import _INT_SIZE, emptybytes
+from whoosh.system import INT_SIZE, emptybytes
 
 
 # Exceptions
@@ -93,7 +92,7 @@ class HashWriter(object):
     2 GB in length.
     """
 
-    def __init__(self, dbfile, magic=b("HSH3"), hashtype=0):
+    def __init__(self, dbfile, magic=b"HSH3", hashtype=0):
         """
         :param dbfile: a :class:`~whoosh.filedb.structfile.StructFile` object
             to write to.
@@ -220,7 +219,7 @@ class HashReader(object):
     :class:`HashWriter`.
     """
 
-    def __init__(self, dbfile, length=None, magic=b("HSH3"), startoffset=0):
+    def __init__(self, dbfile, length=None, magic=b"HSH3", startoffset=0):
         """
         :param dbfile: a :class:`~whoosh.filedb.structfile.StructFile` object
             to read from.
@@ -253,7 +252,7 @@ class HashReader(object):
         dbfile.read_int()
         self.startofdata = dbfile.tell()
 
-        exptr = startoffset + length - _INT_SIZE
+        exptr = startoffset + length - INT_SIZE
         # Get the length of extras from the end of the file
         exlen = dbfile.get_int(exptr)
         # Read the extras

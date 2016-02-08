@@ -26,25 +26,36 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import division
+import copy
+from typing import Callable, Iterable, Optional, Sequence
 
-from whoosh import matching
-from whoosh.compat import text_type, u
-from whoosh.compat import xrange
-from whoosh.query import qcore
-from whoosh.util import make_binary_tree, make_weighted_tree
+from whoosh import collectors
+from whoosh.compat import text_type
+from whoosh.ifaces import matchers, queries, readers, searchers
+from whoosh.query import ranges
 
 
-class CompoundQuery(qcore.Query):
-    """Abstract base class for queries that combine or manipulate the results
+__all__ = ("CompoundQuery", "And", "Or", "DisjunctionMax", "BinaryQuery",
+           "AndNot", "AndMaybe", "Otherwise", "Require")
+
+
+class CompoundQuery(queries.Query):
+    """
+    Base class for queries that combine or manipulate the results
     of multiple sub-queries .
     """
 
-    def __init__(self, subqueries, boost=1.0):
-        for subq in subqueries:
-            if not isinstance(subq, qcore.Query):
-                raise qcore.QueryError("%r is not a query" % subq)
-        self.subqueries = subqueries
-        self.boost = boost
+    joint = "X"
+    intersect_merge = True
+
+    def __init__(self, subqueries: 'Iterable[queries.Query]',
+                 startchar: int=None, endchar: int=None, error: str=None,
+                 boost: float=1.0):
+        super(CompoundQuery, self).__init__(
+            startchar=startchar, endchar=endchar, error=error, boost=boost
+        )
+        self.subqueries = []
+        self.set_children(list(subqueries))
 
     def __repr__(self):
         r = "%s(%r" % (self.__class__.__name__, self.subqueries)
@@ -54,21 +65,21 @@ class CompoundQuery(qcore.Query):
         return r
 
     def __unicode__(self):
-        r = u("(")
-        r += self.JOINT.join([text_type(s) for s in self.subqueries])
-        r += u(")")
+        r = u"("
+        r += self.joint.join([text_type(s) for s in self.subqueries])
+        r += u")"
         return r
 
     __str__ = __unicode__
 
     def __eq__(self, other):
-        return (other
-                and self.__class__ is other.__class__
-                and self.subqueries == other.subqueries
-                and self.boost == other.boost)
+        return (other and
+                self.__class__ is other.__class__ and
+                self.subqueries == other.subqueries and
+                self.boost == other.boost)
 
-    def __getitem__(self, i):
-        return self.subqueries.__getitem__(i)
+    def __getitem__(self, i) -> 'queries.Query':
+        return self.subqueries[i]
 
     def __len__(self):
         return len(self.subqueries)
@@ -82,15 +93,31 @@ class CompoundQuery(qcore.Query):
             h ^= hash(q)
         return h
 
-    def is_leaf(self):
-        return False
+    @classmethod
+    def combine_collector(cls, collector: 'collectors.Collector',
+                          args, kwargs) -> 'collectors.Collector':
+        qs = [collector.query()]
+        for arg in args:
+            if isinstance(arg, (list, tuple)):
+                qs.extend(arg)
+            elif isinstance(arg, queries.Query):
+                qs.append(arg)
+            elif isinstance(arg, collectors.Collector):
+                qs.append(arg.query())
+            else:
+                raise ValueError("%s: don't know how to add %r" %
+                                 (cls.__name__, arg))
+
+        return collector.with_query(cls(qs, **kwargs))
 
     def children(self):
-        return iter(self.subqueries)
+        return self.subqueries
 
-    def apply(self, fn):
-        return self.__class__([fn(q) for q in self.subqueries],
-                              boost=self.boost)
+    def set_children(self, children: 'Sequence[queries.Query]'):
+        for c in children:
+            if not isinstance(c, queries.Query):
+                raise queries.QueryError("%r is not a query")
+        self.subqueries = children
 
     def field(self):
         if self.subqueries:
@@ -102,39 +129,26 @@ class CompoundQuery(qcore.Query):
         est = sum(q.estimate_size(ixreader) for q in self.subqueries)
         return min(est, ixreader.doc_count())
 
-    def estimate_min_size(self, ixreader):
-        from whoosh.query import Not
-
-        subs = self.subqueries
-        qs = [(q, q.estimate_min_size(ixreader)) for q in subs
-              if not isinstance(q, Not)]
-        pos = [minsize for q, minsize in qs if minsize > 0]
-        if pos:
-            neg = [q.estimate_size(ixreader) for q in subs
-                   if isinstance(q, Not)]
-            size = min(pos) - sum(neg)
-            if size > 0:
-                return size
-        return 0
-
-    def normalize(self):
-        from whoosh.query import Every, TermRange, NumericRange
+    def normalize(self) -> 'queries.Query':
+        from whoosh.query.ranges import Every
 
         # Normalize subqueries and merge nested instances of this class
         subqueries = []
         for s in self.subqueries:
             s = s.normalize()
             if isinstance(s, self.__class__):
-                subqueries += [ss.with_boost(ss.boost * s.boost) for ss in s]
+                for ss in s:
+                    ss.set_boost(ss.boost * s.boost)
+                    subqueries.append(ss)
             else:
                 subqueries.append(s)
 
         # If every subquery is Null, this query is Null
-        if all(q is qcore.NullQuery for q in subqueries):
-            return qcore.NullQuery
+        if all(isinstance(q, queries.NullQuery) for q in subqueries):
+            return queries.NullQuery()
 
         # If there's an unfielded Every inside, then this query is Every
-        if any((isinstance(q, Every) and q.fieldname is None)
+        if any((isinstance(q, Every) and q.is_total())
                for q in subqueries):
             return Every()
 
@@ -144,11 +158,11 @@ class CompoundQuery(qcore.Query):
         while i < len(subqueries):
             q = subqueries[i]
             f = q.field()
-            if f in everyfields:
+            if f and f in everyfields:
                 subqueries.pop(i)
                 continue
 
-            if isinstance(q, (TermRange, NumericRange)):
+            if isinstance(q, (ranges.TermRange, ranges.NumericRange)):
                 j = i + 1
                 while j < len(subqueries):
                     if q.overlaps(subqueries[j]):
@@ -173,148 +187,136 @@ class CompoundQuery(qcore.Query):
             seenqs.add(s)
             subqs.append(s)
 
-        # Remove NullQuerys
-        subqs = [q for q in subqs if q is not qcore.NullQuery]
-
+        # If no children are left, this query is Null
         if not subqs:
-            return qcore.NullQuery
+            return queries.NullQuery()
 
+        # If there's only one child left, just return that
         if len(subqs) == 1:
             sub = subqs[0]
-            sub_boost = getattr(sub, "boost", 1.0)
-            if not (self.boost == 1.0 and sub_boost == 1.0):
-                sub = sub.with_boost(sub_boost * self.boost)
+            sub_boost = sub.boost
+            sub.set_boost(sub_boost * self.boost)
             return sub
 
         return self.__class__(subqs, boost=self.boost)
 
-    def simplify(self, ixreader):
-        subs = self.subqueries
-        if subs:
-            q = self.__class__([subq.simplify(ixreader) for subq in subs],
-                                boost=self.boost).normalize()
-        else:
-            q = qcore.NullQuery
-        return q
+    def simplify(self, ixreader: 'readers.IndexReader'):
+        subs = [s.simplify(ixreader) for s in self.subqueries]
+        if all(isinstance(s, queries.NullQuery) for s in subs):
+            return queries.NullQuery()
 
-    def matcher(self, searcher, context=None):
-        # This method does a little sanity checking and then passes the info
-        # down to the _matcher() method which subclasses must implement
+        c = copy.copy(self)
+        c.set_children(subs)
+        return c
 
-        subs = self.subqueries
-        if not subs:
-            return matching.NullMatcher()
-
-        if len(subs) == 1:
-            m = subs[0].matcher(searcher, context)
-        else:
-            m = self._matcher(subs, searcher, context)
-        return m
-
-    def _matcher(self, subs, searcher, context):
-        # Subclasses must implement this method
-
-        raise NotImplementedError
-
-    def _tree_matcher(self, subs, mcls, searcher, context, q_weight_fn,
+    def _tree_matcher(self, subs: 'Sequence[queries.Query]',
+                      mcls: 'type(matchers.Matcher)',
+                      searcher: 'searchers.Searcher',
+                      context: 'searchers.SearchContext',
+                      q_weight_fn: 'Optional[Callable[[queries.Query], float]]',
                       **kwargs):
-        # q_weight_fn is a function which is called on each query and returns a
-        # "weight" value which is used to build a huffman-like matcher tree. If
-        # q_weight_fn is None, an order-preserving binary tree is used instead.
+        # Builds a tree of binary matchers from a linear sequence of queries.
+        #
+        # subs - the queries
+        # mcls - the Matcher class to build the tree from
+        # q_weight_fn - called on each query to build a huffman-like weighted
+        #   tree. This can be None if the tree doesn't need weighting
+        # kwargs - passed to matcher initializer
 
-        # Create a matcher from the list of subqueries
+        if not subs:
+            from whoosh.matching import NullMatcher
+            return NullMatcher()
+
+        # Get matchers for each query
         subms = [q.matcher(searcher, context) for q in subs]
 
         if len(subms) == 1:
+            # Only one matcher, just return it
             m = subms[0]
         elif q_weight_fn is None:
-            m = make_binary_tree(mcls, subms, **kwargs)
+            # No weighting function, just make a binary tree
+            m = queries.make_binary_tree(mcls, subms, kwargs)
         else:
+            # Use weighting function to make a huffman-like weighted tree
             w_subms = [(q_weight_fn(q), m) for q, m in zip(subs, subms)]
-            m = make_weighted_tree(mcls, w_subms, **kwargs)
+            m = queries.make_weighted_tree(mcls, w_subms, kwargs)
 
         # If this query had a boost, add a wrapping matcher to apply the boost
         if self.boost != 1.0:
-            m = matching.WrappingMatcher(m, self.boost)
+            from whoosh.matching.wrappers import WrappingMatcher
+
+            m = WrappingMatcher(m, self.boost)
 
         return m
 
 
+@collectors.register("and_", compound=True)
 class And(CompoundQuery):
-    """Matches documents that match ALL of the subqueries.
-
-    >>> And([Term("content", u"render"),
-    ...      Term("content", u"shade"),
-    ...      Not(Term("content", u"texture"))])
-    >>> # You can also do this
-    >>> Term("content", u"render") & Term("content", u"shade")
+    """
+    Matches documents that match ALL of the subqueries.
     """
 
     # This is used by the superclass's __unicode__ method.
-    JOINT = " AND "
+    joint = " AND "
+    # When merging ranges inside ANDs, take the intersection
     intersect_merge = True
 
-    def requires(self):
-        s = set()
-        for q in self.subqueries:
-            s |= q.requires()
-        return s
-
-    def estimate_size(self, ixreader):
+    def estimate_size(self, ixreader: 'readers.IndexReader') -> int:
         return min(q.estimate_size(ixreader) for q in self.subqueries)
 
-    def _matcher(self, subs, searcher, context):
+    def matcher(self, searcher: 'searchers.Searcher',
+                context: 'searchers.SearchContext'=None) -> 'matchers.Matcher':
+        from whoosh.matching.binary import IntersectionMatcher
+
         r = searcher.reader()
-        q_weight_fn = lambda q: 0 - q.estimate_size(r)
-        return self._tree_matcher(subs, matching.IntersectionMatcher, searcher,
-                                  context, q_weight_fn)
+        return self._tree_matcher(self.subqueries, IntersectionMatcher,
+                                  searcher, context,
+                                  lambda q: 0 - q.estimate_size(r))
 
 
+@collectors.register("or_", compound=True)
 class Or(CompoundQuery):
-    """Matches documents that match ANY of the subqueries.
-
-    >>> Or([Term("content", u"render"),
-    ...     And([Term("content", u"shade"), Term("content", u"texture")]),
-    ...     Not(Term("content", u"network"))])
-    >>> # You can also do this
-    >>> Term("content", u"render") | Term("content", u"shade")
+    """
+    Matches documents that match ANY of the subqueries.
     """
 
     # This is used by the superclass's __unicode__ method.
-    JOINT = " OR "
+    joint = " OR "
+    # When merging ranges inside ORs, take the union
     intersect_merge = False
+    # Use pre-loaded matcher for small indexes
+    preload = True
+    # Can't have more than this many clauses in one tree
     TOO_MANY_CLAUSES = 1024
 
-    # For debugging: set the array_type property to control matcher selection
-    AUTO_MATCHER = 0  # Use automatic heuristics to choose matcher
-    DEFAULT_MATCHER = 1  # Use a binary tree of UnionMatchers
-    SPLIT_MATCHER = 2  # Use a different strategy for short and long queries
-    ARRAY_MATCHER = 3  # Use a matcher that pre-loads docnums and scores
-    matcher_type = AUTO_MATCHER
-
-    def __init__(self, subqueries, boost=1.0, minmatch=0, scale=None):
+    def __init__(self, subqueries: 'Iterable[queries.Query]', startchar: int=None,
+                 endchar: int=None, error: str=None, boost: float=1.0,
+                 minmatch: float=0.0, scale: float=None):
         """
         :param subqueries: a list of :class:`Query` objects to search for.
         :param boost: a boost factor to apply to the scores of all matching
             documents.
         :param minmatch: not yet implemented.
         :param scale: a scaling factor for a "coordination bonus". If this
-            value is not None, it should be a floating point number greater
-            than 0 and less than 1. The scores of the matching documents are
-            boosted/penalized based on the number of query terms that matched
-            in the document. This number scales the effect of the bonuses.
+            value is not None, it should be a floating point number between 0
+            and 1. The scores of the matching documents are boosted/penalized
+            based on the number of query terms that matched in the document.
+            This number scales the effect of the bonuses.
         """
 
-        CompoundQuery.__init__(self, subqueries, boost=boost)
+        super(Or, self).__init__(
+            subqueries, startchar=startchar, endchar=endchar, error=error,
+            boost=boost,
+        )
         self.minmatch = minmatch
         self.scale = scale
 
     def __unicode__(self):
-        r = u("(")
-        r += (self.JOINT).join([text_type(s) for s in self.subqueries])
-        r += u(")")
+        r = u"("
+        r += (self.joint).join([text_type(s) for s in self.subqueries])
+        r += u")"
         if self.minmatch:
-            r += u(">%s") % self.minmatch
+            r += u">%s" % self.minmatch
         return r
 
     __str__ = __unicode__
@@ -326,134 +328,43 @@ class Or(CompoundQuery):
             norm.scale = self.scale
         return norm
 
-    def requires(self):
-        if len(self.subqueries) == 1:
-            return self.subqueries[0].requires()
-        else:
-            return set()
+    def matcher(self, searcher: 'searchers.Searcher',
+                context: 'searchers.SearchContext'=None) -> 'matchers.Matcher':
+        from whoosh.matching.binary import UnionMatcher
+        from whoosh.matching.wrappers import CoordMatcher
 
-    def _matcher(self, subs, searcher, context):
-        needs_current = context.needs_current if context else True
-        weighting = context.weighting if context else None
-        matcher_type = self.matcher_type
-
-        if matcher_type == self.AUTO_MATCHER:
-            dc = searcher.doc_count_all()
-            if (len(subs) < self.TOO_MANY_CLAUSES
-                and (needs_current
-                     or self.scale
-                     or len(subs) == 2
-                     or dc > 5000)):
-                # If the parent matcher needs the current match, or there's just
-                # two sub-matchers, use the standard binary tree of Unions
-                matcher_type = self.DEFAULT_MATCHER
-            else:
-                # For small indexes, or too many clauses, just preload all
-                # matches
-                matcher_type = self.ARRAY_MATCHER
-
-        if matcher_type == self.DEFAULT_MATCHER:
-            # Implementation of Or that creates a binary tree of Union matchers
-            cls = DefaultOr
-        elif matcher_type == self.SPLIT_MATCHER:
-            # Hybrid of pre-loading small queries and a binary tree of union
-            # matchers for big queries
-            cls = SplitOr
-        elif matcher_type == self.ARRAY_MATCHER:
-            # Implementation that pre-loads docnums and scores into an array
-            cls = PreloadedOr
-        else:
-            raise ValueError("Unknown matcher_type %r" % self.matcher_type)
-
-        return cls(subs, boost=self.boost, minmatch=self.minmatch,
-                   scale=self.scale).matcher(searcher, context)
-
-
-class DefaultOr(Or):
-    JOINT = " dOR "
-
-    def _matcher(self, subs, searcher, context):
         reader = searcher.reader()
-        q_weight_fn = lambda q: q.estimate_size(reader)
-        m = self._tree_matcher(subs, matching.UnionMatcher, searcher, context,
-                               q_weight_fn)
-
-        # If a scaling factor was given, wrap the matcher in a CoordMatcher to
-        # alter scores based on term coordination
-        if self.scale and any(m.term_matchers()):
-            m = matching.CoordMatcher(m, scale=self.scale)
-
-        return m
-
-
-class SplitOr(Or):
-    JOINT = " sOr "
-    SPLIT_DOC_LIMIT = 8000
-
-    def matcher(self, searcher, context=None):
-        from whoosh import collectors
-
-        # Get the subqueries
+        scored = context.scored if context else True
         subs = self.subqueries
-        if not subs:
-            return matching.NullMatcher()
-        elif len(subs) == 1:
-            return subs[0].matcher(searcher, context)
 
-        # Sort the subqueries into "small" and "big" queries based on their
-        # estimated size. This works best for term queries.
-        reader = searcher.reader()
-        smallqs = []
-        bigqs = []
-        for q in subs:
-            size = q.estimate_size(reader)
-            if size <= self.SPLIT_DOC_LIMIT:
-                smallqs.append(q)
-            else:
-                bigqs.append(q)
+        # Make a tree of UnionMatchers
+        m = self._tree_matcher(subs, UnionMatcher, searcher, context,
+                               lambda q: q.estimate_size(reader))
 
-        # Build a pre-scored matcher for the small queries
-        minscore = 0
-        smallmatcher = None
-        if smallqs:
-            smallmatcher = DefaultOr(smallqs).matcher(searcher, context)
-            smallmatcher = matching.ArrayMatcher(smallmatcher, context.limit)
-            minscore = smallmatcher.limit_quality()
-        if bigqs:
-            # Get a matcher for the big queries
-            m = DefaultOr(bigqs).matcher(searcher, context)
-            # Add the prescored matcher for the small queries
-            if smallmatcher:
-                m = matching.UnionMatcher(m, smallmatcher)
-                # Set the minimum score based on the prescored matcher
-                m.set_min_quality(minscore)
-        elif smallmatcher:
-            # If there are no big queries, just return the prescored matcher
-            m = smallmatcher
-        else:
-            m = matching.NullMatcher()
+        if self.scale and any(m.term_matchers()):
+            # If a scaling factor was given, wrap the matcher in a CoordMatcher
+            # to alter scores based on term coordination
+            return CoordMatcher(m, scale=self.scale)
+
+        preload = False
+        dc = searcher.doc_count_all()
+        if self.preload and len(subs) > 2:
+            if dc <= 5000 or len(subs) >= self.TOO_MANY_CLAUSES:
+                preload = True
+
+        if preload:
+            from whoosh.matching.combo import ArrayUnionMatcher
+
+            ms = [sub.matcher(searcher, context) for sub in subs]
+            m = ArrayUnionMatcher(ms, m, dc, boost=self.boost, scored=scored)
 
         return m
 
 
-class PreloadedOr(Or):
-    JOINT = " pOR "
-
-    def _matcher(self, subs, searcher, context):
-        if context:
-            scored = context.weighting is not None
-        else:
-            scored = True
-
-        ms = [sub.matcher(searcher, context) for sub in subs]
-        doccount = searcher.doc_count_all()
-        am = matching.ArrayUnionMatcher(ms, doccount, boost=self.boost,
-                                        scored=scored)
-        return am
-
-
+@collectors.register("dismax_", compound=True)
 class DisjunctionMax(CompoundQuery):
-    """Matches all documents that match any of the subqueries, but scores each
+    """
+    Matches all documents that match any of the subqueries, but scores each
     document using the maximum score from the subqueries.
     """
 
@@ -462,11 +373,11 @@ class DisjunctionMax(CompoundQuery):
         self.tiebreak = tiebreak
 
     def __unicode__(self):
-        r = u("DisMax(")
+        r = u"DisMax("
         r += " ".join(sorted(text_type(s) for s in self.subqueries))
-        r += u(")")
+        r += u")"
         if self.tiebreak:
-            r += u("~") + text_type(self.tiebreak)
+            r += u"~" + text_type(self.tiebreak)
         return r
 
     __str__ = __unicode__
@@ -477,24 +388,22 @@ class DisjunctionMax(CompoundQuery):
             norm.tiebreak = self.tiebreak
         return norm
 
-    def requires(self):
-        if len(self.subqueries) == 1:
-            return self.subqueries[0].requires()
-        else:
-            return set()
+    def matcher(self, searcher: 'searchers.Searcher',
+                context: 'searchers.SearchContext'=None) -> 'matchers.Matcher':
+        from whoosh.matching.binary import DisjunctionMaxMatcher
 
-    def _matcher(self, subs, searcher, context):
         r = searcher.reader()
-        q_weight_fn = lambda q: q.estimate_size(r)
-        return self._tree_matcher(subs, matching.DisjunctionMaxMatcher,
-                                  searcher, context, q_weight_fn,
+        return self._tree_matcher(self.subqueries, DisjunctionMaxMatcher,
+                                  searcher, context,
+                                  lambda q: q.estimate_size(r),
                                   tiebreak=self.tiebreak)
 
 
 # Boolean queries
 
 class BinaryQuery(CompoundQuery):
-    """Base class for binary queries (queries which are composed of two
+    """
+    Base class for binary queries (queries which are composed of two
     sub-queries). Subclasses should set the ``matcherclass`` attribute or
     override ``matcher()``, and may also need to override ``normalize()``,
     ``estimate_size()``, and/or ``estimate_min_size()``.
@@ -512,13 +421,22 @@ class BinaryQuery(CompoundQuery):
                 and self.a == other.a and self.b == other.b)
 
     def __hash__(self):
-        return (hash(self.__class__.__name__) ^ hash(self.a) ^ hash(self.b))
+        return hash(self.__class__.__name__) ^ hash(self.a) ^ hash(self.b)
+
+    def set_children(self, children: 'Sequence[queries.Query]'):
+        assert len(children) == 2
+        self.a = children[0]
+        self.b = children[1]
+
+    @classmethod
+    def combine_collector(cls, collector: 'collectors.Collector',
+                          args, kwargs) -> 'collectors.Collector':
+        q1 = collector.query()
+        q = cls(q1, args[0], *args[1:], **kwargs)
+        return collector.with_query(q)
 
     def needs_spans(self):
         return self.a.needs_spans() or self.b.needs_spans()
-
-    def apply(self, fn):
-        return self.__class__(fn(self.a), fn(self.b))
 
     def field(self):
         f = self.a.field()
@@ -532,26 +450,25 @@ class BinaryQuery(CompoundQuery):
     def normalize(self):
         a = self.a.normalize()
         b = self.b.normalize()
-        if a is qcore.NullQuery and b is qcore.NullQuery:
-            return qcore.NullQuery
-        elif a is qcore.NullQuery:
+
+        if isinstance(a, queries.NullQuery) and isinstance(b, queries.NullQuery):
+            return queries.NullQuery()
+        elif isinstance(a, queries.NullQuery):
             return b
-        elif b is qcore.NullQuery:
+        elif isinstance(b, queries.NullQuery):
             return a
 
         return self.__class__(a, b)
 
-    def matcher(self, searcher, context=None):
-        return self.matcherclass(self.a.matcher(searcher, context),
-                                 self.b.matcher(searcher, context))
 
-
+@collectors.register("and_not")
 class AndNot(BinaryQuery):
-    """Binary boolean query of the form 'a ANDNOT b', where documents that
+    """
+    Binary boolean query of the form 'a ANDNOT b', where documents that
     match b are removed from the matches for a.
     """
 
-    JOINT = " ANDNOT "
+    joint = " ANDNOT "
 
     def with_boost(self, boost):
         return self.__class__(self.a.with_boost(boost), self.b)
@@ -560,9 +477,9 @@ class AndNot(BinaryQuery):
         a = self.a.normalize()
         b = self.b.normalize()
 
-        if a is qcore.NullQuery:
-            return qcore.NullQuery
-        elif b is qcore.NullQuery:
+        if isinstance(a, queries.NullQuery):
+            return queries.NullQuery()
+        elif isinstance(b, queries.NullQuery):
             return a
 
         return self.__class__(a, b)
@@ -571,17 +488,21 @@ class AndNot(BinaryQuery):
         return self.a.requires()
 
     def matcher(self, searcher, context=None):
+        from whoosh.matching.wrappers import AndNotMatcher
+
         scoredm = self.a.matcher(searcher, context)
         notm = self.b.matcher(searcher, searcher.boolean_context())
-        return matching.AndNotMatcher(scoredm, notm)
+        return AndNotMatcher(scoredm, notm)
 
 
+@collectors.register("otherwise")
 class Otherwise(BinaryQuery):
-    """A binary query that only matches the second clause if the first clause
+    """
+    A binary query that only matches the second clause if the first clause
     doesn't match any documents.
     """
 
-    JOINT = " OTHERWISE "
+    joint = " OTHERWISE "
 
     def matcher(self, searcher, context=None):
         m = self.a.matcher(searcher, context)
@@ -590,14 +511,15 @@ class Otherwise(BinaryQuery):
         return m
 
 
+@collectors.register("require")
 class Require(BinaryQuery):
-    """Binary query returns results from the first query that also appear in
+    """
+    Binary query returns results from the first query that also appear in
     the second query, but only uses the scores from the first query. This lets
     you filter results without affecting scores.
     """
 
-    JOINT = " REQUIRE "
-    matcherclass = matching.RequireMatcher
+    joint = " REQUIRE "
 
     def requires(self):
         return self.a.requires() | self.b.requires()
@@ -614,47 +536,55 @@ class Require(BinaryQuery):
     def normalize(self):
         a = self.a.normalize()
         b = self.b.normalize()
-        if a is qcore.NullQuery or b is qcore.NullQuery:
-            return qcore.NullQuery
+        if isinstance(a, queries.NullQuery) or isinstance(b, queries.NullQuery):
+            return queries.NullQuery()
         return self.__class__(a, b)
 
-    def docs(self, searcher):
-        return And(self.subqueries).docs(searcher)
+    def docs(self, searcher: 'searchers.Searcher',
+             deleting: bool=False) -> Iterable[int]:
+        return And(self.subqueries).docs(searcher, deleting)
 
     def matcher(self, searcher, context=None):
+        from whoosh.matching.binary import RequireMatcher
+
         scoredm = self.a.matcher(searcher, context)
         requiredm = self.b.matcher(searcher, searcher.boolean_context())
-        return matching.AndNotMatcher(scoredm, requiredm)
+        return RequireMatcher(scoredm, requiredm)
 
 
+@collectors.register("and_maybe")
 class AndMaybe(BinaryQuery):
-    """Binary query takes results from the first query. If and only if the
+    """
+    Binary query takes results from the first query. If and only if the
     same document also appears in the results from the second query, the score
     from the second query will be added to the score from the first query.
     """
 
-    JOINT = " ANDMAYBE "
-    matcherclass = matching.AndMaybeMatcher
+    joint = " ANDMAYBE "
 
     def normalize(self):
         a = self.a.normalize()
         b = self.b.normalize()
-        if a is qcore.NullQuery:
-            return qcore.NullQuery
-        if b is qcore.NullQuery:
+        if isinstance(a, queries.NullQuery):
+            return queries.NullQuery()
+        if isinstance(b, queries.NullQuery):
             return a
         return self.__class__(a, b)
-
-    def requires(self):
-        return self.a.requires()
 
     def estimate_min_size(self, ixreader):
         return self.subqueries[0].estimate_min_size(ixreader)
 
-    def docs(self, searcher):
-        return self.subqueries[0].docs(searcher)
+    def docs(self, searcher: 'searchers.Searcher',
+             deleting: bool=False) -> Iterable[int]:
+        return self.subqueries[0].docs(searcher, deleting)
+
+    def matcher(self, searcher, context=None):
+        from whoosh.matching.wrappers import AndMaybeMatcher
+
+        return AndMaybeMatcher(self.a.matcher(searcher, context),
+                               self.b.matcher(searcher, context))
 
 
-def BooleanQuery(required, should, prohibited):
-    return AndNot(AndMaybe(And(required), Or(should)),
-                  Or(prohibited)).normalize()
+# def BooleanQuery(required, should, prohibited):
+#     return AndNot(AndMaybe(And(required), Or(should)),
+#                   Or(prohibited)).normalize()

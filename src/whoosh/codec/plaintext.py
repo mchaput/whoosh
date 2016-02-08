@@ -27,15 +27,12 @@
 
 from ast import literal_eval
 
-from whoosh.compat import b, bytes_type, text_type, integer_types, PY3
+from whoosh.compat import b, bytes_type, text_type, integer_types
 from whoosh.compat import iteritems, dumps, loads, xrange
-from whoosh.codec import base
+from whoosh.ifaces import codecs
 from whoosh.matching import ListMatcher
 from whoosh.reading import TermInfo, TermNotFound
 
-if not PY3:
-    class memoryview:
-        pass
 
 _reprable = (bytes_type, text_type, integer_types, float)
 
@@ -44,7 +41,7 @@ _reprable = (bytes_type, text_type, integer_types, float)
 
 class LineWriter(object):
     def _print_line(self, indent, command, **kwargs):
-        self._dbfile.write(b("  ") * indent)
+        self._dbfile.write(b"  " * indent)
         self._dbfile.write(command.encode("latin1"))
         for k, v in iteritems(kwargs):
             if isinstance(v, memoryview):
@@ -52,7 +49,7 @@ class LineWriter(object):
             if v is not None and not isinstance(v, _reprable):
                 raise TypeError(type(v))
             self._dbfile.write(("\t%s=%r" % (k, v)).encode("latin1"))
-        self._dbfile.write(b("\n"))
+        self._dbfile.write(b"\n")
 
 
 class LineReader(object):
@@ -117,7 +114,7 @@ class LineReader(object):
 
 # Codec class
 
-class PlainTextCodec(base.Codec):
+class PlainTextCodec(codecs.Codec):
     length_stats = False
 
     def per_document_writer(self, storage, segment):
@@ -136,7 +133,7 @@ class PlainTextCodec(base.Codec):
         return PlainSegment(indexname)
 
 
-class PlainPerDocWriter(base.PerDocumentWriter, LineWriter):
+class PlainPerDocWriter(codecs.PerDocumentWriter, LineWriter):
     def __init__(self, storage, segment):
         self._dbfile = storage.create_file(segment.make_filename(".dcs"))
         self._print_line(0, "DOCS")
@@ -147,7 +144,7 @@ class PlainPerDocWriter(base.PerDocumentWriter, LineWriter):
 
     def add_field(self, fieldname, fieldobj, value, length):
         if value is not None:
-            value = dumps(value, 2)
+            value = dumps(value, -1)
         self._print_line(2, "DOCFIELD", fn=fieldname, v=value, len=length)
 
     def add_column_value(self, fieldname, columnobj, value):
@@ -166,7 +163,7 @@ class PlainPerDocWriter(base.PerDocumentWriter, LineWriter):
         self.is_closed = True
 
 
-class PlainPerDocReader(base.PerDocumentReader, LineReader):
+class PlainPerDocReader(codecs.PerDocumentReader, LineReader):
     def __init__(self, storage, segment):
         self._dbfile = storage.open_file(segment.make_filename(".dcs"))
         self._segment = segment
@@ -244,7 +241,8 @@ class PlainPerDocReader(base.PerDocumentReader, LineReader):
             return True
         return False
 
-    def column_reader(self, fieldname, column):
+    def column_reader(self, fieldname, column, reverse=False):
+        assert not reverse
         return list(self._column_values(fieldname))
 
     def field_length(self, fieldname):
@@ -308,7 +306,7 @@ class PlainPerDocReader(base.PerDocumentReader, LineReader):
         self.is_closed = True
 
 
-class PlainFieldWriter(base.FieldWriter, LineWriter):
+class PlainFieldWriter(codecs.FieldWriter, LineWriter):
     def __init__(self, storage, segment):
         self._dbfile = storage.create_file(segment.make_filename(".trm"))
         self._print_line(0, "TERMS")
@@ -344,7 +342,7 @@ class PlainFieldWriter(base.FieldWriter, LineWriter):
         self._dbfile.close()
 
 
-class PlainTermsReader(base.TermsReader, LineReader):
+class PlainTermsReader(codecs.TermsReader, LineReader):
     def __init__(self, storage, segment):
         self._dbfile = storage.open_file(segment.make_filename(".trm"))
         self._segment = segment
@@ -434,9 +432,9 @@ class PlainTermsReader(base.TermsReader, LineReader):
         self.is_closed = True
 
 
-class PlainSegment(base.Segment):
+class PlainSegment(codecs.Segment):
     def __init__(self, indexname):
-        base.Segment.__init__(self, indexname)
+        codecs.Segment.__init__(self, indexname)
         self._doccount = 0
 
     def codec(self):

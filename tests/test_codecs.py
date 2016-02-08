@@ -4,13 +4,11 @@ from array import array
 
 import pytest
 
-from whoosh import analysis, fields, formats, query
-from whoosh.compat import u, b, text_type
+from whoosh import analysis, fields, postings, query
 from whoosh.compat import array_tobytes, xrange
 from whoosh.codec import default_codec
 from whoosh.filedb.filestore import RamStorage
-from whoosh.util.numeric import byte_to_length, length_to_byte
-from whoosh.util.testing import TempStorage
+from whoosh.util.testing import TempIndex, TempStorage
 
 
 def _make_codec(**kwargs):
@@ -31,30 +29,34 @@ class FakeLengths(object):
         return 1
 
 
-def test_termkey():
-    st, codec, seg = _make_codec()
-    tw = codec.field_writer(st, seg)
-    fieldobj = fields.TEXT()
-    tw.start_field("alfa", fieldobj)
-    tw.start_term(b("bravo"))
-    tw.add(0, 1.0, b(""), 3)
-    tw.finish_term()
-    tw.start_term(b('\xc3\xa6\xc3\xaf\xc5\xc3\xba'))
-    tw.add(0, 4.0, b(""), 3)
-    tw.finish_term()
-    tw.finish_field()
-    tw.start_field("text", fieldobj)
-    tw.start_term(b('\xe6\xa5\xe6\xac\xe8\xaa'))
-    tw.add(0, 7.0, b(""), 9)
-    tw.finish_term()
-    tw.finish_field()
-    tw.close()
-
-    tr = codec.terms_reader(st, seg)
-    assert ("alfa", b("bravo")) in tr
-    assert ("alfa", b('\xc3\xa6\xc3\xaf\xc5\xc3\xba')) in tr
-    assert ("text", b('\xe6\xa5\xe6\xac\xe8\xaa')) in tr
-    tr.close()
+# def test_termkey():
+#     st, codec, seg = _make_codec()
+#     sesh = st.open("test", writable=True)
+#     tw = codec.field_writer(sesh, seg)
+#     fieldobj = fields.TEXT()
+#     tw.start_field("alfa", fieldobj)
+#     tw.start_term(b"bravo")
+#     tw.add(0, 1.0, b"", 3)
+#     tw.finish_term()
+#     tw.start_term(b'\xc3\xa6\xc3\xaf\xc5\xc3\xba')
+#     tw.add(0, 4.0, b"", 3)
+#     tw.finish_term()
+#     tw.finish_field()
+#     tw.start_field("text", fieldobj)
+#     tw.start_term(b'\xe6\xa5\xe6\xac\xe8\xaa')
+#     tw.add(0, 7.0, b"", 9)
+#     tw.finish_term()
+#     tw.finish_field()
+#     tw.close()
+#     sesh.close()
+#
+#     sesh = st.open("test")
+#     tr = codec.terms_reader(st, seg)
+#     assert ("alfa", b"bravo") in tr
+#     assert ("alfa", b'\xc3\xa6\xc3\xaf\xc5\xc3\xba') in tr
+#     assert ("text", b'\xe6\xa5\xe6\xac\xe8\xaa') in tr
+#     tr.close()
+#     sesh.close()
 
 
 def test_random_termkeys():
@@ -70,7 +72,8 @@ def test_random_termkeys():
 
     st, codec, seg = _make_codec()
     fieldobj = fields.TEXT()
-    tw = codec.field_writer(st, seg)
+    sesh = st.open("test", writable=True)
+    tw = codec.field_writer(sesh, seg)
     # Stupid ultra-low-level hand-adding of postings just to check handling of
     # random fieldnames and term texts
     lastfield = None
@@ -82,15 +85,18 @@ def test_random_termkeys():
             tw.start_field(fieldname, fieldobj)
             lastfield = fieldname
         tw.start_term(text)
-        tw.add(0, 1.0, b(""), 1)
+        tw.add_elements(docid=0, weight=1.0, length=1, positions=[0])
         tw.finish_term()
     if lastfield:
         tw.finish_field()
     tw.close()
+    sesh.close()
 
-    tr = codec.terms_reader(st, seg)
+    sesh = st.open("test")
+    tr = codec.terms_reader(sesh, seg)
     for term in domain:
         assert term in tr
+    sesh.close()
 
 
 def test_stored_fields():
@@ -99,7 +105,8 @@ def test_stored_fields():
     with TempStorage("storedfields") as st:
         seg = codec.new_segment(st, "test")
 
-        dw = codec.per_document_writer(st, seg)
+        sesh = st.open(writable=True)
+        dw = codec.per_document_writer(sesh, seg)
         dw.start_doc(0)
         dw.add_field("a", fieldobj, "hello", 1)
         dw.add_field("b", fieldobj, "there", 1)
@@ -121,8 +128,10 @@ def test_stored_fields():
 
         dw.close()
         seg.set_doc_count(4)
+        sesh.close()
 
-        pdr = codec.per_document_reader(st, seg)
+        sesh = st.open()
+        pdr = codec.per_document_reader(sesh, seg)
         assert pdr.doc_count_all() == 4
         assert pdr.stored_fields(0) == {"a": "hello", "b": "there"}
         # Note: access out of order
@@ -137,47 +146,65 @@ def test_stored_fields():
                        {"a": "alfa", "b": "bravo"},
                        ]
         pdr.close()
+        sesh.close()
 
 
 def test_termindex():
-    terms = [("a", "alfa"), ("a", "bravo"), ("a", "charlie"), ("a", "delta"),
-             ("b", "able"), ("b", "baker"), ("b", "dog"), ("b", "easy")]
+    terms = (
+        ("a", b"alfa bravo charlie delta"),
+        ("b", b"able baker dog easy"),
+    )
+
     st, codec, seg = _make_codec()
-    schema = fields.Schema(a=fields.TEXT, b=fields.TEXT)
-
-    tw = codec.field_writer(st, seg)
-    postings = ((fname, b(text), 0, i, b("")) for (i, (fname, text))
-                in enumerate(terms))
-    tw.add_postings(schema, FakeLengths(), postings)
+    sesh = st.open(writable=True)
+    tw = codec.field_writer(sesh, seg)
+    for fname, tstring in terms:
+        tw.start_field(fname, fields.Text())
+        for tbytes in tstring.split():
+            tw.start_term(tbytes)
+            tw.add_elements(docid=0, weight=float(len(tbytes)), positions=[0])
+            tw.finish_term()
+        tw.finish_field()
     tw.close()
+    sesh.close()
 
-    tr = codec.terms_reader(st, seg)
-    for i, (fieldname, text) in enumerate(terms):
-        assert (fieldname, b(text)) in tr
-        ti = tr.term_info(fieldname, b(text))
-        assert ti.weight() == i
-        assert ti.doc_frequency() == 1
+    sesh = st.open()
+    tr = codec.terms_reader(sesh, seg)
+    for fname, tstring in terms:
+        for tbytes in tstring.split():
+            assert (fname, tbytes) in tr
+            ti = tr.term_info(fname, tbytes)
+            assert ti.weight() == float(len(tbytes))
+            assert ti.doc_frequency() == 1
+    tr.close()
+    sesh.close()
 
 
 def test_docwriter_one():
     field = fields.TEXT(stored=True)
     st, codec, seg = _make_codec()
-    dw = codec.per_document_writer(st, seg)
+    sesh = st.open(writable=True)
+    dw = codec.per_document_writer(sesh, seg)
     dw.start_doc(0)
     dw.add_field("text", field, "Testing one two three", 4)
     dw.finish_doc()
     dw.close()
+    sesh.close()
     seg.set_doc_count(1)
 
-    pdr = codec.per_document_reader(st, seg)
+    sesh = st.open()
+    pdr = codec.per_document_reader(sesh, seg)
     assert pdr.doc_field_length(0, "text") == 4
     assert pdr.stored_fields(0) == {"text": "Testing one two three"}
+    pdr.close()
+    sesh.close()
 
 
 def test_docwriter_two():
     field = fields.TEXT(stored=True)
     st, codec, seg = _make_codec()
-    dw = codec.per_document_writer(st, seg)
+    sesh = st.open(writable=True)
+    dw = codec.per_document_writer(sesh, seg)
     dw.start_doc(0)
     dw.add_field("title", field, ("a", "b"), 2)
     dw.add_field("text", field, "Testing one two three", 4)
@@ -187,9 +214,11 @@ def test_docwriter_two():
     dw.add_field("text", field, 500, 1)
     dw.finish_doc()
     dw.close()
+    sesh.close()
     seg.set_doc_count(2)
 
-    pdr = codec.per_document_reader(st, seg)
+    sesh = st.open()
+    pdr = codec.per_document_reader(sesh, seg)
     assert pdr.doc_field_length(0, "title") == 2
     assert pdr.doc_field_length(0, "text") == 4
     assert pdr.doc_field_length(1, "title") == 3
@@ -199,55 +228,44 @@ def test_docwriter_two():
             == {"title": ("a", "b"), "text": "Testing one two three"})
     assert (pdr.stored_fields(1)
             == {"title": "The second document", "text": 500})
+    pdr.close()
+    sesh.close()
 
 
 def test_vector():
-    field = fields.TEXT(vector=True)
+    field = fields.Text(vector=True)
     st, codec, seg = _make_codec()
-    dw = codec.per_document_writer(st, seg)
+    sesh = st.open(writable=True)
+    dw = codec.per_document_writer(sesh, seg)
     dw.start_doc(0)
     dw.add_field("title", field, None, 1)
-    dw.add_vector_items("title", field, [(u("alfa"), 1.0, b("t1")),
-                                         (u("bravo"), 2.0, b("t2"))])
+    dw.add_vector_postings("title", field, [
+        postings.posting(termbytes=b"alfa", weight=1.0, positions=[0]),
+        postings.posting(termbytes=b"bravo", weight=2.0, positions=[1]),
+    ])
     dw.finish_doc()
     dw.close()
+    sesh.close()
     seg.set_doc_count(1)
 
-    pdr = codec.per_document_reader(st, seg)
+    sesh = st.open()
+    pdr = codec.per_document_reader(sesh, seg)
     assert pdr.stored_fields(0) == {}
 
-    m = pdr.vector(0, "title", field.vector)
-    assert m.is_active()
-    ps = []
-    while m.is_active():
-        ps.append((m.id(), m.weight(), m.value()))
-        m.next()
-    assert ps == [(u("alfa"), 1.0, b("t1")), (u("bravo"), 2.0, b("t2"))]
-
-
-def test_vector_values():
-    field = fields.TEXT(vector=formats.Frequency())
-    st, codec, seg = _make_codec()
-    content = u("alfa bravo charlie alfa")
-
-    dw = codec.per_document_writer(st, seg)
-    dw.start_doc(0)
-    vals = ((t, w, v) for t, _, w, v
-            in sorted(field.vector.word_values(content, field.analyzer)))
-    dw.add_vector_items("f1", field, vals)
-    dw.finish_doc()
-    dw.close()
-
-    vr = codec.per_document_reader(st, seg)
-    m = vr.vector(0, "f1", field.vector)
-    assert (list(m.items_as("frequency"))
-            == [("alfa", 2), ("bravo", 1), ("charlie", 1)])
+    v = pdr.vector(0, "title", field.vector)
+    assert v.termbytes(0) == b"alfa"
+    assert v.termbytes(1) == b"bravo"
+    assert v.weight(0) == 1.0
+    assert v.weight(1) == 2.0
+    pdr.close()
+    sesh.close()
 
 
 def test_no_lengths():
     f1 = fields.ID()
     st, codec, seg = _make_codec()
-    dw = codec.per_document_writer(st, seg)
+    sesh = st.open(writable=True)
+    dw = codec.per_document_writer(sesh, seg)
     dw.start_doc(0)
     dw.add_field("name", f1, None, None)
     dw.finish_doc()
@@ -258,43 +276,54 @@ def test_no_lengths():
     dw.add_field("name", f1, None, None)
     dw.finish_doc()
     dw.close()
+    sesh.close()
     seg.set_doc_count(3)
 
-    pdr = codec.per_document_reader(st, seg)
+    sesh = st.open()
+    pdr = codec.per_document_reader(sesh, seg)
     assert pdr.doc_field_length(0, "name") == 0
     assert pdr.doc_field_length(1, "name") == 0
     assert pdr.doc_field_length(2, "name") == 0
+    pdr.close()
+    sesh.close()
 
 
 def test_store_zero():
     f1 = fields.ID(stored=True)
     st, codec, seg = _make_codec()
-    dw = codec.per_document_writer(st, seg)
+    sesh = st.open(writable=True)
+    dw = codec.per_document_writer(sesh, seg)
     dw.start_doc(0)
     dw.add_field("name", f1, 0, None)
     dw.finish_doc()
     dw.close()
+    sesh.close()
     seg.set_doc_count(1)
 
-    sr = codec.per_document_reader(st, seg)
+    sesh = st.open()
+    sr = codec.per_document_reader(sesh, seg)
     assert sr.stored_fields(0) == {"name": 0}
+    sr.close()
+    sesh.close()
 
 
 def test_fieldwriter_single_term():
     field = fields.TEXT()
     st, codec, seg = _make_codec()
-
-    fw = codec.field_writer(st, seg)
+    sesh = st.open(writable=True)
+    fw = codec.field_writer(sesh, seg)
     fw.start_field("text", field)
-    fw.start_term(b("alfa"))
-    fw.add(0, 1.5, b("test"), 1)
+    fw.start_term(b"alfa")
+    fw.add_elements(docid=0, weight=1.5, length=1, positions=[1])
     fw.finish_term()
     fw.finish_field()
     fw.close()
+    sesh.close()
 
-    tr = codec.terms_reader(st, seg)
-    assert ("text", b("alfa")) in tr
-    ti = tr.term_info("text", b("alfa"))
+    sesh = st.open()
+    tr = codec.terms_reader(sesh, seg)
+    assert ("text", b"alfa") in tr
+    ti = tr.term_info("text", b"alfa")
     assert ti.weight() == 1.5
     assert ti.doc_frequency() == 1
     assert ti.min_length() == 1
@@ -302,28 +331,32 @@ def test_fieldwriter_single_term():
     assert ti.max_weight() == 1.5
     assert ti.min_id() == 0
     assert ti.max_id() == 0
+    tr.close()
+    sesh.close()
 
 
 def test_fieldwriter_two_terms():
     field = fields.TEXT()
     st, codec, seg = _make_codec()
-
-    fw = codec.field_writer(st, seg)
+    sesh = st.open(writable=True)
+    fw = codec.field_writer(sesh, seg)
     fw.start_field("text", field)
-    fw.start_term(b("alfa"))
-    fw.add(0, 2.0, b("test1"), 2)
-    fw.add(1, 1.0, b("test2"), 1)
+    fw.start_term(b"alfa")
+    fw.add_elements(docid=0, weight=2.0, length=2, positions=[0])
+    fw.add_elements(docid=1, weight=1.0, length=1, positions=[1])
     fw.finish_term()
-    fw.start_term(b("bravo"))
-    fw.add(0, 3.0, b("test3"), 3)
-    fw.add(2, 2.0, b("test4"), 2)
+    fw.start_term(b"bravo")
+    fw.add_elements(docid=0, weight=3.0, length=3, positions=[0])
+    fw.add_elements(docid=2, weight=2.0, length=2, positions=[1])
     fw.finish_term()
     fw.finish_field()
     fw.close()
+    sesh.close()
 
-    tr = codec.terms_reader(st, seg)
-    assert ("text", b("alfa")) in tr
-    ti = tr.term_info("text", b("alfa"))
+    sesh = st.open()
+    tr = codec.terms_reader(sesh, seg)
+    assert ("text", b"alfa") in tr
+    ti = tr.term_info("text", b"alfa")
     assert ti.weight() == 3.0
     assert ti.doc_frequency() == 2
     assert ti.min_length() == 1
@@ -331,8 +364,8 @@ def test_fieldwriter_two_terms():
     assert ti.max_weight() == 2.0
     assert ti.min_id() == 0
     assert ti.max_id() == 1
-    assert ("text", b("bravo")) in tr
-    ti = tr.term_info("text", b("bravo"))
+    assert ("text", b"bravo") in tr
+    ti = tr.term_info("text", b"bravo")
     assert ti.weight() == 5.0
     assert ti.doc_frequency() == 2
     assert ti.min_length() == 2
@@ -340,29 +373,32 @@ def test_fieldwriter_two_terms():
     assert ti.max_weight() == 3.0
     assert ti.min_id() == 0
     assert ti.max_id() == 2
-
-    m = tr.matcher("text", b("bravo"), field.format)
+    m = tr.matcher("text", b"bravo", field.format)
     assert list(m.all_ids()) == [0, 2]
+    tr.close()
+    sesh.close()
 
 
 def test_fieldwriter_multiblock():
     field = fields.TEXT()
     st, codec, seg = _make_codec(blocklimit=2)
-
-    fw = codec.field_writer(st, seg)
+    sesh = st.open(writable=True)
+    fw = codec.field_writer(sesh, seg)
     fw.start_field("text", field)
-    fw.start_term(b("alfa"))
-    fw.add(0, 2.0, b("test1"), 2)
-    fw.add(1, 5.0, b("test2"), 5)
-    fw.add(2, 3.0, b("test3"), 3)
-    fw.add(3, 4.0, b("test4"), 4)
-    fw.add(4, 1.0, b("test5"), 1)
+    fw.start_term(b"alfa")
+    fw.add_elements(docid=0, weight=2.0, length=2, positions=[0])
+    fw.add_elements(docid=1, weight=5.0, length=5, positions=[0])
+    fw.add_elements(docid=2, weight=3.0, length=3, positions=[0])
+    fw.add_elements(docid=3, weight=4.0, length=4, positions=[0])
+    fw.add_elements(docid=4, weight=1.0, length=1, positions=[0])
     fw.finish_term()
     fw.finish_field()
     fw.close()
+    sesh.close()
 
-    tr = codec.terms_reader(st, seg)
-    ti = tr.term_info("text", b("alfa"))
+    sesh = st.open()
+    tr = codec.terms_reader(sesh, seg)
+    ti = tr.term_info("text", b"alfa")
     assert ti.weight() == 15.0
     assert ti.doc_frequency() == 5
     assert ti.min_length() == 1
@@ -372,51 +408,58 @@ def test_fieldwriter_multiblock():
     assert ti.max_id() == 4
 
     ps = []
-    m = tr.matcher("text", b("alfa"), field.format)
+    m = tr.matcher("text", b"alfa", field.format)
     while m.is_active():
-        ps.append((m.id(), m.weight(), m.value()))
+        ps.append((m.id(), m.weight()))
         m.next()
-    assert ps == [(0, 2.0, b("test1")), (1, 5.0, b("test2")),
-                  (2, 3.0, b("test3")), (3, 4.0, b("test4")),
-                  (4, 1.0, b("test5"))]
+    assert ps == [(0, 2.0), (1, 5.0), (2, 3.0), (3, 4.0), (4, 1.0)]
+    tr.close()
+    sesh.close()
 
 
 def test_term_values():
     field = fields.TEXT(phrase=False)
     st, codec, seg = _make_codec()
-    content = u("alfa bravo charlie alfa")
-
-    fw = codec.field_writer(st, seg)
+    content = u"alfa bravo charlie alfa"
+    sesh = st.open(writable=True)
+    fw = codec.field_writer(sesh, seg)
     fw.start_field("f1", field)
-    for text, freq, weight, val in sorted(field.index(content)):
-        fw.start_term(text)
-        fw.add(0, weight, val, freq)
+    length, posts = field.index(content, docid=0)
+    for p in posts:
+        fw.start_term(p[postings.TERMBYTES])
+        fw.add_posting(p)
         fw.finish_term()
     fw.finish_field()
     fw.close()
+    sesh.close()
 
-    tr = codec.terms_reader(st, seg)
+    sesh = st.open()
+    tr = codec.terms_reader(sesh, seg)
     ps = [(term, ti.weight(), ti.doc_frequency()) for term, ti in tr.items()]
-    assert ps == [(("f1", b("alfa")), 2.0, 1), (("f1", b("bravo")), 1.0, 1),
-                  (("f1", b("charlie")), 1.0, 1)]
+    assert ps == [(("f1", b"alfa"), 2.0, 1), (("f1", b"bravo"), 1.0, 1),
+                  (("f1", b"charlie"), 1.0, 1)]
+    sesh.close()
 
 
 def test_skip():
     _docnums = [1, 3, 12, 34, 43, 67, 68, 102, 145, 212, 283, 291, 412, 900,
                 905, 1024, 1800, 2048, 15000]
-    st, codec, seg = _make_codec()
     fieldobj = fields.TEXT()
-    fw = codec.field_writer(st, seg)
+    st, codec, seg = _make_codec()
+    sesh = st.open(writable=True)
+    fw = codec.field_writer(sesh, seg)
     fw.start_field("f1", fieldobj)
-    fw.start_term(b("test"))
+    fw.start_term(b"test")
     for n in _docnums:
-        fw.add(n, 1.0, b(''), None)
+        fw.add_elements(docid=n, weight=1.0, length=1, positions=[0])
     fw.finish_term()
     fw.finish_field()
     fw.close()
+    sesh.close()
 
-    tr = codec.terms_reader(st, seg)
-    m = tr.matcher("f1", b("test"), fieldobj.format)
+    sesh = st.open()
+    tr = codec.terms_reader(sesh, seg)
+    m = tr.matcher("f1", b"test", fieldobj.format)
     assert m.id() == 1
     m.skip_to(220)
     assert m.id() == 283
@@ -426,6 +469,8 @@ def test_skip():
     assert m.id() == 1024
     m.skip_to(1800)
     assert m.id() == 1800
+    tr.close()
+    sesh.close()
 
 
 # def test_spelled_field():
@@ -434,11 +479,11 @@ def test_skip():
 #
 #     fw = codec.field_writer(st, seg)
 #     fw.start_field("text", field)
-#     fw.start_term(b("special"))
-#     fw.add(0, 1.0, b("test1"), 1)
+#     fw.start_term(b"special")
+#     fw.add(0, 1.0, b"test1", 1)
 #     fw.finish_term()
-#     fw.start_term(b("specific"))
-#     fw.add(1, 1.0, b("test2"), 1)
+#     fw.start_term(b"specific")
+#     fw.add(1, 1.0, b"test2", 1)
 #     fw.finish_term()
 #     fw.finish_field()
 #     fw.close()
@@ -459,163 +504,162 @@ def test_skip():
 #
 #     fw = codec.field_writer(st, seg)
 #     fw.start_field("text", field)
-#     fw.start_term(b("special"))
-#     fw.add(0, 1.0, b("test1"), 1)
+#     fw.start_term(b"special")
+#     fw.add(0, 1.0, b"test1", 1)
 #     fw.finish_term()
-#     fw.start_term(b("specific"))
-#     fw.add(1, 1.0, b("test2"), 1)
+#     fw.start_term(b"specific")
+#     fw.add(1, 1.0, b"test2", 1)
 #     fw.finish_term()
-#     fw.add_spell_word("text", u("specials"))
-#     fw.add_spell_word("text", u("specifically"))
+#     fw.add_spell_word("text", u"specials")
+#     fw.add_spell_word("text", u"specifically")
 #     fw.finish_field()
 #     fw.close()
 #
 #     tr = codec.terms_reader(st, seg)
-#     assert list(tr.terms()) == [("text", b("special")), ("text", b("specific"))]
+#     assert list(tr.terms()) == [("text", b"special"), ("text", b"specific")]
 #
 #     cur = codec.graph_reader(st, seg).cursor("text")
 #     assert list(cur.flatten_strings()) == ["specials", "specifically"]
 
 
-def test_plaintext_codec():
-    pytest.importorskip("ast")
-    from whoosh.codec.plaintext import PlainTextCodec
-    from whoosh.codec.whoosh3 import W3Codec
-
-    ana = analysis.StemmingAnalyzer()
-    schema = fields.Schema(a=fields.TEXT(vector=True, sortable=True),
-                           b=fields.STORED,
-                           c=fields.NUMERIC(stored=True, sortable=True),
-                           d=fields.TEXT(analyzer=ana, spelling=True))
-
-    st = RamStorage()
-    ix = st.create_index(schema)
-    with ix.writer(codec=W3Codec()) as w:
-        w.add_document(a=u("alfa bravo charlie"), b="hello", c=100,
-                       d=u("quelling whining echoing"))
-        w.add_document(a=u("bravo charlie delta"), b=1000, c=200,
-                       d=u("rolling timing yelling"))
-        w.add_document(a=u("charlie delta echo"), b=5.5, c=300,
-                       d=u("using opening pulling"))
-        w.add_document(a=u("delta echo foxtrot"), b=True, c=-100,
-                       d=u("aching selling dipping"))
-        w.add_document(a=u("echo foxtrot india"), b=None, c=-200,
-                       d=u("filling going hopping"))
-
-    with ix.reader() as r:
-        assert r.has_column("a")
-        c = r.column_reader("a")
-        assert c[2] == u("charlie delta echo")
-
-    w = ix.writer(codec=PlainTextCodec())
-    w.commit(optimize=True)
-
-    with ix.searcher() as s:
-        reader = s.reader()
-        assert isinstance(reader.codec(), PlainTextCodec)
-
-        r = s.search(query.Term("a", "delta"))
-        assert len(r) == 3
-        assert [hit["b"] for hit in r] == [1000, 5.5, True]
-
-        assert (" ".join(s.field_terms("a"))
-                == "alfa bravo charlie delta echo foxtrot india")
-
-        storage = ix.storage
-        for fname in storage.list():
-            if fname.endswith(".dcs"):
-                f = storage.open_file(fname)
-                # print(f.read().decode("utf8"))
-
-        assert reader.doc_field_length(0, "a") == 3
-        assert reader.doc_field_length(2, "a") == 3
-
-        cfield = schema["c"]
-        assert type(cfield), fields.NUMERIC
-        sortables = list(cfield.sortable_terms(reader, "c"))
-        assert sortables
-        assert ([cfield.from_bytes(t) for t in sortables]
-                == [-200, -100, 100, 200, 300])
-
-        assert reader.has_column("a")
-        c = reader.column_reader("a")
-        assert c[2] == u("charlie delta echo")
-
-        assert reader.has_column("c")
-        c = reader.column_reader("c")
-        assert list(c) == [100, 200, 300, -100, -200]
-
-        assert s.has_vector(2, "a")
-        v = s.vector(2, "a")
-        assert " ".join(v.all_ids()) == "charlie delta echo"
-
-
-def test_memory_codec():
-    from whoosh.codec import memory
-    from whoosh.searching import Searcher
-
-    ana = analysis.StemmingAnalyzer()
-    schema = fields.Schema(a=fields.TEXT(vector=True),
-                           b=fields.STORED,
-                           c=fields.NUMERIC(stored=True, sortable=True),
-                           d=fields.TEXT(analyzer=ana, spelling=True))
-
-    codec = memory.MemoryCodec()
-    with codec.writer(schema) as w:
-        w.add_document(a=u("alfa bravo charlie"), b="hello", c=100,
-                       d=u("quelling whining echoing"))
-        w.add_document(a=u("bravo charlie delta"), b=1000, c=200,
-                       d=u("rolling timing yelling"))
-        w.add_document(a=u("charlie delta echo"), b=5.5, c=300,
-                       d=u("using opening pulling"))
-        w.add_document(a=u("delta echo foxtrot"), b=True, c=-100,
-                       d=u("aching selling dipping"))
-        w.add_document(a=u("echo foxtrot india"), b=None, c=-200,
-                       d=u("filling going hopping"))
-
-    reader = codec.reader(schema)
-    s = Searcher(reader)
-
-    assert ("a", "delta") in reader
-    q = query.Term("a", "delta")
-    r = s.search(q)
-    assert len(r) == 3
-    assert [hit["b"] for hit in r] == [1000, 5.5, True]
-
-    assert (" ".join(s.field_terms("a"))
-            == "alfa bravo charlie delta echo foxtrot india")
-
-    cfield = schema["c"]
-    c_sortables = cfield.sortable_terms(reader, "c")
-    c_values = [cfield.from_bytes(t) for t in c_sortables]
-    assert c_values, [-200, -100, 100, 200, 300]
-
-    assert reader.has_column("c")
-    c_values = list(reader.column_reader("c"))
-    assert c_values == [100, 200, 300, -100, -200]
-
-    assert s.has_vector(2, "a")
-    v = s.vector(2, "a")
-    assert " ".join(v.all_ids()) == "charlie delta echo"
+# def test_plaintext_codec():
+#     pytest.importorskip("ast")
+#     from whoosh.codec.plaintext import PlainTextCodec
+#     from whoosh.codec.whoosh3 import W3Codec
+#
+#     ana = analysis.StemmingAnalyzer()
+#     schema = fields.Schema(a=fields.TEXT(vector=True, sortable=True),
+#                            b=fields.STORED,
+#                            c=fields.NUMERIC(stored=True, sortable=True),
+#                            d=fields.TEXT(analyzer=ana, spelling=True))
+#
+#     with TempIndex(schema) as ix:
+#         with ix.writer(codec=W3Codec()) as w:
+#             w.add_document(a=u"alfa bravo charlie", b="hello", c=100,
+#                            d=u"quelling whining echoing")
+#             w.add_document(a=u"bravo charlie delta", b=1000, c=200,
+#                            d=u"rolling timing yelling")
+#             w.add_document(a=u"charlie delta echo", b=5.5, c=300,
+#                            d=u"using opening pulling")
+#             w.add_document(a=u"delta echo foxtrot", b=True, c=-100,
+#                            d=u"aching selling dipping")
+#             w.add_document(a=u"echo foxtrot india", b=None, c=-200,
+#                            d=u"filling going hopping")
+#
+#         with ix.reader() as r:
+#             assert r.has_column("a")
+#             c = r.column_reader("a")
+#             assert c[2] == u"charlie delta echo"
+#
+#         w = ix.writer(codec=PlainTextCodec())
+#         w.commit(optimize=True)
+#
+#         with ix.searcher() as s:
+#             reader = s.reader()
+#             assert isinstance(reader.codec(), PlainTextCodec)
+#
+#             r = s.search(query.Term("a", "delta"))
+#             assert len(r) == 3
+#             assert [hit["b"] for hit in r] == [1000, 5.5, True]
+#
+#             assert (" ".join(s.field_terms("a"))
+#                     == "alfa bravo charlie delta echo foxtrot india")
+#
+#             storage = ix.storage
+#             for fname in storage.list():
+#                 if fname.endswith(".dcs"):
+#                     f = storage.open_file(fname)
+#                     # print(f.read().decode("utf8"))
+#
+#             assert reader.doc_field_length(0, "a") == 3
+#             assert reader.doc_field_length(2, "a") == 3
+#
+#             cfield = schema["c"]
+#             assert type(cfield), fields.NUMERIC
+#             sortables = list(cfield.sortable_terms(reader, "c"))
+#             assert sortables
+#             assert ([cfield.from_bytes(t) for t in sortables]
+#                     == [-200, -100, 100, 200, 300])
+#
+#             assert reader.has_column("a")
+#             c = reader.column_reader("a")
+#             assert c[2] == u"charlie delta echo"
+#
+#             assert reader.has_column("c")
+#             c = reader.column_reader("c")
+#             assert list(c) == [100, 200, 300, -100, -200]
+#
+#             assert s.reader().has_vector(2, "a")
+#             v = s.vector(2, "a")
+#             assert " ".join(v.all_ids()) == "charlie delta echo"
 
 
-def test_memory_multiwrite():
-    from whoosh.codec import memory
-
-    domain = ["alfa bravo charlie delta",
-              "bravo charlie delta echo",
-              "charlie delta echo foxtrot",
-              "delta echo foxtrot india",
-              "echo foxtrot india juliet"]
-
-    schema = fields.Schema(line=fields.TEXT(stored=True))
-    codec = memory.MemoryCodec()
-
-    for line in domain:
-        with codec.writer(schema) as w:
-            w.add_document(line=u(line))
-
-    reader = codec.reader(schema)
-    assert [sf["line"] for sf in reader.all_stored_fields()] == domain
-    assert (" ".join(reader.field_terms("line"))
-            == "alfa bravo charlie delta echo foxtrot india juliet")
+# def test_memory_codec():
+#     from whoosh.codec import memory
+#     from whoosh.searching import Searcher
+#
+#     ana = analysis.StemmingAnalyzer()
+#     schema = fields.Schema(a=fields.TEXT(vector=True),
+#                            b=fields.STORED,
+#                            c=fields.NUMERIC(stored=True, sortable=True),
+#                            d=fields.TEXT(analyzer=ana, spelling=True))
+#
+#     codec = memory.MemoryCodec()
+#     with codec.writer(schema) as w:
+#         w.add_document(a=u"alfa bravo charlie", b="hello", c=100,
+#                        d=u"quelling whining echoing")
+#         w.add_document(a=u"bravo charlie delta", b=1000, c=200,
+#                        d=u"rolling timing yelling")
+#         w.add_document(a=u"charlie delta echo", b=5.5, c=300,
+#                        d=u"using opening pulling")
+#         w.add_document(a=u"delta echo foxtrot", b=True, c=-100,
+#                        d=u"aching selling dipping")
+#         w.add_document(a=u"echo foxtrot india", b=None, c=-200,
+#                        d=u"filling going hopping")
+#
+#     reader = codec.reader(schema)
+#     s = Searcher(reader)
+#
+#     assert ("a", "delta") in reader
+#     q = query.Term("a", "delta")
+#     r = s.search(q)
+#     assert len(r) == 3
+#     assert [hit["b"] for hit in r] == [1000, 5.5, True]
+#
+#     assert (" ".join(s.field_terms("a"))
+#             == "alfa bravo charlie delta echo foxtrot india")
+#
+#     cfield = schema["c"]
+#     c_sortables = cfield.sortable_terms(reader, "c")
+#     c_values = [cfield.from_bytes(t) for t in c_sortables]
+#     assert c_values, [-200, -100, 100, 200, 300]
+#
+#     assert reader.has_column("c")
+#     c_values = list(reader.column_reader("c"))
+#     assert c_values == [100, 200, 300, -100, -200]
+#
+#     assert s.has_vector(2, "a")
+#     v = s.vector(2, "a")
+#     assert " ".join(v.all_ids()) == "charlie delta echo"
+#
+#
+# def test_memory_multiwrite():
+#     from whoosh.codec import memory
+#
+#     domain = [u"alfa bravo charlie delta",
+#               u"bravo charlie delta echo",
+#               u"charlie delta echo foxtrot",
+#               u"delta echo foxtrot india",
+#               u"echo foxtrot india juliet"]
+#
+#     schema = fields.Schema(line=fields.TEXT(stored=True))
+#     codec = memory.MemoryCodec()
+#
+#     for line in domain:
+#         with codec.writer(schema) as w:
+#             w.add_document(line=line)
+#
+#     reader = codec.reader(schema)
+#     assert [sf["line"] for sf in reader.all_stored_fields()] == domain
+#     assert (" ".join(reader.field_terms("line"))
+#             == "alfa bravo charlie delta echo foxtrot india juliet")

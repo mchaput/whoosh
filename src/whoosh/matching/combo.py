@@ -27,166 +27,65 @@
 
 from __future__ import division
 from array import array
+from typing import Any, Sequence
 
+from whoosh.ifaces import matchers, queries
 from whoosh.compat import xrange
-from whoosh.matching import mcore
+from whoosh.matching import binary
 
 
-class CombinationMatcher(mcore.Matcher):
-    def __init__(self, submatchers, boost=1.0):
-        self._submatchers = submatchers
-        self._boost = boost
-
-    def supports_block_quality(self):
-        return all(m.supports_block_quality() for m in self._submatchers)
-
-    def max_quality(self):
-        return max(m.max_quality() for m in self._submatchers
-                   if m.is_active()) * self._boost
-
-    def supports(self, astype):
-        return all(m.supports(astype) for m in self._submatchers)
-
-    def children(self):
-        return iter(self._submatchers)
-
-    def score(self):
-        return sum(m.score() for m in self._submatchers) * self._boost
+__all__ = ("ArrayUnionMatcher", )
 
 
-class PreloadedUnionMatcher(CombinationMatcher):
-    """Instead of marching the sub-matchers along in parallel, this
-    matcher pre-reads the scores for EVERY MATCHING DOCUMENT, trading memory
-    for speed.
-
-    This is faster than the implementation using a binary tree of
-    :class:`~whoosh.matching.binary.UnionMatcher` objects (possibly just
-    because of less overhead), but it doesn't allow getting information about
-    the "current" document other than the score, because there isn't really a
-    current document, just an array of scores.
+class ArrayUnionMatcher(matchers.Matcher):
     """
-
-    def __init__(self, submatchers, doccount, boost=1.0, scored=True):
-        CombinationMatcher.__init__(self, submatchers, boost=boost)
-
-        self._doccount = doccount
-
-        a = array("d")
-        active = [subm for subm in self._submatchers if subm.is_active()]
-        if active:
-            offset = self._docnum = min(m.id() for m in active)
-            for m in active:
-                while m.is_active():
-                    if scored:
-                        score = m.score() * boost
-                    else:
-                        score = boost
-
-                    docnum = m.id()
-                    place = docnum - offset
-                    if len(a) <= place:
-                        a.extend(0 for _ in xrange(place - len(a) + 1))
-                    a[place] += score
-                    m.next()
-            self._a = a
-            self._offset = offset
-        else:
-            self._docnum = 0
-            self._offset = 0
-        self._a = a
-
-    def is_active(self):
-        return self._docnum - self._offset < len(self._a)
-
-    def id(self):
-        return self._docnum
-
-    def score(self):
-        return self._a[self._docnum - self._offset]
-
-    def next(self):
-        a = self._a
-        offset = self._offset
-        place = self._docnum - offset
-
-        place += 1
-        while place < len(a) and a[place] == 0:
-            place += 1
-        self._docnum = place + offset
-
-    def max_quality(self):
-        return max(self._a[self._docnum - self._offset:])
-
-    def block_quality(self):
-        return self.max_quality()
-
-    def skip_to(self, docnum):
-        if docnum < self._docnum:
-            return
-
-        self._docnum = docnum
-        i = docnum - self._offset
-        if i < len(self._a) and self._a[i] == 0:
-            self.next()
-
-    def skip_to_quality(self, minquality):
-        a = self._a
-        offset = self._offset
-        place = self._docnum - offset
-
-        skipped = 0
-        while place < len(a) and a[place] <= minquality:
-            place += 1
-            skipped = 1
-
-        self._docnum = place + offset
-        return skipped
-
-    def supports(self, astype):
-        # This matcher doesn't support any posting values
-        return False
-
-    def all_ids(self):
-        a = self._a
-        offset = self._offset
-        place = self._docnum - offset
-
-        while place < len(a):
-            if a[place] > 0:
-                yield place + offset
-            place += 1
-
-
-class ArrayUnionMatcher(CombinationMatcher):
-    """Instead of marching the sub-matchers along in parallel, this matcher
+    Instead of marching the sub-matchers along in parallel, this matcher
     pre-reads the scores for a large block of documents at a time from each
     matcher, accumulating the scores in an array.
 
     This is faster than the implementation using a binary tree of
     :class:`~whoosh.matching.binary.UnionMatcher` objects (possibly just
-    because of less overhead), but it doesn't allow getting information about
-    the "current" document other than the score, because there isn't really a
-    current document, just an array of scores.
+    because of less overhead).
     """
 
-    def __init__(self, submatchers, doccount, boost=1.0, scored=True,
-                 partsize=2048):
-        CombinationMatcher.__init__(self, submatchers, boost=boost)
+    def __init__(self, submatchers: 'Sequence[matchers.Matcher]',
+                 union: 'binary.UnionMatcher', doccount: int,
+                 boost: float=1.0, scored: bool=True, partsize: int=2048):
+        """
+        :param submatchers: the matchers to union together.
+        :param union: a ``UnionMatcher`` version of the submatchers. This must
+            use independent copies of the ``submatchers``.
+        :param doccount: The total number of documents.
+        :param boost: a boost factor on scores from sub-matchers.
+        :param scored: whether the documents need to be scored.
+        :param partsize: the number of documents to pre-read at a time.
+        """
+
+        self._submatchers = submatchers
+        self._union = union
+        self._boost = boost
         self._scored = scored
         self._doccount = doccount
+        self._partsize = partsize or doccount
+        self._maxquality = self._union.max_quality()
 
-        if not partsize:
-            partsize = doccount
-        self._partsize = partsize
+        # Array to hold the scores of each document in the read part
+        typecode = "d" if scored else "B"
+        self._scores = array(typecode, (0 for _ in xrange(self._partsize)))
+        # Docnum corresponding to first item in the score array
+        self._offset = 0
+        # Docnum after last item in the score array
+        self._limit = 0
+        # Current ID of this matcher
+        self._id = self._min_id()
 
-        self._a = array("d", (0 for _ in xrange(self._partsize)))
-        self._docnum = self._min_id()
         self._read_part()
 
     def __repr__(self):
-        return ("%s(%r, boost=%f, scored=%r, partsize=%d)"
-                % (self.__class__.__name__, self._submatchers, self._boost,
-                   self._scored, self._partsize))
+        return "%s(%r, boost=%f, scored=%s, partsize=%d)" % (
+            type(self).__name__, self._submatchers, self._boost, self._scored,
+            self._partsize
+        )
 
     def _min_id(self):
         active = [subm for subm in self._submatchers if subm.is_active()]
@@ -198,9 +97,9 @@ class ArrayUnionMatcher(CombinationMatcher):
     def _read_part(self):
         scored = self._scored
         boost = self._boost
-        limit = min(self._docnum + self._partsize, self._doccount)
-        offset = self._docnum
-        a = self._a
+        limit = min(self._id + self._partsize, self._doccount)
+        offset = self._id
+        a = self._scores
 
         # Clear the array
         for i in xrange(self._partsize):
@@ -220,93 +119,117 @@ class ArrayUnionMatcher(CombinationMatcher):
         self._limit = limit
 
     def _find_next(self):
-        a = self._a
-        docnum = self._docnum
-        offset = self._offset
-        limit = self._limit
+        # Move to the next document with a non-zero score in the array
 
-        while docnum < limit:
-            if a[docnum - offset] > 0:
-                break
-            docnum += 1
+        a = self._scores
+        while self._id < self._doccount:
+            # If we're at the end of the array, we need to read more
+            if self._id == self._limit and self._id < self._doccount:
+                self._id = self._min_id()
+                self._read_part()
 
-        if docnum == limit:
-            self._docnum = self._min_id()
-            self._read_part()
-        else:
-            self._docnum = docnum
+            # If this place in the array is non-zero, we're done
+            if a[self._id - self._offset] > 0:
+                return
 
-    def supports(self, astype):
-        # This matcher doesn't support any posting values
-        return False
+            # Otherwise go to the next doc and loop
+            self._id += 1
+
+    # Interface
 
     def is_active(self):
-        return self._docnum < self._doccount
+        return self._id < self._doccount
 
-    def max_quality(self):
-        return max(m.max_quality() for m in self._submatchers)
+    def id(self) -> int:
+        return self._id
 
-    def block_quality(self):
-        return max(self._a)
+    def next(self):
+        self._id += 1
+        return self._find_next()
 
-    def skip_to(self, docnum):
+    def skip_to(self, docnum: int):
         if docnum < self._offset:
             # We've already passed it
             return
         elif docnum < self._limit:
             # It's in the current part
-            self._docnum = docnum
+            self._id = docnum
             self._find_next()
             return
 
         # Advance all active submatchers
-        submatchers = self._submatchers
-        active = False
-        for subm in submatchers:
-            if subm.is_active():
-                subm.skip_to(docnum)
+        for m in self._submatchers:
+            if m.is_active():
+                m.skip_to(docnum)
 
-        if any(subm.is_active() for subm in submatchers):
+        if any(m.is_active() for m in self._submatchers):
             # Rebuffer
-            self._docnum = self._min_id()
+            self._id = self._min_id()
             self._read_part()
         else:
-            self._docnum = self._doccount
+            # Nothing is active, move past the end to indicate we're inactive
+            self._id = self._doccount
 
-    def skip_to_quality(self, minquality):
+    def save(self):
+        state = (self._id, self._offset, self._limit, self._scores)
+        mstates = tuple(m.save() for m in self._submatchers)
+        ustate = self._union.save()
+        return state, mstates, ustate
+
+    def restore(self, place: Any):
+        state, mstates, ustate = place
+        self._id, self._offset, self._limit, self._scores = state
+        for i, m in enumerate(self._submatchers):
+            m.restore(mstates[i])
+        self._union.restore(ustate)
+
+    def weight(self) -> float:
+        if self._union.id() < self._id:
+            self._union.skip_to(self._id)
+        return self._union.weight()
+
+    def score(self) -> float:
+        return self._scores[self._id - self._offset]
+
+    def children(self) -> 'Sequence[matchers.Matcher]':
+        if self._union.id() < self._id:
+            self._union.skip_to(self._id)
+        return self._union.children()
+
+    def spans(self):
+        if self._union.id() < self._id:
+            self._union.skip_to(self._id)
+        return self._union.spans()
+
+    def copy(self) -> 'matchers.Matcher':
+        from copy import deepcopy
+
+        return deepcopy(self)
+
+    def supports(self, name: str) -> bool:
+        return self._union.supports(name)
+
+    def supports_block_quality(self):
+        return True
+
+    def max_quality(self) -> float:
+        return self._maxquality
+
+    def block_quality(self) -> float:
+        return max(self._scores)
+
+    def skip_to_quality(self, minquality: float) -> int:
         skipped = 0
         while self.is_active() and self.block_quality() <= minquality:
             skipped += 1
-            self._docnum = self._limit
+            self._id = self._limit
             self._read_part()
+
         if self.is_active():
             self._find_next()
+
         return skipped
 
-    def id(self):
-        return self._docnum
-
     def all_ids(self):
-        doccount = self._doccount
-        docnum = self._docnum
-        offset = self._offset
-        limit = self._limit
+        return self._union.all_ids()
 
-        a = self._a
-        while docnum < doccount:
-            if a[docnum - offset] > 0:
-                yield docnum
-
-            docnum += 1
-            if docnum == limit:
-                self._docnum = docnum
-                self._read_part()
-                offset = self._offset
-                limit = self._limit
-
-    def next(self):
-        self._docnum += 1
-        return self._find_next()
-
-    def score(self):
-        return self._a[self._docnum - self._offset]

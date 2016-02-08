@@ -317,7 +317,7 @@ class SimpleQueryCorrector(QueryCorrector):
         # For every word in the original query...
         # Note we can't put these in a set, because we must preserve WHERE
         # in the query each token occured so we can format them later
-        for token in q.all_tokens():
+        for token in q.tokens():
             fname = token.fieldname
             aname = aliases.get(fname, fname)
 

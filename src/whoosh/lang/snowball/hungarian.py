@@ -35,7 +35,7 @@ class HungarianStemmer(object):
 
     """
 
-    __vowels = u("aeiou\xF6\xFC\xE1\xE9\xED\xF3\xF5\xFA\xFB")
+    __vowels = u"aeiou\xF6\xFC\xE1\xE9\xED\xF3\xF5\xFA\xFB"
     __digraphs = ("cs", "dz", "dzs", "gy", "ly", "ny", "ty", "zs")
     __double_consonants = ("bb", "cc", "ccs", "dd", "ff", "gg",
                              "ggy", "jj", "kk", "ll", "lly", "mm",
@@ -43,41 +43,41 @@ class HungarianStemmer(object):
                              "tt", "tty", "vv", "zz", "zzs")
 
     __step1_suffixes = ("al", "el")
-    __step2_suffixes = (u('k\xE9ppen'), u('onk\xE9nt'), u('enk\xE9nt'),
-                        u('ank\xE9nt'), u('k\xE9pp'), u('k\xE9nt'), 'ban',
-                        'ben', 'nak', 'nek', 'val', 'vel', u('t\xF3l'),
-                        u('t\xF5l'), u('r\xF3l'), u('r\xF5l'), u('b\xF3l'),
-                        u('b\xF5l'), 'hoz', 'hez', u('h\xF6z'),
-                        u('n\xE1l'), u('n\xE9l'), u('\xE9rt'), 'kor',
+    __step2_suffixes = (u'k\xE9ppen', u'onk\xE9nt', u'enk\xE9nt',
+                        u'ank\xE9nt', u'k\xE9pp', u'k\xE9nt', 'ban',
+                        'ben', 'nak', 'nek', 'val', 'vel', u't\xF3l',
+                        u't\xF5l', u'r\xF3l', u'r\xF5l', u'b\xF3l',
+                        u'b\xF5l', 'hoz', 'hez', u'h\xF6z',
+                        u'n\xE1l', u'n\xE9l', u'\xE9rt', 'kor',
                         'ba', 'be', 'ra', 're', 'ig', 'at', 'et',
-                        'ot', u('\xF6t'), 'ul', u('\xFCl'), u('v\xE1'),
-                        u('v\xE9'), 'en', 'on', 'an', u('\xF6n'),
+                        'ot', u'\xF6t', 'ul', u'\xFCl', u'v\xE1',
+                        u'v\xE9', 'en', 'on', 'an', u'\xF6n',
                         'n', 't')
-    __step3_suffixes = (u("\xE1nk\xE9nt"), u("\xE1n"), u("\xE9n"))
-    __step4_suffixes = ('astul', u('est\xFCl'), u('\xE1stul'),
-                        u('\xE9st\xFCl'), 'stul', u('st\xFCl'))
-    __step5_suffixes = (u("\xE1"), u("\xE9"))
-    __step6_suffixes = (u('ok\xE9'), u('\xF6k\xE9'), u('ak\xE9'),
-                        u('ek\xE9'), u('\xE1k\xE9'), u('\xE1\xE9i'),
-                        u('\xE9k\xE9'), u('\xE9\xE9i'), u('k\xE9'),
-                        u('\xE9i'), u('\xE9\xE9'), u('\xE9'))
-    __step7_suffixes = (u('\xE1juk'), u('\xE9j\xFCk'), u('\xFCnk'),
-                        'unk', 'juk', u('j\xFCk'), u('\xE1nk'),
-                        u('\xE9nk'), 'nk', 'uk', u('\xFCk'), 'em',
-                        'om', 'am', 'od', 'ed', 'ad', u('\xF6d'),
-                        'ja', 'je', u('\xE1m'), u('\xE1d'), u('\xE9m'),
-                        u('\xE9d'), 'm', 'd', 'a', 'e', 'o',
-                        u('\xE1'), u('\xE9'))
+    __step3_suffixes = (u"\xE1nk\xE9nt", u"\xE1n", u"\xE9n")
+    __step4_suffixes = ('astul', u'est\xFCl', u'\xE1stul',
+                        u'\xE9st\xFCl', 'stul', u'st\xFCl')
+    __step5_suffixes = (u"\xE1", u"\xE9")
+    __step6_suffixes = (u'ok\xE9', u'\xF6k\xE9', u'ak\xE9',
+                        u'ek\xE9', u'\xE1k\xE9', u'\xE1\xE9i',
+                        u'\xE9k\xE9', u'\xE9\xE9i', u'k\xE9',
+                        u'\xE9i', u'\xE9\xE9', u'\xE9')
+    __step7_suffixes = (u'\xE1juk', u'\xE9j\xFCk', u'\xFCnk',
+                        'unk', 'juk', u'j\xFCk', u'\xE1nk',
+                        u'\xE9nk', 'nk', 'uk', u'\xFCk', 'em',
+                        'om', 'am', 'od', 'ed', 'ad', u'\xF6d',
+                        'ja', 'je', u'\xE1m', u'\xE1d', u'\xE9m',
+                        u'\xE9d', 'm', 'd', 'a', 'e', 'o',
+                        u'\xE1', u'\xE9')
     __step8_suffixes = ('jaitok', 'jeitek', 'jaink', 'jeink', 'aitok',
-                        'eitek', u('\xE1itok'), u('\xE9itek'), 'jaim',
+                        'eitek', u'\xE1itok', u'\xE9itek', 'jaim',
                         'jeim', 'jaid', 'jeid', 'eink', 'aink',
-                        'itek', 'jeik', 'jaik', u('\xE1ink'),
-                        u('\xE9ink'), 'aim', 'eim', 'aid', 'eid',
+                        'itek', 'jeik', 'jaik', u'\xE1ink',
+                        u'\xE9ink', 'aim', 'eim', 'aid', 'eid',
                         'jai', 'jei', 'ink', 'aik', 'eik',
-                        u('\xE1im'), u('\xE1id'), u('\xE1ik'), u('\xE9im'),
-                        u('\xE9id'), u('\xE9ik'), 'im', 'id', 'ai',
-                        'ei', 'ik', u('\xE1i'), u('\xE9i'), 'i')
-    __step9_suffixes = (u("\xE1k"), u("\xE9k"), u("\xF6k"), "ok",
+                        u'\xE1im', u'\xE1id', u'\xE1ik', u'\xE9im',
+                        u'\xE9id', u'\xE9ik', 'im', 'id', 'ai',
+                        'ei', 'ik', u'\xE1i', u'\xE9i', 'i')
+    __step9_suffixes = (u"\xE1k", u"\xE9k", u"\xF6k", "ok",
                         "ek", "ak", "k")
 
     def stem(self, word):
@@ -111,11 +111,11 @@ class HungarianStemmer(object):
                     word = word[:-len(suffix)]
                     r1 = r1[:-len(suffix)]
 
-                    if r1.endswith(u("\xE1")):
+                    if r1.endswith(u"\xE1"):
                         word = "".join((word[:-1], "a"))
                         r1 = "".join((r1[:-1], "a"))
 
-                    elif r1.endswith(u("\xE9")):
+                    elif r1.endswith(u"\xE9"):
                         word = "".join((word[:-1], "e"))
                         r1 = "".join((r1[:-1], "e"))
                 break
@@ -123,7 +123,7 @@ class HungarianStemmer(object):
         # STEP 3: Remove special cases
         for suffix in self.__step3_suffixes:
             if r1.endswith(suffix):
-                if suffix == u("\xE9n"):
+                if suffix == u"\xE9n":
                     word = "".join((word[:-2], "e"))
                     r1 = "".join((r1[:-2], "e"))
                 else:
@@ -134,11 +134,11 @@ class HungarianStemmer(object):
         # STEP 4: Remove other cases
         for suffix in self.__step4_suffixes:
             if r1.endswith(suffix):
-                if suffix == u("\xE1stul"):
+                if suffix == u"\xE1stul":
                     word = "".join((word[:-5], "a"))
                     r1 = "".join((r1[:-5], "a"))
 
-                elif suffix == u("\xE9st\xFCl"):
+                elif suffix == u"\xE9st\xFCl":
                     word = "".join((word[:-5], "e"))
                     r1 = "".join((r1[:-5], "e"))
                 else:
@@ -160,12 +160,12 @@ class HungarianStemmer(object):
         # STEP 6: Remove owned
         for suffix in self.__step6_suffixes:
             if r1.endswith(suffix):
-                if suffix in (u("\xE1k\xE9"), u("\xE1\xE9i")):
+                if suffix in (u"\xE1k\xE9", u"\xE1\xE9i"):
                     word = "".join((word[:-3], "a"))
                     r1 = "".join((r1[:-3], "a"))
 
-                elif suffix in (u("\xE9k\xE9"), u("\xE9\xE9i"),
-                                u("\xE9\xE9")):
+                elif suffix in (u"\xE9k\xE9", u"\xE9\xE9i",
+                                u"\xE9\xE9"):
                     word = "".join((word[:-len(suffix)], "e"))
                     r1 = "".join((r1[:-len(suffix)], "e"))
                 else:
@@ -177,13 +177,13 @@ class HungarianStemmer(object):
         for suffix in self.__step7_suffixes:
             if word.endswith(suffix):
                 if r1.endswith(suffix):
-                    if suffix in (u("\xE1nk"), u("\xE1juk"), u("\xE1m"),
-                                  u("\xE1d"), u("\xE1")):
+                    if suffix in (u"\xE1nk", u"\xE1juk", u"\xE1m",
+                                  u"\xE1d", u"\xE1"):
                         word = "".join((word[:-len(suffix)], "a"))
                         r1 = "".join((r1[:-len(suffix)], "a"))
 
-                    elif suffix in (u("\xE9nk"), u("\xE9j\xFCk"),
-                                    u("\xE9m"), u("\xE9d"), u("\xE9")):
+                    elif suffix in (u"\xE9nk", u"\xE9j\xFCk",
+                                    u"\xE9m", u"\xE9d", u"\xE9"):
                         word = "".join((word[:-len(suffix)], "e"))
                         r1 = "".join((r1[:-len(suffix)], "e"))
                     else:
@@ -195,13 +195,13 @@ class HungarianStemmer(object):
         for suffix in self.__step8_suffixes:
             if word.endswith(suffix):
                 if r1.endswith(suffix):
-                    if suffix in (u("\xE1im"), u("\xE1id"), u("\xE1i"),
-                                  u("\xE1ink"), u("\xE1itok"), u("\xE1ik")):
+                    if suffix in (u"\xE1im", u"\xE1id", u"\xE1i",
+                                  u"\xE1ink", u"\xE1itok", u"\xE1ik"):
                         word = "".join((word[:-len(suffix)], "a"))
                         r1 = "".join((r1[:-len(suffix)], "a"))
 
-                    elif suffix in (u("\xE9im"), u("\xE9id"), u("\xE9i"),
-                                    u("\xE9ink"), u("\xE9itek"), u("\xE9ik")):
+                    elif suffix in (u"\xE9im", u"\xE9id", u"\xE9i",
+                                    u"\xE9ink", u"\xE9itek", u"\xE9ik"):
                         word = "".join((word[:-len(suffix)], "e"))
                         r1 = "".join((r1[:-len(suffix)], "e"))
                     else:
@@ -213,9 +213,9 @@ class HungarianStemmer(object):
         for suffix in self.__step9_suffixes:
             if word.endswith(suffix):
                 if r1.endswith(suffix):
-                    if suffix == u("\xE1k"):
+                    if suffix == u"\xE1k":
                         word = "".join((word[:-2], "a"))
-                    elif suffix == u("\xE9k"):
+                    elif suffix == u"\xE9k":
                         word = "".join((word[:-2], "e"))
                     else:
                         word = word[:-len(suffix)]

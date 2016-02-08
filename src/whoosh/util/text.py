@@ -70,7 +70,7 @@ def prefix_encode_all(ls):
     as UTF-8.
     """
 
-    last = u('')
+    last = u''
     for w in ls:
         i = first_diff(last, w)
         yield chr(i) + w[i:].encode("utf-8")
@@ -81,7 +81,7 @@ def prefix_decode_all(ls):
     """Decompresses a list of strings compressed by prefix_encode().
     """
 
-    last = u('')
+    last = u''
     for w in ls:
         i = ord(w[0])
         decoded = last[:i] + w[1:].decode("utf-8")

@@ -25,20 +25,31 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from __future__ import with_statement
-import threading, time
-from bisect import bisect_right
+import copy
+import os
+from collections import defaultdict
+from concurrent import futures
 from contextlib import contextmanager
+from functools import wraps
+from threading import RLock, Thread
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-from whoosh import columns
-from whoosh.compat import abstractmethod, bytes_type
-from whoosh.externalsort import SortingPool
-from whoosh.fields import UnknownFieldError
-from whoosh.index import LockError
-from whoosh.system import emptybytes
-from whoosh.util import fib, random_name
-from whoosh.util.filelock import try_for
-from whoosh.util.text import utf8encode
+from whoosh import fields, index, merging
+from whoosh.ifaces import codecs, readers, searchers, storage
+from whoosh.compat import xrange
+from whoosh.postings import PostTuple, change_docid, post_docid, TERMBYTES
+from whoosh.ifaces import queries
+from whoosh.util import unclosed
+
+
+# Typing aliases
+
+TermDict = Dict[str, Dict[bytes, List[PostTuple]]]
+
+
+# Constants
+
+MAX_TERM_LEN = 1 << 16
 
 
 # Exceptions
@@ -56,149 +67,253 @@ def groupmanager(writer):
     writer.end_group()
 
 
-# Merge policies
-
-# A merge policy is a callable that takes the Index object, the SegmentWriter
-# object, and the current segment list (not including the segment being
-# written), and returns an updated segment list (not including the segment
-# being written).
-
-def NO_MERGE(writer, segments):
-    """This policy does not merge any existing segments.
-    """
-    return segments
+# Decorator that raises an exception if the writer has already added a document
+def before_add(f):
+    @wraps(f)
+    def before_add_wrapper(self, *args, **kwargs):
+        if self._added:
+            raise Exception("Can't call this method after adding a document")
+        return f(self, *args, **kwargs)
+    return before_add_wrapper
 
 
-def MERGE_SMALL(writer, segments):
-    """This policy merges small segments, where "small" is defined using a
-    heuristic based on the fibonacci sequence.
-    """
+# Object for keeping track of segments and merges
 
-    from whoosh.reading import SegmentReader
+class SegmentList(object):
+    def __init__(self, session: 'storage.Session', schema: 'fields.Schema',
+                 segments: 'Sequence[codecs.Segment]'):
+        from whoosh.reading import SegmentReader
 
-    unchanged_segments = []
-    segments_to_merge = []
+        self.session = session
+        self.schema = schema
+        self.readerclass = SegmentReader
+        self._lock = RLock()
 
-    sorted_segment_list = sorted(segments, key=lambda s: s.doc_count_all())
-    total_docs = 0
+        self.segments = []  # type: List[codecs.Segment]
 
-    merge_point_found = False
-    for i, seg in enumerate(sorted_segment_list):
-        count = seg.doc_count_all()
-        if count > 0:
-            total_docs += count
+        # Keep track of the ongoing merges
+        self._current_merges = []  # type: List[merging.Merge]
+        # Cache readers for the segments for computing deletions
+        self._cached_readers = {}  # type: Dict[str, readers.IndexReader]
+        # Buffer deletes in memory before applying them to the segment
+        self._buffered_deletes = {}  # type: Dict[str, Set[int]]
 
-        if merge_point_found:  # append the remaining to unchanged
-            unchanged_segments.append(seg)
-        else:  # look for a merge point
-            segments_to_merge.append((seg, i)) # merge every segment up to the merge point
-            if i > 3 and total_docs < fib(i + 5):  
-                merge_point_found = True
+        for segment in segments:
+            self.add(segment)
 
-    if merge_point_found and len(segments_to_merge) > 1:
-        for seg, i in segments_to_merge:
-            reader = SegmentReader(writer.storage, writer.schema, seg)
-            writer.add_reader(reader)
-            reader.close()
-        return unchanged_segments
-    else:
-        return segments
+    def __len__(self):
+        return len(self.segments)
+
+    def add(self, segment: 'codecs.Segment', buffered_deletes: Set[int]=None):
+        with self._lock:
+            segid = segment.segment_id()
+            buffered_deletes = buffered_deletes or set()
+
+            self.segments.append(segment)
+            self._buffered_deletes[segid] = buffered_deletes
+
+    def merging_ids(self) -> Set[str]:
+        with self._lock:
+            out = set()
+            for merge in self._current_merges:
+                out.update(merge.segment_ids())
+            return out
+
+    def add_merge(self, merge: merging.Merge):
+        with self._lock:
+            for segment in merge.segments:
+                self.save_buffered_deletes(segment)
+            self._current_merges.append(merge)
+
+    def are_merging(self, idset: Set[str]) -> bool:
+        with self._lock:
+            for segid in self.merging_ids():
+                if segid in idset:
+                    return True
+
+    def has_segment(self, segment: 'codecs.Segment') -> bool:
+        return self.has_segment_with_id(segment.segment_id())
+
+    def has_segment_with_id(self, segid: str) -> bool:
+        for seg in self.segments:
+            if seg.segment_id() == segid:
+                return True
+        return False
+
+    def remove_segment(self, segment: 'codecs.Segment'):
+        segid = segment.segment_id()
+        with self._lock:
+            # Close and remove the cached reader if it exists
+            if segid in self._cached_readers:
+                self._cached_readers.pop(segid).close()
+
+            # Remove the buffered deletes set. It would be nice if we could
+            # detect errors by making sure it's empty, but it might legit have
+            # leftover deletions if they were buffered while the segment was
+            # merging
+            del self._buffered_deletes[segid]
+
+            # Remove segment from segments list
+            for i in xrange(len(self.segments)):
+                if self.segments[i].segment_id() == segment.segment_id():
+                    del self.segments[i]
+                    break
+            else:
+                raise KeyError("Segment %s not in list" % segid)
+
+    def integrate(self, newsegment: 'codecs.Segment', merge_id: str):
+        with self._lock:
+            # Just do a simple linear search for the merge
+            for i in xrange(len(self._current_merges)):
+                m = self._current_merges[i]
+                if m.merge_id == merge_id:
+                    break
+            else:
+                # Didn't find the merge in the list, something's wrong!
+                raise Exception("Merge %r not in merging list" % merge_id)
+
+            # Remove this merge from the list
+            del self._current_merges[i]
+
+            # Remove the merged segments
+            for i, segment in enumerate(m.segments):
+                self.remove_segment(segment)
+
+            # Add the segment
+            self.add(newsegment)
+
+            # Apply queued query deletes to the new segment
+            if m.delete_queries:
+                self._delete_by_query(newsegment, m.delete_queries)
+
+    def _delete_by_query(self, segment: 'codecs.Segment',
+                         qs: 'Iterable[queries.Query]'):
+        from whoosh.searching import ConcreteSearcher
+
+        r = self.reader(segment)
+        s = ConcreteSearcher(r)
+        delbuf = self._buffered_deletes[segment.segment_id()]
+        for q in qs:
+            docids = q.docs(s, deleting=True)
+            delbuf.update(docids)
+
+    def delete_by_query(self, q: 'queries.Query'):
+        with self._lock:
+            # For current segments, run the query and buffer the deletions
+            for segment in self.segments:
+                self._delete_by_query(segment, (q,))
+
+            # For the current merges, remember to perform this deletion
+            # when they're finished
+            for merge in self._current_merges:
+                merge.delete_queries.append(q)
+
+    def make_reader(self, segment: 'codecs.Segment') -> 'readers.IndexReader':
+        return self.readerclass(self.session.store, self.schema, segment)
+
+    def reader(self, segment: 'codecs.Segment') -> 'readers.IndexReader':
+        with self._lock:
+            self.save_buffered_deletes(segment)
+
+            segid = segment.segment_id()
+            try:
+                return self._cached_readers[segid]
+            except KeyError:
+                r = self.make_reader(segment)
+                self._cached_readers[segid] = r
+            return r
+
+    def multireader(self, segments: 'Sequence[codecs.Segment]'=None,
+                    ) -> 'readers.IndexReader':
+        with self._lock:
+            from whoosh import reading
+
+            segments = segments or self.segments
+            rs = [self.reader(seg) for seg in segments]
+            assert rs
+            if len(rs) == 1:
+                return rs[0]
+            else:
+                return reading.MultiReader(rs)
+
+    def test_is_deleted(self, segment: 'codecs.Segment', docnum: int):
+        segid = segment.segment_id()
+        if docnum in self._buffered_deletes[segid]:
+            return True
+
+        for seg in self.segments:
+            if seg.segment_id() == segid:
+                return seg.is_deleted(docnum)
+        raise KeyError
+
+    def save_buffered_deletes(self, segment: 'codecs.Segment'):
+        with self._lock:
+            segid = segment.segment_id()
+            buffered = self._buffered_deletes[segid]
+            if buffered:
+                segment.delete_documents(self._buffered_deletes[segid])
+                self._buffered_deletes[segid] = set()
+
+    def save_all_buffered_deletes(self):
+        with self._lock:
+            for segment in self.segments:
+                self.save_buffered_deletes(segment)
+
+    def close(self):
+        with self._lock:
+            # Close all cached readers
+            for reader in self._cached_readers.values():
+                reader.close()
+
+            self.save_all_buffered_deletes()
 
 
-def OPTIMIZE(writer, segments):
-    """This policy merges all existing segments.
-    """
+# Codec and segment-based writer
 
-    from whoosh.reading import SegmentReader
+class SegmentWriter(object):
+    def __init__(self, store: 'storage.Storage', indexname: 'str',
+                 schema: 'fields.Schema', generation: int,
+                 segments: 'Sequence[codecs.Segment]'=None,
+                 session: 'storage.Session'=None, cdc: 'codecs.Codec'=None,
+                 docbase: int=0, merge_strategy: 'merging.MergeStrategy'=None,
+                 doc_limit=1000, executor: 'futures.Executor'=None,
+                 is_sub_writer: bool=False):
+        self.store = store
+        self.indexname = indexname
+        self.schema = schema
+        self.generation = generation
 
-    for seg in segments:
-        reader = SegmentReader(writer.storage, writer.schema, seg)
-        writer.add_reader(reader)
-        reader.close()
-    return []
+        self._external_session = session
+        self.session = session or self.store.open(indexname, writable=True)
 
+        self._original_segments = segments if segments is not None else []
+        self._segments = copy.deepcopy(self._original_segments)
+        self.segments = SegmentList(self.session, self.schema, self._segments)
 
-def CLEAR(writer, segments):
-    """This policy DELETES all existing segments and only writes the new
-    segment.
-    """
+        if cdc is None:
+            from whoosh.codec import default_codec
+            cdc = default_codec()
+        self.codec = cdc
 
-    return []
+        self.merge_strategy = merge_strategy or merging.TieredMergeStrategy()
+        self.doc_limit = doc_limit
+        self.executor = executor
 
+        # Flags the user can set to alter the behavior of the next commit
+        self.merge = True
+        self.optimize = False
 
-# Customized sorting pool for postings
+        self.segment = None  # type: codecs.Segment
+        self._perdoc = None  # type: codecs.PerDocumentWriter
+        self._terms = None # type: codecs.FieldWriter
+        self._start_new_segment()
 
-class PostingPool(SortingPool):
-    # Subclass whoosh.externalsort.SortingPool to use knowledge of
-    # postings to set run size in bytes instead of items
-
-    namechars = "abcdefghijklmnopqrstuvwxyz0123456789"
-
-    def __init__(self, tempstore, segment, limitmb=128, **kwargs):
-        SortingPool.__init__(self, **kwargs)
-        self.tempstore = tempstore
-        self.segment = segment
-        self.limit = limitmb * 1024 * 1024
-        self.currentsize = 0
-        self.fieldnames = set()
-
-    def _new_run(self):
-        path = "%s.run" % random_name()
-        f = self.tempstore.create_file(path).raw_file()
-        return path, f
-
-    def _open_run(self, path):
-        return self.tempstore.open_file(path).raw_file()
-
-    def _remove_run(self, path):
-        return self.tempstore.delete_file(path)
-
-    def add(self, item):
-        # item = (fieldname, tbytes, docnum, weight, vbytes)
-        assert isinstance(item[1], bytes_type), "tbytes=%r" % item[1]
-        if item[4] is not None:
-            assert isinstance(item[4], bytes_type), "vbytes=%r" % item[4]
-        self.fieldnames.add(item[0])
-        size = (28 + 4 * 5  # tuple = 28 + 4 * length
-                + 21 + len(item[0])  # fieldname = str = 21 + length
-                + 26 + len(item[1]) * 2  # text = unicode = 26 + 2 * length
-                + 18  # docnum = long = 18
-                + 16  # weight = float = 16
-                + 21 + len(item[4] or ''))  # valuestring
-        self.currentsize += size
-        if self.currentsize > self.limit:
-            self.save()
-        self.current.append(item)
-
-    def iter_postings(self):
-        # This is just an alias for items() to be consistent with the
-        # iter_postings()/add_postings() interface of a lot of other classes
-        return self.items()
-
-    def save(self):
-        SortingPool.save(self)
-        self.currentsize = 0
-
-
-# Writer base class
-
-class IndexWriter(object):
-    """High-level object for writing to an index.
-
-    To get a writer for a particular index, call
-    :meth:`~whoosh.index.Index.writer` on the Index object.
-
-    >>> writer = myindex.writer()
-
-    You can use this object as a context manager. If an exception is thrown
-    from within the context it calls :meth:`~IndexWriter.cancel` to clean up
-    temporary files, otherwise it calls :meth:`~IndexWriter.commit` when the
-    context exits.
-
-    >>> with myindex.writer() as w:
-    ...     w.add_document(title="First document", content="Hello there.")
-    ...     w.add_document(title="Second document", content="This is easy!")
-    """
+        self.closed = False
+        self._docnum = self.docbase = docbase
+        self._termbuffer = {}  # type: TermDict
+        self._doccount = 0
+        self._added = False
+        self._changed = False
 
     def __enter__(self):
         return self
@@ -209,10 +324,17 @@ class IndexWriter(object):
         else:
             self.commit()
 
+    def _start_new_segment(self):
+        self.segment = self.new_segment()
+
+        codec = self.codec
+        self._perdoc = codec.per_document_writer(self.session, self.segment)
+        self._terms = codec.field_writer(self.session, self.segment)
+
     def group(self):
-        """Returns a context manager that calls
-        :meth:`~IndexWriter.start_group` and :meth:`~IndexWriter.end_group` for
-        you, allowing you to use a ``with`` statement to group hierarchical
+        """
+        Returns a context manager that calls ``start_group`` and ``end_group``
+        for you, allowing you to use a ``with`` statement to group hierarchical
         documents::
 
             with myindex.writer() as w:
@@ -233,7 +355,8 @@ class IndexWriter(object):
         return groupmanager(self)
 
     def start_group(self):
-        """Start indexing a group of hierarchical documents. The backend should
+        """
+        Start indexing a group of hierarchical documents. The backend should
         ensure that these documents are all added to the same segment::
 
             with myindex.writer() as w:
@@ -253,93 +376,198 @@ class IndexWriter(object):
                 w.end_group()
 
         A more convenient way to group documents is to use the
-        :meth:`~IndexWriter.group` method and the ``with`` statement.
+        ``group`` method and the ``with`` statement.
         """
 
         pass
 
     def end_group(self):
-        """Finish indexing a group of hierarchical documents. See
-        :meth:`~IndexWriter.start_group`.
+        """
+        Finish indexing a group of hierarchical documents. See
+        :meth:`~SegmentWriter.start_group`.
         """
 
         pass
 
-    def add_field(self, fieldname, fieldtype, **kwargs):
-        """Adds a field to the index's schema.
+    def new_segment(self) -> 'codecs.Segment':
+        return self.codec.new_segment(self.store, self.indexname)
+
+    def add_field(self, fieldname: str, field: 'fields.FieldType'):
+        """
+        Adds a field to the index's schema.
 
         :param fieldname: the name of the field to add.
-        :param fieldtype: an instantiated :class:`whoosh.fields.FieldType`
+        :param field: an instantiated :class:`whoosh.fields.FieldType`
             object.
         """
 
-        self.schema.add(fieldname, fieldtype, **kwargs)
+        self.schema.add(fieldname, field)
 
-    def remove_field(self, fieldname, **kwargs):
-        """Removes the named field from the index's schema. Depending on the
+    def remove_field(self, fieldname):
+        """
+        Removes the named field from the index's schema. Depending on the
         backend implementation, this may or may not actually remove existing
         data for the field from the index. Optimizing the index should always
         clear out existing data for a removed field.
+
+        :param fieldname: the name of the field to remove.
         """
 
-        self.schema.remove(fieldname, **kwargs)
+        self.schema.remove(fieldname)
 
-    @abstractmethod
-    def reader(self, **kwargs):
-        """Returns a reader for the existing index.
+    def searcher(self, **kwargs) -> 'searchers.Searcher':
+        """
+        Returns a searcher for the existing index.
+
+        :param kwargs: keyword arguments passed to the index's reader() method.
         """
 
-        raise NotImplementedError
+        from whoosh import searching
 
-    def searcher(self, **kwargs):
-        from whoosh.searching import Searcher
+        return searching.ConcreteSearcher(self.reader(), **kwargs)
 
-        return Searcher(self.reader(), **kwargs)
-
-    def delete_by_term(self, fieldname, text, searcher=None):
-        """Deletes any documents containing "term" in the "fieldname" field.
+    def delete_by_term(self, fieldname: str, termbytes: bytes):
+        """
+        Deletes any documents containing "term" in the "fieldname" field.
         This is useful when you have an indexed field containing a unique ID
         (such as "pathname") for each document.
 
+        :param fieldname: the name of the field containing the term.
+        :param termbytes: the bytestring of the term to delete.
         :returns: the number of documents deleted.
         """
 
-        from whoosh.query import Term
+        from whoosh.query.terms import Term
 
-        q = Term(fieldname, text)
-        return self.delete_by_query(q, searcher=searcher)
+        q = Term(fieldname, termbytes)
+        return self.delete_by_query(q)
 
-    def delete_by_query(self, q, searcher=None):
-        """Deletes any documents matching a query object.
+    @unclosed
+    def reader(self, **kwargs):
+        """
+        Returns a reader for the existing index.
 
-        :returns: the number of documents deleted.
+        :param kwargs: keyword arguments passed to the index's reader() method.
         """
 
-        if searcher:
-            s = searcher
+        return self.segments.multireader()
+
+    # Have to override add_field and remove_field to add before_add decorator
+    @before_add
+    @unclosed
+    def add_field(self, fieldname: str, field: 'fields.FieldType'):
+        self.schema.add(fieldname, field)
+
+    @before_add
+    @unclosed
+    def remove_field(self, fieldname: str):
+        self.schema.remove(fieldname)
+
+    def has_deletions(self) -> bool:
+        return any(s.has_deletions() for s in self.segments)
+
+    def deleted_count(self):
+        return sum(s.deleted_count() for s in self.segments)
+
+    @unclosed
+    def delete_by_query(self, q: 'queries.Query'):
+        """
+        Deletes any documents matching a query object.
+
+        :param q: delete documents which match this query.
+        """
+
+        self.segments.delete_by_query(q)
+
+    @unclosed
+    def add_reader(self, reader: 'readers.IndexReader'):
+        """
+        Adds the contents of the given reader to this index.
+
+        :param reader: the reader to add.
+        """
+
+        newsegment = copy_reader(
+            reader, self.session, self.indexname, self.codec, self.schema
+        )
+        self.segments.add(newsegment)
+        self.try_merging()
+
+    def try_merging(self, expunge_deleted: bool=False):
+        strategy = self.merge_strategy
+        merging = self.segments.merging_ids()
+        merges = strategy.get_merges(self._segments, merging,
+                                     expunge_deleted=expunge_deleted)
+        for merge in merges:
+            self.apply_merge(merge)
+
+    def apply_merge(self, merge: merging.Merge):
+        ids_to_merge = set(seg.segment_id() for seg in merge.segments)
+        if self.segments.are_merging(ids_to_merge):
+            raise Exception("Trying to merge already merging segments")
+        self.segments.add_merge(merge)
+
+        if self.executor:
+            future = self.executor.submit(
+                perform_merge, self.store, self.indexname, self.codec,
+                self.schema, merge
+            )
+
+            def merge_callback(f):
+                self.segments.integrate(*f.results())
+
+            future.add_done_callback(merge_callback)
         else:
-            s = self.searcher()
+            self._perform_merge(merge)
 
-        try:
-            count = 0
-            for docnum in s.docs_for_query(q, for_deletion=True):
-                self.delete_document(docnum)
-                count += 1
-        finally:
-            if not searcher:
-                s.close()
+    def _perform_merge(self, merge: merging.Merge):
+        newsegment, merge_id = perform_merge(
+            self.session, self.indexname, self.codec, self.schema, merge
+        )
+        self.segments.integrate(newsegment, merge_id)
 
-        return count
+    def _index_field(self, fieldname: str, field: 'fields.FieldType',
+                     value: Any, stored_val: Any, boost=1.0):
+        if value is None:
+            return
 
-    @abstractmethod
-    def delete_document(self, docnum, delete=True):
-        """Deletes a document by number.
+        docnum = self._docnum
+        perdoc = self._perdoc
+
+        length = 0
+        if field.indexed:
+            # Returns the field length and a generator of post tuples
+            length, posts = field.index(value, docnum, boost=boost)
+            postcount = len(posts)
+
+            # Get the buffer for this field
+            try:
+                fdict = self._termbuffer[fieldname]
+            except KeyError:
+                self._termbuffer[fieldname] = fdict = defaultdict(list)
+
+            # Buffer the posts
+            for post in posts:
+                fdict[post[TERMBYTES]].append(post)
+
+            if field.vector:
+                # If we need to add the posts as a vector, copy the
+                # generator into a list so they can be used more than once
+                perdoc.add_vector_postings(fieldname, field, posts)
+
+        # Write the per-document values
+        perdoc.add_field(fieldname, field, stored_val, length)
+        # Write the column value
+        if field.column:
+            perdoc.add_column_value(fieldname, field.column,
+                                    field.to_column_value(stored_val))
+
+        return length
+
+    @unclosed
+    def add_document(self, **kwargs):
         """
-        raise NotImplementedError
-
-    @abstractmethod
-    def add_document(self, **fields):
-        """The keyword arguments map field names to the values to index/store::
+        The keyword arguments map field names to the values to index/store::
 
             w = myindex.writer()
             w.add_document(path=u"/a", title=u"First doc", text=u"Hello")
@@ -399,33 +627,55 @@ class IndexWriter(object):
         See also :meth:`Writer.update_document`.
         """
 
-        raise NotImplementedError
+        index_field = self._index_field
 
-    @abstractmethod
-    def add_reader(self, reader):
-        raise NotImplementedError
+        # The keyword argument keys are the fields to index
+        fieldnames = sorted([name for name in kwargs.keys()
+                             if not name.startswith("_")])
+        # Look for a document-wide boost keyword argument
+        doc_boost = kwargs.get("_boost", 1.0)
 
-    def _doc_boost(self, fields, default=1.0):
-        if "_boost" in fields:
-            return float(fields["_boost"])
-        else:
-            return default
+        # Tell the per-document writer to start a new document
+        self._perdoc.start_doc(self._docnum)
 
-    def _field_boost(self, fields, fieldname, default=1.0):
-        boostkw = "_%s_boost" % fieldname
-        if boostkw in fields:
-            return float(fields[boostkw])
-        else:
-            return default
+        # Index each field
+        for fieldname in fieldnames:
+            # Get the field object from the schema
+            try:
+                field = self.schema[fieldname]
+            except KeyError:
+                raise ValueError("No %r field in schema" % fieldname)
 
-    def _unique_fields(self, fields):
-        # Check which of the supplied fields are unique
-        unique_fields = [name for name, field in self.schema.items()
-                         if name in fields and field.unique]
-        return unique_fields
+            # Get the value from the keyword argument
+            value = kwargs.get(fieldname)
+            # Look for an optional "store this value" keyword argument
+            stored_val = kwargs.get("_stored_" + fieldname, value)
+            # Look for an optional field boost keyword argument
+            field_boost = (field.field_boost *
+                           doc_boost *
+                           kwargs.get("_%s_boost" % fieldname, 1.0))
+            # Index the field
+            index_field(fieldname, field, value, stored_val, boost=field_boost)
 
-    def update_document(self, **fields):
-        """The keyword arguments map field names to the values to index/store.
+            # If the field has sub-fields, index them with the same values
+            for subname, subfield in field.subfields(fieldname):
+                index_field(subname, subfield, value, stored_val)
+
+        # Tell the per-document writer the finish the curent document
+        self._perdoc.finish_doc()
+
+        # Update writer state
+        self._docnum += 1
+        self._added = True
+        self._changed = True
+
+        self._doccount += 1
+        if self._doccount >= self.doc_limit:
+            self.flush()
+
+    def update_document(self, **kwargs):
+        """
+        The keyword arguments map field names to the values to index/store.
 
         This method adds a new document to the index, and automatically deletes
         any documents with the same values in any fields marked "unique" in the
@@ -463,7 +713,7 @@ class IndexWriter(object):
           the replacements instead of using ``update_document``.
 
         Note that this method will only replace a *committed* document;
-        currently it cannot replace documents you've added to the IndexWriter
+        currently it cannot replace documents you've added to the writer
         but haven't yet committed. For example, if you do this:
 
         >>> writer.update_document(unique_id=u"1", content=u"Replace me")
@@ -477,799 +727,404 @@ class IndexWriter(object):
         arguments.
         """
 
-        # Delete the set of documents matching the unique terms
-        unique_fields = self._unique_fields(fields)
-        if unique_fields:
-            with self.searcher() as s:
-                uniqueterms = [(name, fields[name]) for name in unique_fields]
-                docs = s._find_unique(uniqueterms)
-                for docnum in docs:
-                    self.delete_document(docnum)
+        self._delete_for_update(kwargs)
 
         # Add the given fields
-        self.add_document(**fields)
+        self.add_document(**kwargs)
 
-    def commit(self):
-        """Finishes writing and unlocks the index.
+    def _delete_for_update(self, kwargs):
+        from whoosh.query.terms import Term
+
+        # Delete the set of documents matching the unique terms
+        for fieldname, fieldobj in self.schema.items():
+            if fieldname in kwargs and fieldobj.unique:
+                q = Term(fieldname, kwargs[fieldname])
+                self.delete_by_query(q)
+
+    def _merge_flushed(self, merge: bool, optimize: bool,
+                       expunge_deleted: bool):
+        if optimize and len(self.segments) > 1:
+            # Create a merge with every segment
+            m = merging.Merge(list(self.segments.segments))
+            self.segments.add_merge(m)
+            # Don't do the merge in the background
+            self._perform_merge(m)
+            assert len(self.segments) == 1
+
+        elif merge:
+            self.try_merging(expunge_deleted=expunge_deleted)
+
+    @unclosed
+    def flush(self, merge: bool=None, optimize: bool=None,
+              expunge_deleted: bool=False, restart: bool=True
+              ) -> 'codecs.Segment':
         """
-        pass
+        Flushes any queued documents to a new segment but does not close the
+        writer.
 
-    def cancel(self):
-        """Cancels any documents/deletions added by this object
-        and unlocks the index.
-        """
-        pass
-
-
-# Codec-based writer
-
-class SegmentWriter(IndexWriter):
-    def __init__(self, ix, poolclass=None, timeout=0.0, delay=0.1, _lk=True,
-                 limitmb=128, docbase=0, codec=None, compound=True, **kwargs):
-        # Lock the index
-        self.writelock = None
-        if _lk:
-            self.writelock = ix.lock("WRITELOCK")
-            if not try_for(self.writelock.acquire, timeout=timeout,
-                           delay=delay):
-                raise LockError
-
-        if codec is None:
-            from whoosh.codec import default_codec
-            codec = default_codec()
-        self.codec = codec
-
-        # Get info from the index
-        self.storage = ix.storage
-        self.indexname = ix.indexname
-        info = ix._read_toc()
-        self.generation = info.generation + 1
-        self.schema = info.schema
-        self.segments = info.segments
-        self.docnum = self.docbase = docbase
-        self._setup_doc_offsets()
-
-        # Internals
-        self._tempstorage = self.storage.temp_storage("%s.tmp" % self.indexname)
-        newsegment = codec.new_segment(self.storage, self.indexname)
-        self.newsegment = newsegment
-        self.compound = compound and newsegment.should_assemble()
-        self.is_closed = False
-        self._added = False
-        self.pool = PostingPool(self._tempstorage, self.newsegment,
-                                limitmb=limitmb)
-
-        # Set up writers
-        self.perdocwriter = codec.per_document_writer(self.storage, newsegment)
-        self.fieldwriter = codec.field_writer(self.storage, newsegment)
-
-        self.merge = True
-        self.optimize = False
-        self.mergetype = None
-
-    def __repr__(self):
-        return "<%s %r>" % (self.__class__.__name__, self.newsegment)
-
-    def _check_state(self):
-        if self.is_closed:
-            raise IndexingError("This writer is closed")
-
-    def _setup_doc_offsets(self):
-        self._doc_offsets = []
-        base = 0
-        for s in self.segments:
-            self._doc_offsets.append(base)
-            base += s.doc_count_all()
-
-    def _document_segment(self, docnum):
-        #Returns the index.Segment object containing the given document
-        #number.
-        offsets = self._doc_offsets
-        if len(offsets) == 1:
-            return 0
-        return bisect_right(offsets, docnum) - 1
-
-    def _segment_and_docnum(self, docnum):
-        #Returns an (index.Segment, segment_docnum) pair for the segment
-        #containing the given document number.
-
-        segmentnum = self._document_segment(docnum)
-        offset = self._doc_offsets[segmentnum]
-        segment = self.segments[segmentnum]
-        return segment, docnum - offset
-
-    def _process_posts(self, items, startdoc, docmap):
-        schema = self.schema
-        for fieldname, text, docnum, weight, vbytes in items:
-            if fieldname not in schema:
-                continue
-            if docmap is not None:
-                newdoc = docmap[docnum]
-            else:
-                newdoc = startdoc + docnum
-
-            yield (fieldname, text, newdoc, weight, vbytes)
-
-    def temp_storage(self):
-        return self._tempstorage
-
-    def add_field(self, fieldname, fieldspec, **kwargs):
-        self._check_state()
-        if self._added:
-            raise Exception("Can't modify schema after adding data to writer")
-        super(SegmentWriter, self).add_field(fieldname, fieldspec, **kwargs)
-
-    def remove_field(self, fieldname):
-        self._check_state()
-        if self._added:
-            raise Exception("Can't modify schema after adding data to writer")
-        super(SegmentWriter, self).remove_field(fieldname)
-
-    def has_deletions(self):
-        """
-        Returns True if the current index has documents that are marked deleted
-        but haven't been optimized out of the index yet.
+        :param merge: Try to merge segments after flushing. Skipping merging
+            is faster but eventually will fill up the index with small segments.
+        :param optimize: Merge more aggressively.
+        :param expunge_deleted: Merge segments with lots of deletions more
+            aggressively.
+        :param restart: setting this to False indicates this writer won't be
+            used again after this flush.
         """
 
-        return any(s.has_deletions() for s in self.segments)
-
-    def delete_document(self, docnum, delete=True):
-        self._check_state()
-        if docnum >= sum(seg.doc_count_all() for seg in self.segments):
-            raise IndexingError("No document ID %r in this index" % docnum)
-        segment, segdocnum = self._segment_and_docnum(docnum)
-        segment.delete_document(segdocnum, delete=delete)
-
-    def deleted_count(self):
-        """
-        :returns: the total number of deleted documents in the index.
-        """
-
-        return sum(s.deleted_count() for s in self.segments)
-
-    def is_deleted(self, docnum):
-        segment, segdocnum = self._segment_and_docnum(docnum)
-        return segment.is_deleted(segdocnum)
-
-    def reader(self, reuse=None):
-        from whoosh.index import FileIndex
-
-        self._check_state()
-        return FileIndex._reader(self.storage, self.schema, self.segments,
-                                 self.generation, reuse=reuse)
-
-    def iter_postings(self):
-        return self.pool.iter_postings()
-
-    def add_postings_to_pool(self, reader, startdoc, docmap):
-        items = self._process_posts(reader.iter_postings(), startdoc, docmap)
-        add_post = self.pool.add
-        for item in items:
-            add_post(item)
-
-    def write_postings(self, lengths, items, startdoc, docmap):
-        items = self._process_posts(items, startdoc, docmap)
-        self.fieldwriter.add_postings(self.schema, lengths, items)
-
-    def write_per_doc(self, fieldnames, reader):
-        # Very bad hack: reader should be an IndexReader, but may be a
-        # PerDocumentReader if this is called from multiproc, where the code
-        # tries to be efficient by merging per-doc and terms separately.
-        # TODO: fix this!
-
-        schema = self.schema
-        if reader.has_deletions():
-            docmap = {}
-        else:
-            docmap = None
-
-        pdw = self.perdocwriter
-        # Open all column readers
-        cols = {}
-        for fieldname in fieldnames:
-            fieldobj = schema[fieldname]
-            coltype = fieldobj.column_type
-            if coltype and reader.has_column(fieldname):
-                creader = reader.column_reader(fieldname, coltype)
-                if isinstance(creader, columns.TranslatingColumnReader):
-                    creader = creader.raw_column()
-                cols[fieldname] = creader
-
-        for docnum, stored in reader.iter_docs():
-            if docmap is not None:
-                docmap[docnum] = self.docnum
-
-            pdw.start_doc(self.docnum)
-            for fieldname in fieldnames:
-                fieldobj = schema[fieldname]
-                length = reader.doc_field_length(docnum, fieldname)
-                pdw.add_field(fieldname, fieldobj,
-                              stored.get(fieldname), length)
-
-                if fieldobj.vector and reader.has_vector(docnum, fieldname):
-                    v = reader.vector(docnum, fieldname, fieldobj.vector)
-                    pdw.add_vector_matcher(fieldname, fieldobj, v)
-
-                if fieldname in cols:
-                    cv = cols[fieldname][docnum]
-                    pdw.add_column_value(fieldname, fieldobj.column_type, cv)
-
-            pdw.finish_doc()
-            self.docnum += 1
-
-        return docmap
-
-    def add_reader(self, reader):
-        self._check_state()
-        basedoc = self.docnum
-        ndxnames = set(fname for fname in reader.indexed_field_names()
-                       if fname in self.schema)
-        fieldnames = set(self.schema.names()) | ndxnames
-
-        docmap = self.write_per_doc(fieldnames, reader)
-        self.add_postings_to_pool(reader, basedoc, docmap)
-        self._added = True
-
-    def _check_fields(self, schema, fieldnames):
-        # Check if the caller gave us a bogus field
-        for name in fieldnames:
-            if name not in schema:
-                raise UnknownFieldError("No field named %r in %s"
-                                        % (name, schema))
-
-    def add_document(self, **fields):
-        self._check_state()
-        perdocwriter = self.perdocwriter
-        schema = self.schema
-        docnum = self.docnum
-        add_post = self.pool.add
-
-        docboost = self._doc_boost(fields)
-        fieldnames = sorted([name for name in fields.keys()
-                             if not name.startswith("_")])
-        self._check_fields(schema, fieldnames)
-
-        perdocwriter.start_doc(docnum)
-        for fieldname in fieldnames:
-            value = fields.get(fieldname)
-            if value is None:
-                continue
-            field = schema[fieldname]
-
-            length = 0
-            if field.indexed:
-                # TODO: Method for adding progressive field values, ie
-                # setting start_pos/start_char?
-                fieldboost = self._field_boost(fields, fieldname, docboost)
-                # Ask the field to return a list of (text, weight, vbytes)
-                # tuples
-                items = field.index(value)
-                # Only store the length if the field is marked scorable
-                scorable = field.scorable
-                # Add the terms to the pool
-                for tbytes, freq, weight, vbytes in items:
-                    weight *= fieldboost
-                    if scorable:
-                        length += freq
-                    add_post((fieldname, tbytes, docnum, weight, vbytes))
-
-            if field.separate_spelling():
-                spellfield = field.spelling_fieldname(fieldname)
-                for word in field.spellable_words(value):
-                    word = utf8encode(word)[0]
-                    # item = (fieldname, tbytes, docnum, weight, vbytes)
-                    add_post((spellfield, word, 0, 1, vbytes))
-
-            vformat = field.vector
-            if vformat:
-                analyzer = field.analyzer
-                # Call the format's word_values method to get posting values
-                vitems = vformat.word_values(value, analyzer, mode="index")
-                # Remove unused frequency field from the tuple
-                vitems = sorted((text, weight, vbytes)
-                                for text, _, weight, vbytes in vitems)
-                perdocwriter.add_vector_items(fieldname, field, vitems)
-
-            # Allow a custom value for stored field/column
-            customval = fields.get("_stored_%s" % fieldname, value)
-
-            # Add the stored value and length for this field to the per-
-            # document writer
-            sv = customval if field.stored else None
-            perdocwriter.add_field(fieldname, field, sv, length)
-
-            column = field.column_type
-            if column and customval is not None:
-                cv = field.to_column_value(customval)
-                perdocwriter.add_column_value(fieldname, column, cv)
-
-        perdocwriter.finish_doc()
-        self._added = True
-        self.docnum += 1
-
-    def doc_count(self):
-        return self.docnum - self.docbase
-
-    def get_segment(self):
-        newsegment = self.newsegment
-        newsegment.set_doc_count(self.docnum)
-        return newsegment
-
-    def per_document_reader(self):
-        if not self.perdocwriter.is_closed:
-            raise Exception("Per-doc writer is still open")
-        return self.codec.per_document_reader(self.storage, self.get_segment())
-
-    # The following methods break out the commit functionality into smaller
-    # pieces to allow MpWriter to call them individually
-
-    def _merge_segments(self, mergetype, optimize, merge):
-        # The writer supports two ways of setting mergetype/optimize/merge:
-        # as attributes or as keyword arguments to commit(). Originally there
-        # were just the keyword arguments, but then I added the ability to use
-        # the writer as a context manager using "with", so the user no longer
-        # explicitly called commit(), hence the attributes
-        mergetype = mergetype if mergetype is not None else self.mergetype
-        optimize = optimize if optimize is not None else self.optimize
         merge = merge if merge is not None else self.merge
-
-        if mergetype:
-            pass
-        elif optimize:
-            mergetype = OPTIMIZE
-        elif not merge:
-            mergetype = NO_MERGE
-        else:
-            mergetype = MERGE_SMALL
-
-        # Call the merge policy function. The policy may choose to merge
-        # other segments into this writer's pool
-        return mergetype(self, self.segments)
-
-    def _flush_segment(self):
-        self.perdocwriter.close()
-        if self.codec.length_stats:
-            pdr = self.per_document_reader()
-        else:
-            pdr = None
-        postings = self.pool.iter_postings()
-        self.fieldwriter.add_postings(self.schema, pdr, postings)
-        self.fieldwriter.close()
-        if pdr:
-            pdr.close()
-
-    def _close_segment(self):
-        if not self.perdocwriter.is_closed:
-            self.perdocwriter.close()
-        if not self.fieldwriter.is_closed:
-            self.fieldwriter.close()
-        self.pool.cleanup()
-
-    def _assemble_segment(self):
-        if self.compound:
-            # Assemble the segment files into a compound file
-            newsegment = self.get_segment()
-            newsegment.create_compound_file(self.storage)
-            newsegment.compound = True
-
-    def _partial_segment(self):
-        # For use by a parent multiprocessing writer: Closes out the segment
-        # but leaves the pool files intact so the parent can access them
-        self._check_state()
-        self.perdocwriter.close()
-        self.fieldwriter.close()
-        # Don't call self.pool.cleanup()! We want to grab the pool files.
-        return self.get_segment()
-
-    def _finalize_segment(self):
-        # Finish writing segment
-        self._flush_segment()
-        # Close segment files
-        self._close_segment()
-        # Assemble compound segment if necessary
-        self._assemble_segment()
-
-        return self.get_segment()
-
-    def _commit_toc(self, segments):
-        from whoosh.index import TOC, clean_files
-
-        # Write a new TOC with the new segment list (and delete old files)
-        toc = TOC(self.schema, segments, self.generation)
-        toc.write(self.storage, self.indexname)
-        # Delete leftover files
-        clean_files(self.storage, self.indexname, self.generation, segments)
-
-    def _finish(self):
-        self._tempstorage.destroy()
-        if self.writelock:
-            self.writelock.release()
-        self.is_closed = True
-        #self.storage.close()
-
-    # Finalization methods
-
-    def commit(self, mergetype=None, optimize=None, merge=None):
-        """Finishes writing and saves all additions and changes to disk.
-
-        There are four possible ways to use this method::
-
-            # Merge small segments but leave large segments, trying to
-            # balance fast commits with fast searching:
-            writer.commit()
-
-            # Merge all segments into a single segment:
-            writer.commit(optimize=True)
-
-            # Don't merge any existing segments:
-            writer.commit(merge=False)
-
-            # Use a custom merge function
-            writer.commit(mergetype=my_merge_function)
-
-        :param mergetype: a custom merge function taking a Writer object and
-            segment list as arguments, and returning a new segment list. If you
-            supply a ``mergetype`` function, the values of the ``optimize`` and
-            ``merge`` arguments are ignored.
-        :param optimize: if True, all existing segments are merged with the
-            documents you've added to this writer (and the value of the
-            ``merge`` argument is ignored).
-        :param merge: if False, do not merge small segments.
-        """
-
-        self._check_state()
-        # Merge old segments if necessary
-        finalsegments = self._merge_segments(mergetype, optimize, merge)
-        if self._added:
-            # Flush the current segment being written and add it to the
-            # list of remaining segments returned by the merge policy
-            # function
-            finalsegments.append(self._finalize_segment())
-        else:
-            # Close segment files
-            self._close_segment()
-        # Write TOC
-        self._commit_toc(finalsegments)
-
-        # Final cleanup
-        self._finish()
-
-    def cancel(self):
-        self._check_state()
-        self._close_segment()
-        self._finish()
-
-
-# Writer wrappers
-
-class AsyncWriter(threading.Thread, IndexWriter):
-    """Convenience wrapper for a writer object that might fail due to locking
-    (i.e. the ``filedb`` writer). This object will attempt once to obtain the
-    underlying writer, and if it's successful, will simply pass method calls on
-    to it.
-
-    If this object *can't* obtain a writer immediately, it will *buffer*
-    delete, add, and update method calls in memory until you call ``commit()``.
-    At that point, this object will start running in a separate thread, trying
-    to obtain the writer over and over, and once it obtains it, "replay" all
-    the buffered method calls on it.
-
-    In a typical scenario where you're adding a single or a few documents to
-    the index as the result of a Web transaction, this lets you just create the
-    writer, add, and commit, without having to worry about index locks,
-    retries, etc.
-
-    For example, to get an aynchronous writer, instead of this:
-
-    >>> writer = myindex.writer()
-
-    Do this:
-
-    >>> from whoosh.writing import AsyncWriter
-    >>> writer = AsyncWriter(myindex)
-    """
-
-    def __init__(self, index, delay=0.25, writerargs=None):
-        """
-        :param index: the :class:`whoosh.index.Index` to write to.
-        :param delay: the delay (in seconds) between attempts to instantiate
-            the actual writer.
-        :param writerargs: an optional dictionary specifying keyword arguments
-            to to be passed to the index's ``writer()`` method.
-        """
-
-        threading.Thread.__init__(self)
-        self.running = False
-        self.index = index
-        self.writerargs = writerargs or {}
-        self.delay = delay
-        self.events = []
-        try:
-            self.writer = self.index.writer(**self.writerargs)
-        except LockError:
-            self.writer = None
-
-    def reader(self):
-        return self.index.reader()
-
-    def searcher(self, **kwargs):
-        from whoosh.searching import Searcher
-        return Searcher(self.reader(), fromindex=self.index, **kwargs)
-
-    def _record(self, method, args, kwargs):
-        if self.writer:
-            getattr(self.writer, method)(*args, **kwargs)
-        else:
-            self.events.append((method, args, kwargs))
-
-    def run(self):
-        self.running = True
-        writer = self.writer
-        while writer is None:
-            try:
-                writer = self.index.writer(**self.writerargs)
-            except LockError:
-                time.sleep(self.delay)
-        for method, args, kwargs in self.events:
-            getattr(writer, method)(*args, **kwargs)
-        writer.commit(*self.commitargs, **self.commitkwargs)
-
-    def delete_document(self, *args, **kwargs):
-        self._record("delete_document", args, kwargs)
-
-    def add_document(self, *args, **kwargs):
-        self._record("add_document", args, kwargs)
-
-    def update_document(self, *args, **kwargs):
-        self._record("update_document", args, kwargs)
-
-    def add_field(self, *args, **kwargs):
-        self._record("add_field", args, kwargs)
-
-    def remove_field(self, *args, **kwargs):
-        self._record("remove_field", args, kwargs)
-
-    def delete_by_term(self, *args, **kwargs):
-        self._record("delete_by_term", args, kwargs)
-
-    def commit(self, *args, **kwargs):
-        if self.writer:
-            self.writer.commit(*args, **kwargs)
-        else:
-            self.commitargs, self.commitkwargs = args, kwargs
-            self.start()
-
-    def cancel(self, *args, **kwargs):
-        if self.writer:
-            self.writer.cancel(*args, **kwargs)
-
-
-# Ex post factor functions
-
-def add_spelling(ix, fieldnames, commit=True):
-    """Adds spelling files to an existing index that was created without
-    them, and modifies the schema so the given fields have the ``spelling``
-    attribute. Only works on filedb indexes.
-
-    >>> ix = index.open_dir("testindex")
-    >>> add_spelling(ix, ["content", "tags"])
-
-    :param ix: a :class:`whoosh.filedb.fileindex.FileIndex` object.
-    :param fieldnames: a list of field names to create word graphs for.
-    :param force: if True, overwrites existing word graph files. This is only
-        useful for debugging.
-    """
-
-    from whoosh.automata import fst
-    from whoosh.reading import SegmentReader
-
-    writer = ix.writer()
-    storage = writer.storage
-    schema = writer.schema
-    segments = writer.segments
-
-    for segment in segments:
-        ext = segment.codec().FST_EXT
-
-        r = SegmentReader(storage, schema, segment)
-        f = segment.create_file(storage, ext)
-        gw = fst.GraphWriter(f)
-        for fieldname in fieldnames:
-            gw.start_field(fieldname)
-            for word in r.lexicon(fieldname):
-                gw.insert(word)
-            gw.finish_field()
-        gw.close()
-
-    for fieldname in fieldnames:
-        schema[fieldname].spelling = True
-
-    if commit:
-        writer.commit(merge=False)
-
-
-# Buffered writer class
-
-class BufferedWriter(IndexWriter):
-    """Convenience class that acts like a writer but buffers added documents
-    before dumping the buffered documents as a batch into the actual index.
-
-    In scenarios where you are continuously adding single documents very
-    rapidly (for example a web application where lots of users are adding
-    content simultaneously), using a BufferedWriter is *much* faster than
-    opening and committing a writer for each document you add. If you're adding
-    batches of documents at a time, you can just use a regular writer.
-
-    (This class may also be useful for batches of ``update_document`` calls. In
-    a normal writer, ``update_document`` calls cannot update documents you've
-    added *in that writer*. With ``BufferedWriter``, this will work.)
-
-    To use this class, create it from your index and *keep it open*, sharing
-    it between threads.
-
-    >>> from whoosh.writing import BufferedWriter
-    >>> writer = BufferedWriter(myindex, period=120, limit=20)
-    >>> # Then you can use the writer to add and update documents
-    >>> writer.add_document(...)
-    >>> writer.add_document(...)
-    >>> writer.add_document(...)
-    >>> # Before the writer goes out of scope, call close() on it
-    >>> writer.close()
-
-    .. note::
-        This object stores documents in memory and may keep an underlying
-        writer open, so you must explicitly call the
-        :meth:`~BufferedWriter.close` method on this object before it goes out
-        of scope to release the write lock and make sure any uncommitted
-        changes are saved.
-
-    You can read/search the combination of the on-disk index and the
-    buffered documents in memory by calling ``BufferedWriter.reader()`` or
-    ``BufferedWriter.searcher()``. This allows quasi-real-time search, where
-    documents are available for searching as soon as they are buffered in
-    memory, before they are committed to disk.
-
-    .. tip::
-        By using a searcher from the shared writer, multiple *threads* can
-        search the buffered documents. Of course, other *processes* will only
-        see the documents that have been written to disk. If you want indexed
-        documents to become available to other processes as soon as possible,
-        you have to use a traditional writer instead of a ``BufferedWriter``.
-
-    You can control how often the ``BufferedWriter`` flushes the in-memory
-    index to disk using the ``period`` and ``limit`` arguments. ``period`` is
-    the maximum number of seconds between commits. ``limit`` is the maximum
-    number of additions to buffer between commits.
-
-    You don't need to call ``commit()`` on the ``BufferedWriter`` manually.
-    Doing so will just flush the buffered documents to disk early. You can
-    continue to make changes after calling ``commit()``, and you can call
-    ``commit()`` multiple times.
-    """
-
-    def __init__(self, index, period=60, limit=10, writerargs=None,
-                 commitargs=None):
-        """
-        :param index: the :class:`whoosh.index.Index` to write to.
-        :param period: the maximum amount of time (in seconds) between commits.
-            Set this to ``0`` or ``None`` to not use a timer. Do not set this
-            any lower than a few seconds.
-        :param limit: the maximum number of documents to buffer before
-            committing.
-        :param writerargs: dictionary specifying keyword arguments to be passed
-            to the index's ``writer()`` method when creating a writer.
-        """
-
-        self.index = index
-        self.period = period
-        self.limit = limit
-        self.writerargs = writerargs or {}
-        self.commitargs = commitargs or {}
-
-        self.lock = threading.RLock()
-        self.writer = self.index.writer(**self.writerargs)
-
-        self._make_ram_index()
-        self.bufferedcount = 0
-
-        # Start timer
-        if self.period:
-            self.timer = threading.Timer(self.period, self.commit)
-            self.timer.start()
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
-
-    def _make_ram_index(self):
-        from whoosh.codec.memory import MemoryCodec
-
-        self.codec = MemoryCodec()
-
-    def _get_ram_reader(self):
-        return self.codec.reader(self.schema)
-
-    @property
-    def schema(self):
-        return self.writer.schema
-
-    def reader(self, **kwargs):
-        from whoosh.reading import MultiReader
-
-        reader = self.writer.reader()
-        with self.lock:
-            ramreader = self._get_ram_reader()
-
-        # If there are in-memory docs, combine the readers
-        if ramreader.doc_count():
-            if reader.is_atomic():
-                reader = MultiReader([reader, ramreader])
-            else:
-                reader.add_reader(ramreader)
-
-        return reader
-
-    def searcher(self, **kwargs):
-        from whoosh.searching import Searcher
-
-        return Searcher(self.reader(), fromindex=self.index, **kwargs)
-
-    def close(self):
-        self.commit(restart=False)
-
-    def commit(self, restart=True):
-        if self.period:
-            self.timer.cancel()
-
-        with self.lock:
-            ramreader = self._get_ram_reader()
-            self._make_ram_index()
-
-        if self.bufferedcount:
-            self.writer.add_reader(ramreader)
-        self.writer.commit(**self.commitargs)
-        self.bufferedcount = 0
+        optimize = optimize if optimize is not None else self.optimize
+
+        # Flush the buffered terms
+        self._flush_terms()
+        # Close the codec writers
+        self._perdoc.close()
+        self._terms.close()
+
+        # Add the current segment to the segment list
+        thissegment = self.segment
+        self.segments.add(thissegment)
+
+        # TODO: what to do with _changed and _added here?
+        self._changed = False
+        self._added = False
+
+        self._merge_flushed(merge, optimize, expunge_deleted)
 
         if restart:
-            self.writer = self.index.writer(**self.writerargs)
-            if self.period:
-                self.timer = threading.Timer(self.period, self.commit)
-                self.timer.start()
+            self._start_new_segment()
 
-    def add_reader(self, reader):
-        # Pass through to the underlying on-disk index
-        self.writer.add_reader(reader)
-        self.commit()
+        return thissegment
 
-    def add_document(self, **fields):
-        with self.lock:
-            # Hijack a writer to make the calls into the codec
-            with self.codec.writer(self.writer.schema) as w:
-                w.add_document(**fields)
+    @unclosed
+    def commit(self, merge: bool=None, optimize: bool=None):
+        """
+        Finishes writing and unlocks the index.
 
-            self.bufferedcount += 1
-            if self.bufferedcount >= self.limit:
-                self.commit()
+        :param merge: Try to merge segments after flushing. Skipping merging
+            is faster but eventually will fill up the index with small segments.
+        :param optimize: Merge more aggressively.
+        """
 
-    def update_document(self, **fields):
-        with self.lock:
-            IndexWriter.update_document(self, **fields)
+        merge = merge if merge is not None else self.merge
+        optimize = optimize if optimize is not None else self.optimize
+        if optimize or self._changed:
+            self.flush(merge, optimize)
 
-    def delete_document(self, docnum, delete=True):
-        with self.lock:
-            base = self.index.doc_count_all()
-            if docnum < base:
-                self.writer.delete_document(docnum, delete=delete)
-            else:
-                ramsegment = self.codec.segment
-                ramsegment.delete_document(docnum - base, delete=delete)
+        # Wait for background tasks to complete
+        if self.executor:
+            self.executor.shutdown(wait=True)
 
-    def is_deleted(self, docnum):
-        base = self.index.doc_count_all()
-        if docnum < base:
-            return self.writer.is_deleted(docnum)
-        else:
-            return self._get_ram_reader().is_deleted(docnum - base)
+        # Sync the TOC to storage
+        self._sync_toc(self.session)
+
+        self._close()
+
+    @unclosed
+    def cancel(self):
+        """
+        Cancels any documents/deletions added by this object and unlocks the
+        index.
+        """
+
+        # Close the codec writers
+        self._perdoc.close()
+        self._terms.close()
+        self._close()
+
+    def _close(self):
+        # Release the lock if we have one
+        if self.session and not self._external_session:
+            self.session.close()
+
+        self.closed = True
+
+    def _flush_terms(self):
+        schema = self.schema
+        _fields = self._termbuffer
+        fwriter = self._terms
+
+        for fieldname in sorted(_fields):
+            fielddict = _fields[fieldname]
+            fieldobj = schema[fieldname]
+
+            fwriter.start_field(fieldname, fieldobj)
+            for termbytes in sorted(fielddict):
+                fwriter.start_term(termbytes)
+                posts = fielddict[termbytes]
+                for post in posts:
+                    fwriter.add_posting(post)
+                fwriter.finish_term()
+            fwriter.finish_field()
+        _fields.clear()
+        self._postcount = 0
+
+    def _sync_toc(self, session):
+        self.segments.save_all_buffered_deletes()
+        toc = index.Toc(self.schema, self.segments.segments, self.generation)
+        self.store.save_toc(session, toc)
 
 
-# Backwards compatibility with old name
-BatchWriter = BufferedWriter
+# Merge machinery
+
+def _copy_perdoc(schema: 'fields.Schema', reader: 'readers.IndexReader',
+                 perdoc: 'codecs.PerDocumentWriter'
+                 ) -> Optional[Dict[int, int]]:
+    """
+    Copies the per-document information from a reader into a PerDocumentWriter.
+
+    :param schema: the schema to use for writing.
+    :param reader: the reader to import the per-document data from.
+    :param perdoc: the per-document writer to write to.
+    :return: A dictionary mapping old doc numbers to new doc numbers, or
+        None if no mapping is necessary
+    """
+
+    # If the incoming reading has deletions, we need to return a dictionary
+    # to map old document numbers to new document numbers
+    has_del = reader.has_deletions()
+    docmap = {}  # type: Dict[int, int]
+
+    fieldnames = list(schema.names())
+
+    # Open all column readers
+    cols = {}
+    for fieldname in fieldnames:
+        fieldobj = schema[fieldname]
+        colobj = fieldobj.column
+        if colobj and reader.has_column(fieldname):
+            creader = reader.column_reader(fieldname, colobj)
+            cols[fieldname] = creader
+
+    # Iterate over the docs in the reader, getting the stored fields at
+    # the same time
+    newdoc = 0
+    for docnum, stored in reader.iter_docs():
+        if has_del:
+            docmap[docnum] = newdoc
+
+        # Copy the information between reader and writer
+        perdoc.start_doc(newdoc)
+        for fieldname in fieldnames:
+            fieldobj = schema[fieldname]
+            length = reader.doc_field_length(docnum, fieldname)
+
+            # Copy the any stored value and length
+            perdoc.add_field(fieldname, fieldobj,
+                             stored.get(fieldname), length)
+
+            # Copy any vector
+            if fieldobj.vector and reader.has_vector(docnum, fieldname):
+                vreader = reader.vector(docnum, fieldname)
+                posts = tuple(vreader.postings())
+                perdoc.add_vector_postings(fieldname, fieldobj, posts)
+
+            # Copy any column value
+            if fieldname in cols:
+                colobj = fieldobj.column
+                cval = cols[fieldname][docnum]
+                perdoc.add_column_value(fieldname, colobj, cval)
+
+        perdoc.finish_doc()
+        newdoc += 1
+
+    if has_del:
+        return docmap
+
+
+def _copy_terms(schema: 'fields.Schema', reader: 'readers.IndexReader',
+                fieldnames: Set[str], fwriter: 'codecs.FieldWriter',
+                docmap: Optional[Dict[int, int]]):
+    """
+    Copies term information from a reader into a FieldWriter.
+
+    :param schema: the schema to use for writing.
+    :param reader: the reader to import the terms from.
+    :param fieldnames: the names of the fields to be included.
+    :param fwriter: the FieldWriter to write to.
+    :param docmap: an optional dictionary mapping document numbers in the
+        incoming reader to numbers in the new segment.
+    """
+
+    last_fieldname = None
+    for fieldname, termbytes in reader.all_terms():
+        if fieldname not in fieldnames:
+            continue
+
+        if fieldname != last_fieldname:
+            if last_fieldname is not None:
+                fwriter.finish_field()
+            fieldobj = schema[fieldname]
+            fwriter.start_field(fieldname, fieldobj)
+            last_fieldname = fieldname
+
+        fwriter.start_term(termbytes)
+
+        m = reader.matcher(fieldname, termbytes)
+        count = 0
+        for p in m.all_postings():
+            if docmap:
+                # Make a new posting with the doc ID updated for this segment
+                newid = docmap[post_docid(p)]
+                p = change_docid(p, newid)
+
+            fwriter.add_posting(p)
+            count += 1
+
+        m.close()
+        fwriter.finish_term()
+
+    if last_fieldname is not None:
+        fwriter.finish_field()
+
+
+def perform_merge(session: 'storage.Session', indexname: str,
+                  cdc: 'codecs.Codec', schema: 'fields.Schema',
+                  merge: merging.Merge
+                  ) -> 'Sequence[Tuple[codecs.Segment, str]]':
+    from whoosh.reading import SegmentReader, MultiReader
+
+    rs = [SegmentReader(session.store, schema, segment) for segment
+          in merge.segments]
+    assert rs
+    if len(rs) == 1:
+        reader = rs[0]
+    else:
+        reader = MultiReader(rs)
+
+    newsegment = copy_reader(reader, session, indexname, cdc, schema)
+    return newsegment, merge.merge_id
+
+
+def copy_reader(reader: 'readers.IndexReader', session: 'storage.Session',
+                indexname: str, cdc: 'codecs.Codec', schema: 'fields.Schema',
+                ) -> 'Tuple[codecs.Segment]':
+    newsegment = cdc.new_segment(session.store, indexname)
+
+    # Create writers for the new segment
+    perdoc = cdc.per_document_writer(session, newsegment)
+    fwriter = cdc.field_writer(session, newsegment)
+
+    # Field names to index
+    indexednames = set(fname for fname in reader.indexed_field_names()
+                       if fname in schema)
+
+    # Add the per-document data. This returns a mapping of old docnums
+    # to new docnums (if there were changes because deleted docs were
+    # skipped, otherwise it's None). We'll use this mapping to rewrite
+    # doc references when we import the term data.
+    docmap = _copy_perdoc(schema, reader, perdoc)
+    # Add the term data
+    _copy_terms(schema, reader, indexednames, fwriter, docmap)
+
+    # Close the writers
+    fwriter.close()
+    perdoc.close()
+
+    return newsegment
+
+
+def batch_index(batch_filename: str, count: int, storage_url: str,
+                indexname: str, schema: 'fields.Schema', generation: int,
+                merge_id: str, doc_limit: int) -> Tuple[codecs.Segment, str]:
+    from whoosh.compat import pickle
+
+    store = storage.from_url(storage_url)
+    w = SegmentWriter(store, indexname, schema, generation, doc_limit=doc_limit,
+                      is_sub_writer=True)
+
+    with open(batch_filename, "rb") as f:
+        for _ in xrange(count):
+            kwargs = pickle.load(f)
+            w.add_document(**kwargs)
+    os.remove(batch_filename)
+
+    segment = w.flush(merge=False, optimize=False)
+    w.cancel()
+
+    return segment, merge_id
+
+
+# Multi-(threaded|processing) writer using concurrent.futures
+
+class MultiWriter(SegmentWriter):
+    def __init__(self, *args, **kwargs):
+        super(MultiWriter, self).__init__(*args, **kwargs)
+
+        self._group_level = 0
+        self._buffered = 0
+        self._temppath = None
+        self._tempfile = None
+        self._make_temp()
+
+    def _make_temp(self):
+        from tempfile import mkstemp
+
+        fd, self._temppath = mkstemp(suffix=".pickle", prefix="multi")
+        self._tempfile = os.fdopen(fd, "wb")
+        self._buffered = 0
+
+    def start_group(self):
+        self._group_level += 1
+
+    def end_group(self):
+        self._group_level -= 1
+
+    @unclosed
+    def add_document(self, **kwargs):
+        from whoosh.compat import pickle
+
+        pickle.dump(kwargs, self._tempfile, -1)
+        self._buffered += 1
+        if self._buffered >= self.doc_limit and not self._group_level:
+            self.flush()
+
+    @unclosed
+    def update_document(self, **kwargs):
+        self._delete_for_update(kwargs)
+        self.add_document(**kwargs)
+
+    @unclosed
+    def flush(self, merge: bool=None, optimize: bool=None,
+              expunge_deleted: bool=False, restart: bool=True
+              ) -> 'codecs.Segment':
+        """
+        Flushes any queued documents to a new segment but does not close the
+        writer.
+
+        :param merge: Try to merge segments after flushing. Skipping merging
+            is faster but eventually will fill up the index with small segments.
+        :param optimize: Merge more aggressively.
+        :param expunge_deleted: Merge segments with lots of deletions more
+            aggressively.
+        :param restart: setting this to False indicates this writer won't be
+            used again after this flush.
+        """
+
+        # Should we try to merge after integrating the new segment?
+        merge = merge if merge is not None else self.merge
+        # Should we try to merge ALL segments after integrating the new segment?
+        optimize = optimize if optimize is not None else self.optimize
+
+        # Finish buffering
+        self._tempfile.close()
+        # Create a merge object representing the merge-in of the new segment
+        mergeobj = merging.Merge([])
+        self.segments.add_merge(mergeobj)
+
+        # Create a segment from the buffered docs in a future
+        future = self.executor.submit(
+            batch_index, self._buffered, self.store.as_url(), self.indexname,
+            self.schema, self.generation, mergeobj.merge_id, self.doc_limit + 1,
+        )
+
+        def multi_flush_callback(f):
+            self.segments.integrate(*f.results())
+            self._merge_flushed(merge, optimize, expunge_deleted)
+        # Add a callback to integrate the new segment
+        future.add_done_callback(multi_flush_callback)
+
+        # Restart buffering documents
+        if restart:
+            self._make_temp()
+
+

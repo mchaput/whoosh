@@ -1,8 +1,8 @@
-from whoosh.filedb.filestore import RamStorage
-from whoosh.idsets import BitSet, OnDiskBitSet, SortedIntSet
+from whoosh import idsets
+from whoosh.compat import xrange
 
 
-def test_bit_basics(c=BitSet):
+def test_bit_basics(c=idsets.BitSet):
     b = c()
     assert not b
     assert 12 not in b
@@ -23,7 +23,7 @@ def test_bit_basics(c=BitSet):
     assert len(b) == 5
 
 
-def test_len(c=BitSet):
+def test_len(c=idsets.BitSet):
     b = c()
     b.add(3)
     b.add(5)
@@ -37,7 +37,12 @@ def test_len(c=BitSet):
     assert len(b) == 2
 
 
-def test_union(c=BitSet):
+def test_out_of_range(c=idsets.BitSet):
+    b = c([0, 10, 30, 50])
+    assert not 10000 in b
+
+
+def test_union(c=idsets.BitSet):
     assert c([2, 4, 5]) | c([3, 9]) == c([2, 3, 4, 5, 9])
     b = c([2, 4, 5])
     b.update([3, 9])
@@ -50,7 +55,7 @@ def test_union(c=BitSet):
     assert list(b) == [1, 2, 5, 9]
 
 
-def test_intersection(c=BitSet):
+def test_intersection(c=idsets.BitSet):
     assert c([2, 4, 5]) & c([3, 9]) == c()
     assert c([2, 4, 5]) & c([4, 5, 9]) == c([4, 5])
     b = c([2, 4, 5])
@@ -62,7 +67,7 @@ def test_intersection(c=BitSet):
     assert list(b) == [4, 5]
 
 
-def test_difference(c=BitSet):
+def test_difference(c=idsets.BitSet):
     assert c([1, 3, 50, 72]) - c([3, 72]) == c([1, 50])
     assert list(c([1, 3, 50, 72]).difference([3, 72])) == [1, 50]
     b = c([1, 3, 50, 72])
@@ -73,18 +78,12 @@ def test_difference(c=BitSet):
     assert list(b) == [1, 50]
 
 
-def test_copy(c=BitSet):
+def test_copy(c=idsets.BitSet):
     b = c([1, 5, 100, 60])
     assert b == b.copy()
 
 
-def test_clear(c=BitSet):
-    b = c([1, 5, 100, 60])
-    b.clear()
-    assert list(b) == []
-
-
-def test_isdisjoint(c=BitSet):
+def test_isdisjoint(c=idsets.BitSet):
     b = c([1, 7, 20, 100])
     assert b.isdisjoint(c([2, 8, 25]))
     assert b.isdisjoint([2, 8, 25])
@@ -92,7 +91,7 @@ def test_isdisjoint(c=BitSet):
     assert not b.isdisjoint([1, 8, 25])
 
 
-def test_before_after(c=BitSet):
+def test_before_after(c=idsets.BitSet):
     b = c([10, 11, 30, 50, 80])
     assert b.after(0) == 10
     assert b.after(7) == 10
@@ -146,40 +145,97 @@ def test_before_after(c=BitSet):
     assert b.after(0) == 49
 
 
-def test_sortedintset():
-    test_bit_basics(SortedIntSet)
-    test_len(SortedIntSet)
-    test_union(SortedIntSet)
-    test_intersection(SortedIntSet)
-    test_difference(SortedIntSet)
-    test_copy(SortedIntSet)
-    test_clear(SortedIntSet)
-    test_isdisjoint(SortedIntSet)
-    test_before_after(SortedIntSet)
+def test_roaring():
+    limit = 200000
+    nums = list(xrange(0, limit, 2))
+    numset = set(nums)
+    ris = idsets.RoaringIntSet.from_sorted_ints(nums)
+
+    for i in xrange(limit):
+        assert (i in numset) == (i in ris)
 
 
-def test_ondisk():
-    bs = BitSet([10, 11, 30, 50, 80])
+def test_roaring_beforeafter():
+    # Create some ints with large gaps to make sure some befores/afters cross
+    # bucket boundaries
+    nums = [int(i ** 3) + i for i in xrange(1000)]
 
-    st = RamStorage()
-    f = st.create_file("test")
-    size = bs.to_disk(f)
-    f.close()
+    ris = idsets.RoaringIntSet(nums)
+    for i, n in enumerate(nums):
+        bef = ris.before(n)
+        if i == 0:
+            assert bef is None
+        else:
+            assert bef == nums[i - 1]
 
-    f = st.open_file("test")
-    b = OnDiskBitSet(f, 0, size)
-    assert list(b) == list(bs)
+        aft = ris.after(n)
+        if i == len(nums) - 1:
+            assert aft is None
+        else:
+            assert aft == nums[i + 1]
 
-    assert b.after(0) == 10
-    assert b.after(10) == 11
-    assert b.after(80) is None
-    assert b.after(99) is None
 
-    assert b.before(0) is None
-    assert b.before(99) == 80
-    assert b.before(80) == 50
-    assert b.before(10) is None
+def test_reverse():
+    b = idsets.BitSet([0, 100, 1000, 10000])
+    rs = idsets.ReverseIntSet(b)
 
-    f.seek(0)
-    b = BitSet.from_disk(f, size)
-    assert list(b) == list(bs)
+    assert 100 in b
+    assert 100 not in rs
+    assert 1000 not in rs
+
+    assert 2000 not in b
+    assert 2000 in rs
+
+    rs.add(1000)
+    assert 1000 in rs
+    assert 1000 not in b
+
+    rs.discard(5000)
+    assert 5000 not in rs
+    assert 5000 in b
+
+    assert rs.first() == 1
+    assert rs.last() == 9999
+    assert rs.before(101) == 99
+    assert rs.after(99) == 101
+
+
+def test_sortedintset_suite():
+    c = idsets.SortedIntSet
+    test_bit_basics(c)
+    test_len(c)
+    test_union(c)
+    test_intersection(c)
+    test_difference(c)
+    test_copy(c)
+    test_isdisjoint(c)
+    test_before_after(c)
+
+
+def test_roaring_suite():
+    c = idsets.RoaringIntSet
+    test_bit_basics(c)
+    test_len(c)
+    test_union(c)
+    test_intersection(c)
+    test_difference(c)
+    test_copy(c)
+    test_isdisjoint(c)
+    test_before_after(c)
+
+
+def test_subset():
+    c = idsets.BitSet([1, 2, 4, 6, 10, 16, 26, 40, 50, 60, 70, 80])
+    sub = idsets.SubSet(c, 5, 45)  # Acts like a bitset with 0 - 40
+    assert 0 not in sub
+    assert 1 in sub
+    assert 2 not in sub
+    assert 5 in sub
+    assert 40 not in sub
+    assert 100 not in sub
+
+    sub = idsets.SubSet(c, 1, 80)
+    assert 0 in sub
+    assert 79 not in sub
+    assert 80 not in sub
+
