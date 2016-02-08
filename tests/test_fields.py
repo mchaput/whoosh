@@ -622,3 +622,42 @@ def test_pickle_idlist():
     )
     with TempIndex(schema) as ix:
         assert ix
+
+
+def test_pickle_schema():
+    from whoosh import analysis
+    from whoosh.support.charset import accent_map
+    from whoosh.compat import dumps
+
+    freetext_analyzer = (
+        analysis.StemmingAnalyzer() |
+        analysis.CharsetFilter(accent_map)
+    )
+
+    schema = fields.Schema(
+        path=fields.ID(stored=True, unique=True),
+        file_mtime=fields.DATETIME(stored=True),
+        name=fields.TEXT(stored=False, field_boost=2.0),
+        description=fields.TEXT(stored=False, field_boost=1.5,
+                                analyzer=freetext_analyzer),
+        content=fields.TEXT(analyzer=freetext_analyzer)
+    )
+
+    # Try to make some sentences that will require stemming
+    docs = [
+        u"The rain in spain falls mainly in the plain",
+        u"Plainly sitting on the plain",
+        u"Imagine a greatly improved sentence here"
+    ]
+
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            for doc in docs:
+                w.add_document(description=doc, content=doc)
+
+        assert dumps(schema, 2)
+
+        with ix.reader() as r:
+            assert dumps(r.schema, 2)
+
+
