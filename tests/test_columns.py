@@ -285,3 +285,39 @@ def test_ref_switch():
 
             assert len(w) == 2
             assert issubclass(w[-1].category, UserWarning)
+
+
+def test_varbytes_offsets():
+    values = u("alfa bravo charlie delta echo foxtrot golf hotel").split()
+    vlen = len(values)
+
+    # Without offsets:
+    col = columns.VarBytesColumn(allow_offsets=False)
+    schema = fields.Schema(name=fields.ID(sortable=col))
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            for i in xrange(5000):
+                w.add_document(name=values[i % vlen])
+
+        with ix.reader() as r:
+            cr = r.column_reader("name")
+            assert isinstance(cr, columns.TranslatingColumnReader)
+            assert not cr.raw_column().had_stored_offsets
+            for i in (10, 100, 1000, 3000):
+                assert cr[i] == values[i % vlen]
+
+    # With offsets
+    col = columns.VarBytesColumn(allow_offsets=True, write_offsets_cutoff=4096)
+    schema = fields.Schema(name=fields.ID(sortable=col))
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            for i in xrange(5000):
+                w.add_document(name=values[i % vlen])
+
+        with ix.reader() as r:
+            cr = r.column_reader("name")
+            assert isinstance(cr, columns.TranslatingColumnReader)
+            assert cr.raw_column().had_stored_offsets
+            for i in (10, 100, 1000, 3000):
+                assert cr[i] == values[i % vlen]
+
