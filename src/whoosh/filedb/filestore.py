@@ -459,7 +459,8 @@ class FileStorage(Storage):
         try:
             # Try to remove the directory
             os.rmdir(self.folder)
-        except IOError, e:
+        except IOError:
+            e = sys.exc_info()[1]
             if e.errno == errno.ENOENT:
                 pass
             else:
