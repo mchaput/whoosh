@@ -1177,6 +1177,9 @@ class BufferedWriter(IndexWriter):
             self.timer = threading.Timer(self.period, self.commit)
             self.timer.start()
 
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
     def _make_ram_index(self):
         from whoosh.codec.memory import MemoryCodec
 
