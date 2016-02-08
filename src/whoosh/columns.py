@@ -232,33 +232,72 @@ class VarBytesColumn(Column):
 
     _default = emptybytes
 
+    def __init__(self, allow_offsets=True, write_offsets_cutoff=2**15):
+        """
+        :param allow_offsets: Whether the column should write offsets when there
+            are many rows in the column (this makes opening the column much
+            faster). This argument is mostly for testing.
+        :param write_offsets_cutoff: Write offsets (for speed) when there are
+            more than this many rows in the column. This argument is mostly
+            for testing.
+        """
+
+        self.allow_offsets = allow_offsets
+        self.write_offsets_cutoff = write_offsets_cutoff
+
+    def writer(self, dbfile):
+        return self.Writer(dbfile, self.allow_offsets,
+                           self.write_offsets_cutoff)
+
     class Writer(ColumnWriter):
-        def __init__(self, dbfile):
+        def __init__(self, dbfile, allow_offsets=True, cutoff=2**15):
             assert isinstance(dbfile, StructFile)
             self._dbfile = dbfile
             self._count = 0
             self._lengths = GrowableArray(allow_longs=False)
+            self._offsets = GrowableArray(allow_longs=False)
+            self._offset_base = 0
+            self.allow_offsets = allow_offsets
+            self.cutoff = cutoff
 
         def __repr__(self):
             return "<VarBytes.Writer>"
 
         def fill(self, docnum):
+            base = self._offset_base
             if docnum > self._count:
                 self._lengths.extend(0 for _ in xrange(docnum - self._count))
+                self._offsets.extend(base for _ in xrange(docnum - self._count))
 
         def add(self, docnum, v):
             self.fill(docnum)
             self._dbfile.write(v)
             self._lengths.append(len(v))
+            self._offsets.append(self._offset_base)
+            self._offset_base += len(v)
             self._count = docnum + 1
 
         def finish(self, doccount):
-            self.fill(doccount)
+            dbfile = self._dbfile
             lengths = self._lengths.array
+            offsets = self._offsets.array
+            self.fill(doccount)
 
-            self._dbfile.write_array(lengths)
-            # Write the typecode for the lengths
-            self._dbfile.write_byte(ord(lengths.typecode))
+            dbfile.write_array(lengths)
+
+            # Only write the offsets if there is a large number of items in the
+            # column, otherwise it's fast enough to derive them from the lens
+            write_offsets = self.allow_offsets and doccount > self.cutoff
+            if write_offsets:
+                dbfile.write_array(offsets)
+
+            # Backwards compatibility: previous versions only wrote the lengths,
+            # and the last byte of the column was the lengths type code...
+            dbfile.write(lengths.typecode.encode("ascii"))
+            # ...but if we wrote offsets, make the last byte "X" so we know
+            if write_offsets:
+                dbfile.write(offsets.typecode.encode("ascii"))
+                dbfile.write("X".encode("ascii"))
 
     class Reader(ColumnReader):
         def __init__(self, dbfile, basepos, length, doccount):
@@ -267,17 +306,13 @@ class VarBytesColumn(Column):
             self._length = length
             self._doccount = doccount
 
-            self._read_lengths()
-            # Create an array of offsets into the strings using the lengths
-            offsets = array("L", (0,))
-            for length in self._lengths:
-                offsets.append(offsets[-1] + length)
-            self._offsets = offsets
+            self.had_stored_offsets = False  # for testing
+            self._read_offsets_and_lengths()
 
         def __repr__(self):
             return "<VarBytes.Reader>"
 
-        def _read_lengths(self):
+        def _read_offsets_and_lengths(self):
             dbfile = self._dbfile
             basepos = self._basepos
             length = self._length
@@ -285,13 +320,42 @@ class VarBytesColumn(Column):
 
             # The end of the lengths array is the end of the data minus the
             # typecode byte
-            endoflens = basepos + length - 1
-            # Load the length typecode from before the key length
-            typecode = chr(dbfile.get_byte(endoflens))
-            # Load the length array from before the typecode
-            itemsize = struct.calcsize(typecode)
-            lengthsbase = endoflens - (itemsize * doccount)
-            self._lengths = dbfile.get_array(lengthsbase, typecode, doccount)
+            lastbyte = basepos + length - 1
+            # Load the length typecode from the end
+            lens_code = chr(dbfile.get_byte(lastbyte))
+
+            offsets = None
+            print("lens_code=", lens_code)
+            if lens_code == "X":
+                print("READ")
+                self.had_stored_offsets = True
+                # This indicates we wrote the offsets, so get the real lengths
+                # type code
+                lens_code = chr(dbfile.get_byte(lastbyte - 2))
+                offsets_code = chr(dbfile.get_byte(lastbyte - 1))
+
+                # Read the offsets from before the last byte
+                itemsize = struct.calcsize(offsets_code)
+                offsetstart = (lastbyte - 2) - doccount * itemsize
+                offsets = dbfile.get_array(offsetstart, offsets_code, doccount)
+                lastbyte = offsetstart
+
+            # Load the length array
+            itemsize = struct.calcsize(lens_code)
+            lenstart = lastbyte - (itemsize * doccount)
+            lengths = dbfile.get_array(lenstart, lens_code, doccount)
+
+            # If we didn't write the offsets, derive them from the lengths
+            if offsets is None:
+                print("DERIVE")
+                offsets = array("L")
+                base = 0
+                for length in lengths:
+                    offsets.append(base)
+                    base += length
+
+            self._offsets = offsets
+            self._lengths = lengths
 
         def __getitem__(self, docnum):
             length = self._lengths[docnum]
