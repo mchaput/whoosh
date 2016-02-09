@@ -77,8 +77,8 @@ def test_grouped_and_collapsed():
 
         with ix.searcher() as s:
             r = s.q.all().grouped_by("key").collapse("key", 2).results()
-            print([hit["name"] for hit in r])
-            assert False
+            names = [hit["name"] for hit in r]
+            assert names == ["a", "b", "c", "d", "e", "f"]
 
 
 # def test_add():
