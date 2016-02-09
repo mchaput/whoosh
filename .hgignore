@@ -4,6 +4,7 @@ syntax: glob
 *.DS_Store
 
 .idea
+.cache
 .settings
 .coverage
 .tox
