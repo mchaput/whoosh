@@ -547,3 +547,45 @@ def test_no_morph():
     assert rt(value) == "call render function"
     assert rt(value, no_morph=True) == "calling rendering functions"
 
+
+def test_porter():
+    from whoosh.lang.porter_x import stem
+
+    stems = (
+        "caresses", "caress",
+        "ponies", "poni",
+        "sties", "sti",
+        "tie", "tie",
+        "caress", "caress",
+        "cats", "cat",
+        "feed", "feed",
+        "matting", "mat",
+        "mating", "mate",
+        "meeting", "meet",
+        "milling", "mill",
+        "messing", "mess",
+        "meetings", "meet",
+        'happy', 'happi',
+        'enjoy', 'enjoy',
+        "spy", "spi",
+        "fly", "fli",
+        "try", "tri",
+        "outfitted", "outfit",
+        "conned", "con",
+        "admitted", "admit",
+        "committed", "commit",
+        "studded", "stud",
+    )
+
+    wrong = []
+    for i in range(0, len(stems), 2):
+        before = stems[i]
+        target = stems[i + 1]
+        output = stem(before)
+
+        if not output == target:
+            wrong.append((before, target, output))
+
+    assert not wrong
+
+
