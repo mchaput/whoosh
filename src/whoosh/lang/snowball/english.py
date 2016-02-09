@@ -7,29 +7,6 @@ class EnglishStemmer(_StandardStemmer):
     """
     The English Snowball stemmer.
 
-    :cvar __vowels: The English vowels.
-    :type __vowels: unicode
-    :cvar __double_consonants: The English double consonants.
-    :type __double_consonants: tuple
-    :cvar __li_ending: Letters that may directly appear before a word final 'li'.
-    :type __li_ending: unicode
-    :cvar __step0_suffixes: Suffixes to be deleted in step 0 of the algorithm.
-    :type __step0_suffixes: tuple
-    :cvar __step1a_suffixes: Suffixes to be deleted in step 1a of the algorithm.
-    :type __step1a_suffixes: tuple
-    :cvar __step1b_suffixes: Suffixes to be deleted in step 1b of the algorithm.
-    :type __step1b_suffixes: tuple
-    :cvar __step2_suffixes: Suffixes to be deleted in step 2 of the algorithm.
-    :type __step2_suffixes: tuple
-    :cvar __step3_suffixes: Suffixes to be deleted in step 3 of the algorithm.
-    :type __step3_suffixes: tuple
-    :cvar __step4_suffixes: Suffixes to be deleted in step 4 of the algorithm.
-    :type __step4_suffixes: tuple
-    :cvar __step5_suffixes: Suffixes to be deleted in step 5 of the algorithm.
-    :type __step5_suffixes: tuple
-    :cvar __special_words: A dictionary containing words
-                           which have to be stemmed specially.
-    :type __special_words: dict
     :note: A detailed description of the English
            stemming algorithm can be found under
            http://snowball.tartarus.org/algorithms/english/stemmer.html
