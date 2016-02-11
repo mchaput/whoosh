@@ -325,9 +325,7 @@ class VarBytesColumn(Column):
             lens_code = chr(dbfile.get_byte(lastbyte))
 
             offsets = None
-            print("lens_code=", lens_code)
             if lens_code == "X":
-                print("READ")
                 self.had_stored_offsets = True
                 # This indicates we wrote the offsets, so get the real lengths
                 # type code
@@ -347,7 +345,6 @@ class VarBytesColumn(Column):
 
             # If we didn't write the offsets, derive them from the lengths
             if offsets is None:
-                print("DERIVE")
                 offsets = array("L")
                 base = 0
                 for length in lengths:
