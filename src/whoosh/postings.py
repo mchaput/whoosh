@@ -177,7 +177,7 @@ def encode_weights(weights: Sequence[float]) -> bytes:
     if all(w == 1 for w in weights):
         return b"1"
 
-    intweights = [int(w) == w for w in weights]
+    intweights = [int(w) for w in weights]
     if all(w == wi for w, wi in zip_(weights, intweights)):
         arr = min_array(intweights)
     else:
