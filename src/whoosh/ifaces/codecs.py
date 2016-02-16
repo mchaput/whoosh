@@ -128,7 +128,7 @@ class Segment(object):
     def codec_name(self) -> str:
         return self.codec().name()
 
-    # Abstract methods
+    # Interface
 
     @abstractmethod
     def codec(self) -> 'Codec':
@@ -152,13 +152,6 @@ class Segment(object):
 
         raise NotImplementedError
 
-    def doc_count(self) -> int:
-        """
-        Returns the number of (undeleted) documents in this segment.
-        """
-
-        return self.doc_count_all() - self.deleted_count()
-
     @abstractmethod
     def set_doc_count(self, doccount: int):
         raise NotImplementedError
@@ -166,13 +159,6 @@ class Segment(object):
     @abstractmethod
     def field_length(self, fieldname: str, default: int=0) -> int:
         raise NotImplementedError
-
-    def has_deletions(self) -> bool:
-        """
-        Returns True if any documents in this segment are deleted.
-        """
-
-        return self.deleted_count() > 0
 
     @abstractmethod
     def deleted_count(self) -> int:
@@ -196,11 +182,6 @@ class Segment(object):
 
         raise NotImplementedError
 
-    def delete_documents(self, docnums: Iterable[int]):
-        deldoc = self.delete_document
-        for docnum in docnums:
-            deldoc(docnum)
-
     @abstractmethod
     def is_deleted(self, docnum: int) -> bool:
         """
@@ -211,6 +192,25 @@ class Segment(object):
 
         raise NotImplementedError
 
+    def doc_count(self) -> int:
+        """
+        Returns the number of (undeleted) documents in this segment.
+        """
+
+        return self.doc_count_all() - self.deleted_count()
+
+    def delete_documents(self, docnums: Iterable[int]):
+        deldoc = self.delete_document
+        for docnum in docnums:
+            deldoc(docnum)
+
+    def has_deletions(self) -> bool:
+        """
+        Returns True if any documents in this segment are deleted.
+        """
+
+        return self.deleted_count() > 0
+
     @staticmethod
     def should_rewrite() -> bool:
         """
@@ -220,6 +220,21 @@ class Segment(object):
         """
 
         return False
+
+
+class FileSegment(Segment):
+    def filename_prefix(self):
+        short_name = self.codec().short_name()
+        return "%s_%s_" % (short_name, self.segment_id())
+
+    def make_filename(self, name: str, ext: str) -> str:
+        return "%s%s%s" % (self.filename_prefix(), name, ext)
+
+    def file_names(self, store) -> Iterable[str]:
+        prefix = self.filename_prefix()
+        for filename in store:
+            if filename.startswith(prefix):
+                yield filename
 
 
 # Base codec class
@@ -237,6 +252,12 @@ class Codec(object):
         """
 
         raise NotImplementedError
+
+    def short_name(self) -> str:
+        """
+        Returns a short name for this codec, for use in filenames.
+        """
+        return self.name().split(".")[-1]
 
     # Per document value writer
 
@@ -271,8 +292,15 @@ class Codec(object):
     # Segments
 
     @abstractmethod
-    def new_segment(self, store: 'storage.Storage', indexname: str) -> Segment:
+    def new_segment(self, session: 'storage.Session') -> Segment:
         raise NotImplementedError
+
+    def finish_segment(self, session: 'storage.Session', segment: Segment):
+        pass
+
+    def segment_storage(self, store: 'storage.Storage', segment: Segment
+                        ) -> 'storage.Storage':
+        return store
 
     @abstractclassmethod
     def segment_from_bytes(cls, bs) -> Segment:
@@ -303,9 +331,15 @@ class WrappingCodec(Codec):
                             segment: Segment) -> 'PerDocumentReader':
         return self._child.per_document_reader(session, segment)
 
-    def new_segment(self, store: 'storage.Storage', indexname: str
-                    ) -> Segment:
-        return self._child.new_segment(store, indexname)
+    def new_segment(self, session: 'storage.Session') -> Segment:
+        return self._child.new_segment(session)
+
+    def finish_segment(self, session: 'storage.Session', segment: Segment):
+        self._child.finish_segment(session, segment)
+
+    def segment_storage(self, store: 'storage.Storage', segment: Segment
+                        ) -> 'storage.Storage':
+        return self._child.segment_storage(store, segment)
 
     @abstractclassmethod
     def segment_from_bytes(cls, bs: bytes) -> Codec:
@@ -334,6 +368,10 @@ class PerDocumentWriter(object):
                             posts: 'Sequence[postings.PostTuple]'):
         raise NotImplementedError
 
+    @abstractmethod
+    def add_raw_vector(self, fieldname: str, data: bytes):
+        raise NotImplementedError
+
     def finish_doc(self):
         pass
 
@@ -352,6 +390,10 @@ class FieldWriter(object):
 
     @abstractmethod
     def add_posting(self, post: 'postings.PostTuple'):
+        raise NotImplementedError
+
+    @abstractmethod
+    def add_raw_post(self, rawpost: 'postings.RawData'):
         raise NotImplementedError
 
     def add_elements(self, *args, **kwargs):
@@ -523,6 +565,9 @@ class TermsReader(object):
     def __contains__(self, term: TermTuple) -> bool:
         raise NotImplementedError
 
+    def set_merging_hint(self):
+        pass
+
     @abstractmethod
     def cursor(self, fieldname: str, fieldobj: 'fields.FieldType'
                ) -> TermCursor:
@@ -607,6 +652,9 @@ class Automata(object):
 # Per-doc value reader
 
 class PerDocumentReader(object):
+    def set_merging_hint(self):
+        pass
+
     def close(self):
         pass
 
@@ -776,6 +824,10 @@ class MultiPerDocumentReader(PerDocumentReader):
             self._doccount += pdr.doc_count_all()
 
         self.is_closed = False
+
+    def set_merging_hint(self):
+        for pdr in self._readers:
+            pdr.set_merging_hint()
 
     def close(self):
         for r in self._readers:

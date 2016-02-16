@@ -17,10 +17,10 @@ def test_roundtrip_toc():
         ixname = "test"
         cdate = datetime(2012, 12, 25, 15, 45)
 
-        segments = [x1.new_segment(st, ixname), x1.new_segment(st, ixname)]
-        segids = [s.segment_id() for s in segments]
-
         with st.open(ixname) as session:
+            segments = [x1.new_segment(session), x1.new_segment(session)]
+            segids = [s.segment_id() for s in segments]
+
             toc = index.Toc(schema, segments, 12, toc_version=-50,
                             release=(5, 6, 200))
             toc.created = cdate
@@ -67,12 +67,11 @@ def test_roundtrip_toc():
             assert dtoc.schema == schema
 
 
-def test_open_and_close():
+def test_compound_open_and_close():
     with TempStorage() as st:
-        assem = compound.AssemblingStorage(st, "assem")
-        with assem.create_file("a") as f:
+        with st.create_file("a") as f:
             f.write(b"b")
-        assem.close()
+        compound.assemble_files(st, ["a"], st, "assem")
 
         m = st.map_file("assem")
         m.close()
@@ -92,17 +91,14 @@ def _test_simple_compound(st):
     blist = array("H", [1, 12, 67, 8, 2, 1023])
     clist = array("q", [100, -100, 200, -200])
 
-    assem = compound.AssemblingStorage(st, "assem")
-
-    with assem.create_file("a") as af:
+    with st.create_file("a") as af:
         af.write_array(alist)
-    with assem.create_file("b") as bf:
+    with st.create_file("b") as bf:
         bf.write_array(blist, native=False)
-    with assem.create_file("c") as cf:
+    with st.create_file("c") as cf:
         cf.write_array(clist)
 
-    assem.close()
-
+    compound.assemble_files(st, ["a", "b", "c"], st, "assem")
     cst = compound.CompoundStorage(st, "assem")
 
     assert sorted(cst.list()) == ["a", "b", "c"]
@@ -143,7 +139,7 @@ def test_simple_compound_nomap():
 #     _test_simple_compound(st)
 
 
-def test_reads():
+def test_compound_reads():
     from struct import Struct
 
     s = Struct("<IiBfq")
@@ -151,14 +147,14 @@ def test_reads():
     numbers = [2**i for i in xrange(0, 30)]
 
     with TempStorage() as st:
-        assem = compound.AssemblingStorage(st, "assem")
-        with assem.create_file("test") as f:
+        with st.create_file("test") as f:
             bs = s.pack(*target)
             f.write(bs)
 
             a = array("i", numbers)
             f.write_array(a)
-        assem.close()
+
+        compound.assemble_files(st, ["test"], st, "assem")
 
         assert st.file_length("assem") > 0
         cst = compound.CompoundStorage(st, "assem")

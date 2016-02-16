@@ -306,20 +306,6 @@ class BaseFileStorage(storage.Storage):
 
         raise NotImplementedError
 
-    @abstractmethod
-    def temp_storage(self, name: str=None) -> 'BaseFileStorage':
-        """
-        Creates a new storage object for temporary files. You can call
-        :meth:`Storage.destroy` on the new storage when you're finished with
-        it.
-
-        :param name: a name for the new storage. This may be optional or
-            required depending on the storage implementation.
-        :rtype: :class:`BaseFileStorage`
-        """
-
-        raise NotImplementedError
-
     def close(self):
         """
         Closes any resources opened by this storage object. For some storage

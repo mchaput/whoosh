@@ -5,7 +5,7 @@ import pytest
 
 from whoosh import fields, query, writing
 from whoosh.ifaces import analysis
-from whoosh.compat import xrange, text_type
+from whoosh.compat import xrange, text_type, permutations
 from whoosh.util.testing import TempIndex
 
 
@@ -386,7 +386,7 @@ def test_add_reader_spelling():
 
         with ix.reader() as r:
             al = list(r.lexicon("a"))
-            assert al == [b"eye", b"fly", b"indicat", b"model", b"render",
+            assert al == [b"eye", b"fli", b"indic", b"model", b"render",
                           b"roll", b"undo", b"write"]
 
             assert "spell_b" in r.schema
@@ -463,5 +463,30 @@ def test_long_lengths():
         with ix.writer() as w:
             for length in lengths:
                 w.add_document(text=u"alfa " * length)
+
+
+def test_merge_lengths():
+    # import logging
+    # logger = logging.getLogger("whoosh")
+    # logger.addHandler(logging.StreamHandler())
+    # logger.setLevel(logging.INFO)
+
+    schema = fields.Schema(text=fields.Text)
+    words = u"alfa bravo charlie delta echo foxtrot hotel india foxtrot".split()
+    with TempIndex(schema) as ix:
+        count = 0
+        for _ in xrange(5):
+            with ix.writer() as w:
+                for j in xrange(1000):
+                    length = j % len(words) + 1
+                    doc = " ".join(words[:length])
+                    count += 1
+                    w.add_document(text=u" ".join(doc))
+                w.merge = False
+
+        # Merge segments
+        with ix.writer() as w:
+            w.optimize = True
+
 
 

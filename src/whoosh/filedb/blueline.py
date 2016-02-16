@@ -25,20 +25,23 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+import logging
 import struct
 from abc import abstractmethod
+from array import array
 from collections import deque
 from genericpath import commonprefix
 from struct import Struct
 from typing import Iterable, List, Optional, Sequence, Tuple, Union
-
-from array import array
 
 from whoosh.compat import izip, xrange
 from whoosh.filedb.datafile import Data, OutputFile
 from whoosh.metadata import MetaData
 from whoosh.system import IS_LITTLE
 from whoosh.util.numlists import min_array_code
+
+
+logger = logging.getLogger(__name__)
 
 
 # Constants
@@ -389,7 +392,8 @@ class Region(KeyValueReader):
                  poses: Sequence[int],
                  klens: Sequence[int], vlens: Sequence[int],
                  prefix: bytes, fixedklen: int, fixedvlen: int,
-                 minkey: bytes=None, maxkey: bytes=None):
+                 minkey: bytes=None, maxkey: bytes=None,
+                 preread_keys: bool=False):
         """
         :param data: the mmap to read from.
         :param content_start: the start position of the items.
@@ -402,6 +406,8 @@ class Region(KeyValueReader):
         :param fixedvlen: a common length of all values, or -1.
         :param minkey: the smallest key in the region, if already known.
         :param maxkey: the smallest key in the region, if already known.
+        :param preread_keys: load all keys into memory. This is faster when
+            you know you will access the region linearly, but takes more memory.
         """
 
         self._data = data
@@ -426,22 +432,24 @@ class Region(KeyValueReader):
         self._minkey = minkey
         self._maxkey = maxkey
 
-        # self._lookup = {}
-        # self._lookup = dict((key, i) for i, key in enumerate(self._keys()))
+        self._keylist = None
+        self._lookup = None
+        if preread_keys:
+            self.enable_preread()
 
     def __repr__(self):
         return "<%s %r-%r>" % (type(self).__name__, self._minkey, self._maxkey)
 
     @classmethod
-    def from_ref(cls, data: Data, ref: Ref,
-                 load_arrays: bool=False) -> 'Region':
+    def from_ref(cls, data: Data, ref: Ref, load_arrays: bool=False,
+                 preread_keys: bool=False) -> 'Region':
         return cls.load(data, ref.offset, minkey=ref.minkey, maxkey=ref.maxkey,
-                        load_arrays=load_arrays)
+                        load_arrays=load_arrays, preread_keys=preread_keys)
 
     @classmethod
-    def load(cls, data: Data, offset: int=0,
-             minkey: bytes=None, maxkey: bytes=None,
-             load_arrays: bool=False) -> 'Region':
+    def load(cls, data: Data, offset: int=0, minkey: bytes=None,
+             maxkey: bytes=None, load_arrays: bool=False,
+             preread_keys: bool=False) -> 'Region':
         # Reads the region info from a mmap at the given offset
 
         # Read and unpack the header struct
@@ -487,7 +495,12 @@ class Region(KeyValueReader):
         fixedvlen = head.fixedvlen if head.vlen_fixed else -1
 
         return cls(data, content_start, count, poses, klens, vlens,
-                   prefix, fixedklen, fixedvlen, minkey, maxkey)
+                   prefix, fixedklen, fixedvlen, minkey, maxkey,
+                   preread_keys=preread_keys)
+
+    def enable_preread(self):
+        # logger.debug("Enabling preread on region %r", self)
+        self._lookup = dict((key, i) for i, key in enumerate(self._keys()))
 
     def close(self):
         # If we have memoryviews, release them
@@ -507,8 +520,8 @@ class Region(KeyValueReader):
         except KeyError:
             return False
 
-        # if suffix in self._lookup:
-        #     return True
+        if self._lookup and suffix in self._lookup:
+            return True
 
         i = self._suffix_index(suffix)
         if i < self._count:
@@ -520,6 +533,10 @@ class Region(KeyValueReader):
         return False
 
     def __getitem__(self, key: bytes):
+        if self._lookup is not None:
+            i = self._lookup[key]
+            return self.value_at(i)
+
         suffix = self._unprefix(key)
         i = self._suffix_index(suffix)
         if i >= self._count:
@@ -642,11 +659,6 @@ class Region(KeyValueReader):
         # Returns the index of first item <= the given key, after removing the
         # shared prefix
 
-        # try:
-        #     return self._lookup[suffix]
-        # except KeyError:
-        #     pass
-
         data = self._data
         content_start = self._content_start
         _position_at = self._position_at
@@ -748,21 +760,26 @@ class MultiRegion(KeyValueReader):
     """
 
     def __init__(self, data: Data, reflist: List[Ref], cachesize: int=128,
-                 load_arrays: bool=False):
+                 load_arrays: bool=False, preread_keys: bool=False):
         """
         :param data: the mmap to read from.
         :param reflist: a list of Ref objects representing the regions.
         :param cachesize: the maximum number of Region objects to keep in
             memory.
+        :param preread_keys: load keys into memory, useful when merging to trade
+            memory for speed.
         """
 
         self._data = data
         self._reflist = reflist
         self._cachesize = cachesize
         self._load_arrays = load_arrays
+        self._preread_keys = preread_keys
 
         self._queue = deque()
         self._regions = {}
+        self._keycache = {}
+        self._keycache_counter = 0
         self.misses = 0
 
     def __len__(self) -> int:
@@ -791,6 +808,12 @@ class MultiRegion(KeyValueReader):
                 region = self._region_for_ref(ref)
                 return region[key]
         raise KeyError(key)
+
+    def enable_preread(self):
+        if not self._preread_keys:
+            for region in self._regions.values():
+                region.enable_preread()
+        self._preread_keys = True
 
     # KeyValueReader interface
 
@@ -887,7 +910,8 @@ class MultiRegion(KeyValueReader):
 
     def _realize(self, ref: Ref) -> Region:
         # Load the referenced region from disk
-        region = Region.from_ref(self._data, ref, load_arrays=self._load_arrays)
+        region = Region.from_ref(self._data, ref, load_arrays=self._load_arrays,
+                                 preread_keys=self._preread_keys)
 
         # Add the region to the cache, keyed by its offset
         offset = ref.offset

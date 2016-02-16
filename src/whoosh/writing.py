@@ -26,6 +26,7 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 import copy
+import logging
 import os
 from collections import defaultdict
 from concurrent import futures
@@ -37,9 +38,13 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 from whoosh import fields, index, merging
 from whoosh.ifaces import codecs, readers, searchers, storage
 from whoosh.compat import xrange
-from whoosh.postings import PostTuple, change_docid, post_docid, TERMBYTES
+from whoosh.postings import PostTuple, change_docid, post_docid
+from whoosh.postings import TERMBYTES, DOCID
 from whoosh.ifaces import queries
-from whoosh.util import unclosed
+from whoosh.util import now, unclosed
+
+
+logger = logging.getLogger(__name__)
 
 
 # Typing aliases
@@ -77,6 +82,10 @@ def before_add(f):
     return before_add_wrapper
 
 
+def posting_sort_key(post: PostTuple):
+    return post[TERMBYTES], post[DOCID]
+
+
 # Object for keeping track of segments and merges
 
 class SegmentList(object):
@@ -106,6 +115,7 @@ class SegmentList(object):
 
     def add(self, segment: 'codecs.Segment', buffered_deletes: Set[int]=None):
         with self._lock:
+            logger.info("Adding %r to segments", segment)
             segid = segment.segment_id()
             buffered_deletes = buffered_deletes or set()
 
@@ -121,6 +131,7 @@ class SegmentList(object):
 
     def add_merge(self, merge: merging.Merge):
         with self._lock:
+            logger.info("Adding merge %r" % merge)
             for segment in merge.segments:
                 self.save_buffered_deletes(segment)
             self._current_merges.append(merge)
@@ -143,6 +154,7 @@ class SegmentList(object):
     def remove_segment(self, segment: 'codecs.Segment'):
         segid = segment.segment_id()
         with self._lock:
+            logger.info("Removing %r from segments", segment)
             # Close and remove the cached reader if it exists
             if segid in self._cached_readers:
                 self._cached_readers.pop(segid).close()
@@ -163,6 +175,8 @@ class SegmentList(object):
 
     def integrate(self, newsegment: 'codecs.Segment', merge_id: str):
         with self._lock:
+            logger.info("Integrating %r (merge ID %r) into segments",
+                        newsegment, merge_id)
             # Just do a simple linear search for the merge
             for i in xrange(len(self._current_merges)):
                 m = self._current_merges[i]
@@ -276,7 +290,7 @@ class SegmentWriter(object):
                  segments: 'Sequence[codecs.Segment]'=None,
                  session: 'storage.Session'=None, cdc: 'codecs.Codec'=None,
                  docbase: int=0, merge_strategy: 'merging.MergeStrategy'=None,
-                 doc_limit=1000, executor: 'futures.Executor'=None,
+                 doc_limit=10000, executor: 'futures.Executor'=None,
                  is_sub_writer: bool=False):
         self.store = store
         self.indexname = indexname
@@ -287,8 +301,8 @@ class SegmentWriter(object):
         self.session = session or self.store.open(indexname, writable=True)
 
         self._original_segments = segments if segments is not None else []
-        self._segments = copy.deepcopy(self._original_segments)
-        self.segments = SegmentList(self.session, self.schema, self._segments)
+        self.segments = SegmentList(self.session, self.schema,
+                                    self._original_segments)
 
         if cdc is None:
             from whoosh.codec import default_codec
@@ -310,7 +324,7 @@ class SegmentWriter(object):
 
         self.closed = False
         self._docnum = self.docbase = docbase
-        self._termbuffer = {}  # type: TermDict
+        self._pbuffers = defaultdict(list)  # type: Dict[str, List[PostTuple]]
         self._doccount = 0
         self._added = False
         self._changed = False
@@ -319,17 +333,17 @@ class SegmentWriter(object):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type:
-            self.cancel()
-        else:
+        if not exc_type:
             self.commit()
 
     def _start_new_segment(self):
-        self.segment = self.new_segment()
-
+        logger.info("Starting new segment")
         codec = self.codec
-        self._perdoc = codec.per_document_writer(self.session, self.segment)
-        self._terms = codec.field_writer(self.session, self.segment)
+        self.segment = segment = codec.new_segment(self.session)
+
+        self._perdoc = codec.per_document_writer(self.session, segment)
+        self._terms = codec.field_writer(self.session, segment)
+        self._docnum = 0
 
     def group(self):
         """
@@ -388,9 +402,6 @@ class SegmentWriter(object):
         """
 
         pass
-
-    def new_segment(self) -> 'codecs.Segment':
-        return self.codec.new_segment(self.store, self.indexname)
 
     def add_field(self, fieldname: str, field: 'fields.FieldType'):
         """
@@ -494,20 +505,24 @@ class SegmentWriter(object):
         self.try_merging()
 
     def try_merging(self, expunge_deleted: bool=False):
+        logger.info("Trying to merge")
         strategy = self.merge_strategy
         merging = self.segments.merging_ids()
-        merges = strategy.get_merges(self._segments, merging,
+        merges = strategy.get_merges(self.segments.segments, merging,
                                      expunge_deleted=expunge_deleted)
+        logger.info("Found merges %r", merges)
         for merge in merges:
             self.apply_merge(merge)
 
     def apply_merge(self, merge: merging.Merge):
+        logger.info("Applying merge %r", merge)
         ids_to_merge = set(seg.segment_id() for seg in merge.segments)
         if self.segments.are_merging(ids_to_merge):
             raise Exception("Trying to merge already merging segments")
         self.segments.add_merge(merge)
 
         if self.executor:
+            logger.info("Submitting merge %r to %r", merge, self.executor)
             future = self.executor.submit(
                 perform_merge, self.store, self.indexname, self.codec,
                 self.schema, merge
@@ -518,6 +533,7 @@ class SegmentWriter(object):
 
             future.add_done_callback(merge_callback)
         else:
+            logger.info("Performing serial merge of %r", merge)
             self._perform_merge(merge)
 
     def _perform_merge(self, merge: merging.Merge):
@@ -540,15 +556,17 @@ class SegmentWriter(object):
             length, posts = field.index(value, docnum, boost=boost)
             postcount = len(posts)
 
-            # Get the buffer for this field
-            try:
-                fdict = self._termbuffer[fieldname]
-            except KeyError:
-                self._termbuffer[fieldname] = fdict = defaultdict(list)
+            self._pbuffers[fieldname].extend(posts)
 
+            # Get the buffer for this field
+            # try:
+            #     fdict = self._termbuffer[fieldname]
+            # except KeyError:
+            #     self._termbuffer[fieldname] = fdict = defaultdict(list)
+            #
             # Buffer the posts
-            for post in posts:
-                fdict[post[TERMBYTES]].append(post)
+            # for post in posts:
+            #     fdict[post[TERMBYTES]].append(post)
 
             if field.vector:
                 # If we need to add the posts as a vector, copy the
@@ -669,8 +687,7 @@ class SegmentWriter(object):
         self._added = True
         self._changed = True
 
-        self._doccount += 1
-        if self._doccount >= self.doc_limit:
+        if self._docnum >= self.doc_limit:
             self.flush()
 
     def update_document(self, **kwargs):
@@ -744,6 +761,7 @@ class SegmentWriter(object):
     def _merge_flushed(self, merge: bool, optimize: bool,
                        expunge_deleted: bool):
         if optimize and len(self.segments) > 1:
+            logger.info("Optimizing after flush")
             # Create a merge with every segment
             m = merging.Merge(list(self.segments.segments))
             self.segments.add_merge(m)
@@ -752,7 +770,11 @@ class SegmentWriter(object):
             assert len(self.segments) == 1
 
         elif merge:
+            logger.info("Trying to merge after flush")
             self.try_merging(expunge_deleted=expunge_deleted)
+
+        else:
+            logger.info("Optimize and merge are off, doing nothing")
 
     @unclosed
     def flush(self, merge: bool=None, optimize: bool=None,
@@ -771,18 +793,22 @@ class SegmentWriter(object):
             used again after this flush.
         """
 
+        logger.info("Flushing current segment")
         merge = merge if merge is not None else self.merge
         optimize = optimize if optimize is not None else self.optimize
 
         # Flush the buffered terms
         self._flush_terms()
+
         # Close the codec writers
+        logger.info("Closing codec writers")
         self._perdoc.close()
         self._terms.close()
 
+        segment = self.segment
+        self.codec.finish_segment(self.session, segment)
         # Add the current segment to the segment list
-        thissegment = self.segment
-        self.segments.add(thissegment)
+        self.segments.add(segment)
 
         # TODO: what to do with _changed and _added here?
         self._changed = False
@@ -793,7 +819,7 @@ class SegmentWriter(object):
         if restart:
             self._start_new_segment()
 
-        return thissegment
+        return segment
 
     @unclosed
     def commit(self, merge: bool=None, optimize: bool=None):
@@ -805,6 +831,7 @@ class SegmentWriter(object):
         :param optimize: Merge more aggressively.
         """
 
+        logger.info("Committing")
         merge = merge if merge is not None else self.merge
         optimize = optimize if optimize is not None else self.optimize
         if optimize or self._changed:
@@ -815,8 +842,7 @@ class SegmentWriter(object):
             self.executor.shutdown(wait=True)
 
         # Sync the TOC to storage
-        self._sync_toc(self.session)
-
+        self._sync_toc()
         self._close()
 
     @unclosed
@@ -827,6 +853,7 @@ class SegmentWriter(object):
         """
 
         # Close the codec writers
+        logger.info("Cancelling")
         self._perdoc.close()
         self._terms.close()
         self._close()
@@ -840,28 +867,46 @@ class SegmentWriter(object):
 
     def _flush_terms(self):
         schema = self.schema
-        _fields = self._termbuffer
+        pbufs = self._pbuffers
         fwriter = self._terms
 
-        for fieldname in sorted(_fields):
-            fielddict = _fields[fieldname]
-            fieldobj = schema[fieldname]
+        if not pbufs:
+            logger.info("No terms to flush")
 
+        logger.info("Flushing terms in %d fields", len(pbufs))
+        t = now()
+
+        for fieldname in sorted(pbufs):
+            postlist = pbufs[fieldname]
+            logger.info("Flushing %d posts in %r field",
+                        len(postlist), fieldname)
+
+            postlist.sort(key=posting_sort_key)
+            fieldobj = schema[fieldname]
             fwriter.start_field(fieldname, fieldobj)
-            for termbytes in sorted(fielddict):
-                fwriter.start_term(termbytes)
-                posts = fielddict[termbytes]
-                for post in posts:
-                    fwriter.add_posting(post)
+            tbytes = None
+            for post in postlist:
+                if tbytes != post[TERMBYTES]:
+                    if tbytes is not None:
+                        fwriter.finish_term()
+                    tbytes = post[TERMBYTES]
+                    fwriter.start_term(tbytes)
+
+                fwriter.add_posting(post)
+            if tbytes is not None:
                 fwriter.finish_term()
             fwriter.finish_field()
-        _fields.clear()
+
+        self._pbuffers.clear()
+
+        logger.info("Flushed terms in %0.06f s", now() - t)
         self._postcount = 0
 
-    def _sync_toc(self, session):
+    def _sync_toc(self):
+        logger.info("Syncing TOC to storage")
         self.segments.save_all_buffered_deletes()
         toc = index.Toc(self.schema, self.segments.segments, self.generation)
-        self.store.save_toc(session, toc)
+        self.store.save_toc(self.session, toc)
 
 
 # Merge machinery
@@ -878,6 +923,9 @@ def _copy_perdoc(schema: 'fields.Schema', reader: 'readers.IndexReader',
     :return: A dictionary mapping old doc numbers to new doc numbers, or
         None if no mapping is necessary
     """
+
+    logger.info("Copying per-doc data from %r to %r", reader, perdoc)
+    t = now()
 
     # If the incoming reading has deletions, we need to return a dictionary
     # to map old document numbers to new document numbers
@@ -913,10 +961,15 @@ def _copy_perdoc(schema: 'fields.Schema', reader: 'readers.IndexReader',
                              stored.get(fieldname), length)
 
             # Copy any vector
+            vector = fieldobj.vector
             if fieldobj.vector and reader.has_vector(docnum, fieldname):
                 vreader = reader.vector(docnum, fieldname)
-                posts = tuple(vreader.postings())
-                perdoc.add_vector_postings(fieldname, fieldobj, posts)
+                if vreader.can_copy_raw_to(vector):
+                    rawbytes = vreader.raw_bytes()
+                    perdoc.add_raw_vector(rawbytes)
+                else:
+                    posts = tuple(vreader.postings())
+                    perdoc.add_vector_postings(fieldname, fieldobj, posts)
 
             # Copy any column value
             if fieldname in cols:
@@ -927,6 +980,7 @@ def _copy_perdoc(schema: 'fields.Schema', reader: 'readers.IndexReader',
         perdoc.finish_doc()
         newdoc += 1
 
+    logger.info("Copied perdoc data in %0.06f", now() - t)
     if has_del:
         return docmap
 
@@ -945,36 +999,55 @@ def _copy_terms(schema: 'fields.Schema', reader: 'readers.IndexReader',
         incoming reader to numbers in the new segment.
     """
 
+    logger.info("Merging term data from %r to %r", reader, fwriter)
+    t = now()
+    termcount = 0
+
     last_fieldname = None
+    fieldobj = None  # type: fields.FieldType
     for fieldname, termbytes in reader.all_terms():
         if fieldname not in fieldnames:
             continue
 
         if fieldname != last_fieldname:
+            logger.info("Merging %s field", fieldname)
             if last_fieldname is not None:
                 fwriter.finish_field()
             fieldobj = schema[fieldname]
             fwriter.start_field(fieldname, fieldobj)
             last_fieldname = fieldname
 
+        # logger.debug("Copying term %s:%s", fieldname, termbytes)
+        # tt = now()
+        termcount += 1
+
         fwriter.start_term(termbytes)
-
         m = reader.matcher(fieldname, termbytes)
-        count = 0
-        for p in m.all_postings():
-            if docmap:
-                # Make a new posting with the doc ID updated for this segment
-                newid = docmap[post_docid(p)]
-                p = change_docid(p, newid)
-
-            fwriter.add_posting(p)
-            count += 1
+        if m.can_copy_raw_to(fieldobj.format):
+            # logger.debug("Copying posting bytes directly")
+            for rp in m.all_raw_postings():
+                if docmap:
+                    # Make a new posting with the doc ID updated
+                    newid = docmap[post_docid(rp)]
+                    rp = change_docid(rp, newid)
+                fwriter.add_raw_post(rp)
+        else:
+            for p in m.all_postings():
+                if docmap:
+                    # Make a new posting with the doc ID updated
+                    newid = docmap[post_docid(p)]
+                    p = change_docid(p, newid)
+                fwriter.add_posting(p)
 
         m.close()
+        # logger.debug("Copied term %s:%s in %0.06f s",
+        #              fieldname, termbytes, now() - tt)
         fwriter.finish_term()
 
     if last_fieldname is not None:
         fwriter.finish_field()
+
+    logger.info("Copied %d terms in %0.06f s", termcount, now() - t)
 
 
 def perform_merge(session: 'storage.Session', indexname: str,
@@ -982,6 +1055,9 @@ def perform_merge(session: 'storage.Session', indexname: str,
                   merge: merging.Merge
                   ) -> 'Sequence[Tuple[codecs.Segment, str]]':
     from whoosh.reading import SegmentReader, MultiReader
+
+    logger.info("Merging %r", merge)
+    t = now()
 
     rs = [SegmentReader(session.store, schema, segment) for segment
           in merge.segments]
@@ -992,13 +1068,15 @@ def perform_merge(session: 'storage.Session', indexname: str,
         reader = MultiReader(rs)
 
     newsegment = copy_reader(reader, session, indexname, cdc, schema)
+    logger.info("Merged new segment %r in %0.06f s", newsegment, now() - t)
     return newsegment, merge.merge_id
 
 
 def copy_reader(reader: 'readers.IndexReader', session: 'storage.Session',
                 indexname: str, cdc: 'codecs.Codec', schema: 'fields.Schema',
-                ) -> 'Tuple[codecs.Segment]':
-    newsegment = cdc.new_segment(session.store, indexname)
+                ) -> 'codecs.Segment':
+    reader.set_merging_hint()
+    newsegment = cdc.new_segment(session)
 
     # Create writers for the new segment
     perdoc = cdc.per_document_writer(session, newsegment)
@@ -1020,6 +1098,9 @@ def copy_reader(reader: 'readers.IndexReader', session: 'storage.Session',
     fwriter.close()
     perdoc.close()
 
+    # Give the codec a chance to perform perform work on the new segment
+    # (eg assemble a compound segment)
+    cdc.finish_segment(session, newsegment)
     return newsegment
 
 
@@ -1027,6 +1108,9 @@ def batch_index(batch_filename: str, count: int, storage_url: str,
                 indexname: str, schema: 'fields.Schema', generation: int,
                 merge_id: str, doc_limit: int) -> Tuple[codecs.Segment, str]:
     from whoosh.compat import pickle
+
+    logger.info("Batching indexing file %r to %s", batch_filename, storage_url)
+    t = now()
 
     store = storage.from_url(storage_url)
     w = SegmentWriter(store, indexname, schema, generation, doc_limit=doc_limit,
@@ -1040,6 +1124,9 @@ def batch_index(batch_filename: str, count: int, storage_url: str,
 
     segment = w.flush(merge=False, optimize=False)
     w.cancel()
+
+    logger.info("Batch indexed %r in %0.06f s", batch_filename, now() - t)
+    logger.info("New batch indexed segment %r", segment)
 
     return segment, merge_id
 

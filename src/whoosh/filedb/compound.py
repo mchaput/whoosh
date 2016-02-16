@@ -1,9 +1,10 @@
 import io
+import logging
 import sys
 import time
 from shutil import copyfileobj
 from struct import Struct
-from typing import List, Tuple
+from typing import Dict, Iterable, List, Sequence, Tuple
 
 try:
     import mmap
@@ -11,11 +12,14 @@ except ImportError:
     mmap = None
 
 from whoosh.compat import xrange
-from whoosh.filedb import datafile
-from whoosh.filedb import filestore
+from whoosh.ifaces import codecs, storage
+from whoosh.filedb import datafile, filestore
 from whoosh.metadata import MetaData
 from whoosh.system import IS_LITTLE
 from whoosh.util import unclosed
+
+
+logger = logging.getLogger(__name__)
 
 
 # Type aliases
@@ -48,104 +52,52 @@ dir_entry = Struct("<Hqqf")
 
 # Assembler
 
-class AssemblingStorage(filestore.BaseFileStorage):
-    """
-    Concatenates multiple files into a single "compound" file with a directory
-    stuck on the end, to address individual file ranges within the file.
-    """
+def assemble_files(from_store: 'filestore.FileStorage',
+                   filenames: Iterable[str],
+                   to_store: 'filestore.FileStorage', compoundname: str,
+                   delete: bool=False):
+    directory = {}
+    with to_store.create_file(compoundname) as outfile:
+        # Write the magic bytes at the start of the file
+        outfile.write(CompoundFooter.magic_bytes)
 
-    def __init__(self, store: filestore.BaseFileStorage, name: str):
-        self._store = store
-        self._name = name
-        self._file = store.create_file(name)
-        # Maps ingested file names to (offset, size, modtime) tuples
-        self._directory = {}  # type: Dict[str, Tuple[int, int, float]]
+        for name in filenames:
+            offset = outfile.tell()
+            with from_store.open_file(name) as f:
+                copyfileobj(f, outfile)
 
-        # Write a magic number to identify this format
-        self._file.write(CompoundFooter.magic_bytes)
+            if delete:
+                from_store.delete_file(name)
 
-    def _add_file(self, name):
-        offset = self._file.tell()
-        with self._store.open_file(name) as f:
-            copyfileobj(f, self._file)
-        size = self._file.tell() - offset
-        self._directory[name] = offset, size, time.time()
-
-    def create_file(self, name: str, excl: bool=False, mode: str="wb",
-                    **kwargs) -> datafile.OutputFile:
-        if name in self._directory:
-            raise Exception("Duplicate file name %r in compound file" % name)
-        f = self._store.create_file(name)
-
-        def _afterclose(*args):
-            self._add_file(name)
-            self._store.delete_file(name)
-        f.aftercloses.append(_afterclose)
-
-        return f
-
-    def open_file(self, name: str) -> File:
-        if name in self._directory:
-            raise Exception("Can't open an assembled file")
-        return self._store.open_file(name)
-
-    def map_file(self, name, offset=0, length=0) -> datafile.Data:
-        if name in self._directory:
-            # We could actually open this file in the assembly...
-            raise Exception("Can't open an assembled file")
-        return self._store.map_file(name, offset, length)
-
-    def list(self) -> List[str]:
-        return self._store.list() + list(self._directory)
-
-    def file_exists(self, name: str):
-        return name in self._directory or self._store.file_exists(name)
-
-    def file_modified(self, name: str):
-        if name in self._directory:
-            return self._directory[name][2]
-        else:
-            return self._store.file_modified(name)
-
-    def file_length(self, name: str):
-        if name in self._directory:
-            return self._directory[name][1]
-        else:
-            return self._store.file_length(name)
-
-    def delete_file(self, name: str):
-        if name in self._directory:
-            raise Exception("Can't delete %r from compound file" % name)
-        self._store.delete_file(name)
-
-    def rename_file(self, frm: str, to: str, safe: bool=False):
-        raise Exception("AssemblingStorage doesn't support rename")
-
-    def lock(self, name: int):
-        return self._store.lock(name)
-
-    def temp_storage(self, name: str=None):
-        return self._store.temp_storage(name)
-
-    def close(self):
-        f = self._file
+            size = outfile.tell() - offset
+            directory[name] = offset, size, time.time()
 
         # Remember the start of the directory
-        dir_offset = f.tell()
+        dir_offset = outfile.tell()
 
         # Write the directory entries
-        for fname in self._directory:
-            foff, fsize, fmod = self._directory[fname]
+        for fname in directory:
+            foff, fsize, fmod = directory[fname]
             nbytes = fname.encode("utf8")
-            f.write(dir_entry.pack(len(nbytes), foff, fsize, fmod))
-            f.write(nbytes)
+            outfile.write(dir_entry.pack(len(nbytes), foff, fsize, fmod))
+            outfile.write(nbytes)
 
         # Write the file footer
-        f.write(CompoundFooter(
+        outfile.write(CompoundFooter(
             was_little=IS_LITTLE, dir_offset=dir_offset,
-            dir_count=len(self._directory)
+            dir_count=len(directory),
         ).encode())
-        self._file.close()
+
+
+def assemble_segment(from_store: 'filestore.FileStorage',
+                     to_store: 'filestore.FileStorage',
+                     segment: 'codecs.FileSegment',
+                     segment_filename: str, delete: bool=False):
+    names = list(segment.file_names(from_store))
+    if not names:
+        raise ValueError("No files match this segment")
+
+    assemble_files(from_store, names, to_store, segment_filename, delete=delete)
 
 
 class CompoundStorage(filestore.FileStorage):
@@ -153,9 +105,12 @@ class CompoundStorage(filestore.FileStorage):
     Presents a compound file as a FileStorage object.
     """
 
-    def __init__(self, st: filestore.BaseFileStorage, name: str, offset: int=0,
-                 length: int=0):
-        self._data = data = st.map_file(name, offset=offset, length=length)
+    def __init__(self, store: filestore.BaseFileStorage, name: str,
+                 offset: int=0, length: int=0):
+        logger.info("Opening compound segment %r in storage %r", name, store)
+        self._storage = store
+        self._name = name
+        self._data = data = store.map_file(name, offset=offset, length=length)
         self.closed = False
 
         # Read the magic number at the start of the file
@@ -182,6 +137,18 @@ class CompoundStorage(filestore.FileStorage):
             entry_start = name_end
         assert entry_start == footer_start
 
+    def __repr__(self):
+        return "<%s %r %s>" % (type(self).__name__, self._storage, self._name)
+
+    def open(self, indexname: str=None, writable: bool=False
+             ) -> filestore.FileSession:
+        if writable:
+            raise ValueError("Can't open a compound storage writable")
+
+        session = self._storage.open(indexname, writable=False)
+        session.store = self
+        return session
+
     @unclosed
     def close(self):
         # Close the underlying map
@@ -200,7 +167,7 @@ class CompoundStorage(filestore.FileStorage):
 
     def create_file(self, name: str, excl: bool=False, mode: str="wb",
                     **kwargs):
-        raise filestore.ReadOnlyError
+        raise storage.ReadOnlyError
 
     @unclosed
     def open_file(self, name: str, *args, **kwargs) -> 'SubFile':
@@ -224,7 +191,7 @@ class CompoundStorage(filestore.FileStorage):
         return self._data.subset(fileoffset + offset, length)
 
     def clean(self, ignore: bool=False):
-        raise filestore.ReadOnlyError
+        raise storage.ReadOnlyError
 
     def list(self) -> List[str]:
         return list(self._directory)
@@ -239,16 +206,16 @@ class CompoundStorage(filestore.FileStorage):
         return self._entry(name)[2]
 
     def delete_file(self, name: str):
-        raise filestore.ReadOnlyError
+        raise storage.ReadOnlyError
 
     def rename_file(self, oldname: str, newname: str, safe: bool=False):
-        raise filestore.ReadOnlyError
+        raise storage.ReadOnlyError
 
     def lock(self, name: str):
-        raise filestore.ReadOnlyError
+        raise storage.ReadOnlyError
 
     def temp_storage(self, name=None):
-        raise filestore.ReadOnlyError
+        raise storage.ReadOnlyError
 
 
 class SubFile(object):
@@ -315,84 +282,3 @@ class SubFile(object):
 
     def tell(self):
         return self._pos
-
-
-#
-
-# class Sinks(object):
-#     """
-#     This object lets you write to multiple file-like objects, which are really
-#     going into one file (to save file handles) in separate tracked blocks. The
-#     object can then reassemble each virtual file's blocks to read the entire
-#     file out again.
-#
-#     The writes to the different files must be serial. This does not support
-#     threading, parallel writing, etc. This is just a way to organize writes.
-#
-#     What you get back from this object's create_file method does not implement
-#     every aspect of a file-like object, just tell() and write().
-#     """
-#
-#     def __init__(self, f, buffersize: int=32 * 1024):
-#         self._file = f
-#         self._buffersize = buffersize
-#         self._streams = {}
-#
-#     def __iter__(self) -> Iterable[str]:
-#         return iter(self._streams)
-#
-#     def create_file(self, name):
-#         ss = self.SubStream(self._file, self._buffersize)
-#         self._streams[name] = ss
-#         return structfile.StructFile(ss)
-#
-#     def blocks(self, name: str) -> Iterable[bytes]:
-#         return self._streams[name].blocks()
-#
-#     def save_to_files(self, store: filestore.BaseFileStorage,
-#                       namefn: Callable[[str], str]=None):
-#         for name in self:
-#             fname = namefn(name) if namefn else name
-#             with store.create_file(fname) as f:
-#                 for block in self.blocks(name):
-#                     f.write(block)
-#
-#     class SubStream(object):
-#         def __init__(self, f, buffersize: int):
-#             self._file = f
-#             self._buffersize = buffersize
-#             self._buffer = BytesIO()
-#             # List of (offset, length) tuples
-#             self._blocks = []  # type: List[Tuple[int, int]]
-#
-#         def tell(self) -> int:
-#             return sum(b[1] for b in self._blocks) + self._buffer.tell()
-#
-#         @unclosed
-#         def write(self, inbytes: bytes):
-#             bio = self._buffer
-#             buflen = bio.tell()
-#             length = buflen + len(inbytes)
-#             if length >= self._buffersize:
-#                 offset = self._dbfile.tell()
-#                 self._file.write(bio.getvalue()[:buflen])
-#                 self._file.write(inbytes)
-#
-#                 self._blocks.append((offset, length))
-#                 self._buffer.seek(0)
-#             else:
-#                 bio.write(inbytes)
-#
-#         def blocks(self) -> Iterable[bytes]:
-#             f = self._file
-#             bio = self._buffer
-#             for offset, length in self._blocks:
-#                 f.seek(offset)
-#                 yield f.read(length)
-#
-#             buflen = bio.tell()
-#             if buflen:
-#                 yield bio.getvalue()[:buflen]
-#
-#
-#

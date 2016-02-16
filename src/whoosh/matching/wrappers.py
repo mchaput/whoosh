@@ -124,8 +124,17 @@ class WrappingMatcher(matchers.Matcher):
     def posting(self) -> 'Optional[postings.PostTuple]':
         return self.child.posting()
 
+    def can_copy_raw_to(self, fmt: 'postings.Format'):
+        return self.child.can_copy_raw_to(fmt)
+
+    def raw_posting(self) -> 'postings.RawPost':
+        return self.child.raw_posting()
+
     # def all_postings(self) -> Iterable[postings.PostTuple]:
     #     return self.child.all_postings()
+
+    # def all_raw_postings(self) -> 'Iterable[postings.RawPost]':
+    #     return self.child.all_raw_postings()
 
     def has_weights(self) -> bool:
         return self.child.has_weights()
@@ -251,6 +260,9 @@ class MultiMatcher(matchers.Matcher):
 
     # Override interface
 
+    def can_copy_raw_to(self, fmt: 'postings.Format') -> bool:
+        return all(m.can_copy_raw_to(fmt) for m in self._matchers)
+
     def is_active(self) -> bool:
         return self._current < len(self._matchers)
 
@@ -307,23 +319,35 @@ class MultiMatcher(matchers.Matcher):
         p = self._matchers[self._current].posting()
         return postings.change_docid(p, offset + p[postings.DOCID])
 
-    def all_postings(self) -> Iterable[postings.PostTuple]:
+    def _filter_postings(self, ps: 'Iterable[postings.PostTuple]', offset: int
+                         ) -> 'Iterable[postings.PostTuple]':
+        change_docid = postings.change_docid
+        DOCID = postings.DOCID
+        for p in ps:
+            yield change_docid(p, p[DOCID] + offset)
+
+    def all_postings(self) -> 'Iterable[postings.PostTuple]':
         if not self.is_active():
             return
 
-        change_docid = postings.change_docid
-        DOCID = postings.DOCID
+        offsets = self._offsets
+        for i, m in enumerate(self._matchers):
+            for p in self._filter_postings(m.all_postings(), offsets[i]):
+                yield p
+
+    def all_raw_postings(self) -> 'Iterable[postings.RawPost]':
+        if not self.is_active():
+            return
 
         offsets = self._offsets
         for i, m in enumerate(self._matchers):
-            offset = offsets[i]
-            for p in m.all_postings():
-                yield change_docid(p, p[DOCID] + offset)
+            for p in self._filter_postings(m.all_raw_postings(), offsets[i]):
+                yield p
 
     def children(self) -> Sequence[matchers.Matcher]:
         # Not sure what the right thing to do is here... for now, I'm returning
         # the current matcher as the only "child"
-        return (self._matchers[self._current],)
+        return [self._matchers[self._current]]
 
     def copy(self) -> 'MultiMatcher':
         return self.__class__([mr.copy() for mr in self._matchers],
@@ -452,14 +476,20 @@ class FilterMatcher(WrappingMatcher):
         else:
             return (id for id in self.child.all_ids() if id in ids)
 
-    def all_postings(self) -> 'Iterable[postings.PostTuple]':
+    def _filter_postings(self, ps: 'Iterable[postings.PostTuple]'):
         ids = self._ids
         DOCID = postings.DOCID
 
         if self._exclude:
-            return (p for p in self.child.all_postings() if p[DOCID] not in ids)
+            return (p for p in ps if p[DOCID] not in ids)
         else:
-            return (p for p in self.child.all_postings() if p[DOCID] in ids)
+            return (p for p in ps if p[DOCID] in ids)
+
+    def all_postings(self) -> 'Iterable[postings.PostTuple]':
+        return self._filter_postings(self.child.all_postings())
+
+    def all_raw_postings(self) -> 'Iterable[postings.RawPost]':
+        return self._filter_postings(self.child.all_raw_postings())
 
 
 class InverseMatcher(WrappingMatcher):

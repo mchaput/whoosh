@@ -4,17 +4,18 @@ import pytest
 
 from whoosh import analysis
 from whoosh import postings as p
+from whoosh.postings import BasicIO as bio
 from whoosh.compat import text_type, xrange
 from whoosh.util.testing import TempStorage
 
 
 def test_encode_docids():
     def _roundtrip(ids):
-        bs = p.encode_docids(ids)
-        assert list(p.decode_docids(bs, 0, len(bs))) == ids
+        bs = bio.encode_docids(ids)
+        assert list(bio.decode_docids(bs, 0, len(bs))) == ids
 
         bs = b'12345678' + bs
-        assert list(p.decode_docids(bs, 8, len(bs))) == ids
+        assert list(bio.decode_docids(bs, 8, len(bs))) == ids
 
     _roundtrip([1, 10, 57, 8402, 90210])
     _roundtrip(list(range(2, 100, 7)))
@@ -36,11 +37,11 @@ def test_encode_docids():
 
 def test_encode_terms():
     def _roundtrip(terms):
-        bs = p.encode_terms(terms)
-        assert list(p.decode_terms(bs, 0, len(bs), len(terms))) == terms
+        bs = bio.encode_terms(terms)
+        assert list(bio.decode_terms(bs, 0, len(bs))) == terms
 
         bs = b'12345678' + bs
-        assert list(p.decode_terms(bs, 8, len(bs), len(terms))) == terms
+        assert list(bio.decode_terms(bs, 8, len(bs))) == terms
 
     _roundtrip(b"alfa bravo charlie delta echo foxtrot golf hotel".split())
     _roundtrip([b"A", b"C", b"D", b"e"])
@@ -49,11 +50,11 @@ def test_encode_terms():
 
 def test_encode_lengths():
     def _roundtrip(lens):
-        bs = p.encode_lengths(lens)
-        assert list(p.decode_lengths(bs, 0, len(bs))) == lens
+        bs = bio.encode_lengths(lens)
+        assert list(bio.decode_lengths(bs, 0, len(bs))) == lens
 
         bs = b'12345678' + bs
-        assert list(p.decode_lengths(bs, 8, len(bs))) == lens
+        assert list(bio.decode_lengths(bs, 8, len(bs))) == lens
 
     _roundtrip([1, 7, 2, 56, 1, 102, 90, 255])
 
@@ -65,11 +66,11 @@ def test_encode_lengths():
 
 def test_encode_weights():
     def _roundtrip(ws):
-        bs = p.encode_weights(ws)
-        assert list(p.decode_weights(bs, 0, len(bs), len(ws))) == ws
+        bs = bio.encode_weights(ws)
+        assert list(bio.decode_weights(bs, 0, len(bs), len(ws))) == ws
 
         bs = b'12345678' + bs
-        assert list(p.decode_weights(bs, 8, len(bs), len(ws))) == ws
+        assert list(bio.decode_weights(bs, 8, len(bs), len(ws))) == ws
 
     _roundtrip([0.5, 1, 0.5, 2.5, 345.5])
     _roundtrip([1, 1, 1, 1, 1, 1, 1, 1])
@@ -81,18 +82,20 @@ def test_encode_weights():
 
 def test_encode_positions():
     def _roundtrip(ps):
-        bs = p.encode_positions(ps)
-        for i, ls in enumerate(ps):
-            result = list(p.decode_position_list(bs, 0, len(bs), i, len(ps)))
-            assert result == ls
+        bs = bio.encode_positions(ps)
+        result = list(bio.decode_positions(bs, 0, len(bs)))
+        assert result == ps
 
         bs = b'12345678' + bs
-        for i, ls in enumerate(ps):
-            result = list(p.decode_position_list(bs, 8, len(bs), i, len(ps)))
-            assert result == ls
+        result = list(bio.decode_positions(bs, 8, len(bs)))
+        assert result == ps
 
-    _roundtrip([[1, 10, 20, 30], [5, 10, 15], [7, 14, 21, 2828]])
-    _roundtrip([[100, 1000, 10000, 100000, 1000000], [0, 1], [65000]])
+    _roundtrip([1, 10, 20, 30])
+    _roundtrip([5, 10, 15])
+    _roundtrip([7, 14, 21, 2828])
+    _roundtrip([100, 1000, 10000, 100000, 1000000])
+    _roundtrip([0, 1])
+    _roundtrip([65000])
 
     with pytest.raises(ValueError):
         _roundtrip([])
@@ -100,43 +103,38 @@ def test_encode_positions():
 
 def test_encode_chars():
     def _roundtrip(cs):
-        bs = p.encode_chars(cs)
-        for i, ls in enumerate(cs):
-            result = list(p.decode_chars_list(bs, 0, len(bs), i, len(cs)))
-            assert result == ls
+        bs = bio.encode_chars(cs)
+        result = list(bio.decode_chars(bs, 0, len(bs)))
+        assert result == cs
 
         bs = b'12345678' + bs
-        for i, ls in enumerate(cs):
-            result = list(p.decode_chars_list(bs, 8, len(bs), i, len(cs)))
-            assert result == ls
+        result = list(bio.decode_chars(bs, 8, len(bs)))
+        assert result == cs
 
-    _roundtrip([
-        [(0, 5), (7, 10), (12, 73), (75, 100)],
-        [(100, 200), (300, 400)],
-        [(6, 10)],
-    ])
+    _roundtrip([(0, 5), (7, 10), (12, 73), (75, 100)])
+    _roundtrip([(100, 200), (300, 400)])
+    _roundtrip([(6, 10)])
 
     with pytest.raises(ValueError):
         _roundtrip([])
     with pytest.raises(ValueError):
-        _roundtrip([[(10, 20), (15, 25)]])
+        _roundtrip([(10, 20), (15, 25)])
     with pytest.raises(ValueError):
-        _roundtrip([[(10, 11), (12, 9)]])
+        _roundtrip([(10, 11), (12, 9)])
 
 
 def test_encode_payloads():
     def _roundtrip(ps):
-        bs = p.encode_payloads(ps)
-        for i, ls in enumerate(ps):
-            result = list(p.decode_pays_list(bs, 0, len(bs), i, len(ps)))
-            assert result == ls
+        bs = bio.encode_payloads(ps)
+        result = list(bio.decode_payloads(bs, 0, len(bs)))
+        assert result == ps
 
         bs = b'12345678' + bs
-        for i, ls in enumerate(ps):
-            result = list(p.decode_pays_list(bs, 8, len(bs), i, len(ps)))
-            assert result == ls
+        result = list(bio.decode_payloads(bs, 8, len(bs)))
+        assert result == ps
 
-    _roundtrip([[b'alfa', b'bravo', b'charlie'], [b'V', b'N', b'Adj', b'Np']])
+    _roundtrip([b'alfa', b'bravo', b'charlie'])
+    _roundtrip([b'V', b'N', b'Adj', b'Np'])
 
 
 def test_roundtrip_docs():
@@ -149,16 +147,18 @@ def test_roundtrip_docs():
     ]
 
     bf = p.Format(True, True, True, True, True)
-    bs = bf.doclist_to_bytes(posts)
+    raw_posts = [bf.condition_post(x) for x in posts]
+
+    bs = bf.doclist_to_bytes(raw_posts)
 
     br = bf.doclist_reader(bs)
     for i in xrange(len(posts)):
         assert br.id(i) == posts[i][p.DOCID]
         assert br.length(i) == posts[i][p.LENGTH]
         assert br.weight(i) == posts[i][p.WEIGHT]
-        assert br.positions(i) == posts[i][p.POSITIONS]
-        assert br.chars(i) == posts[i][p.CHARS]
-        assert br.payloads(i) == posts[i][p.PAYLOADS]
+        assert list(br.positions(i)) == posts[i][p.POSITIONS]
+        assert list(br.chars(i)) == posts[i][p.CHARS]
+        assert list(br.payloads(i)) == posts[i][p.PAYLOADS]
 
 
 def test_payloads():
@@ -169,12 +169,13 @@ def test_payloads():
     ]
 
     bf = p.Format(False, False, False, False, True)
-    bs = bf.doclist_to_bytes(posts)
+    raw_posts = [bf.condition_post(p) for p in posts]
+    bs = bf.doclist_to_bytes(raw_posts)
 
     br = bf.doclist_reader(bs)
-    assert br.payloads(0) == [b'foo']
-    assert br.payloads(1) == [b'bar', b'baz']
-    assert br.payloads(2) == [b'a' * 1000, b'b' * 10000]
+    assert list(br.payloads(0)) == [b'foo']
+    assert list(br.payloads(1)) == [b'bar', b'baz']
+    assert list(br.payloads(2)) == [b'a' * 1000, b'b' * 10000]
 
 
 def test_combos():
@@ -215,7 +216,8 @@ def test_combos():
                                    chars=cs, payloads=pys))
 
         origs.append((fmt, len(bs), ids, posts))
-        bs += fmt.doclist_to_bytes(posts)
+        raw_posts = [fmt.condition_post(x) for x in posts]
+        bs += fmt.doclist_to_bytes(raw_posts)
 
     for fmt, offset, ids, posts in origs:
         br = fmt.doclist_reader(bs, offset)
@@ -270,9 +272,10 @@ def test_roundtrip_vector():
     for i, post in enumerate(posts):
         assert br.length(i) == post[p.LENGTH]
         assert br.weight(i) == post[p.WEIGHT]
-        assert br.positions(i) == post[p.POSITIONS]
-        assert br.chars(i) == post[p.CHARS]
-        assert br.payloads(i) == post[p.PAYLOADS]
+        assert list(br.positions(i)) == post[p.POSITIONS]
+        assert list(br.chars(i)) == post[p.CHARS]
+        assert list(br.payloads(i)) == post[p.PAYLOADS]
+
 
 #
 
@@ -369,14 +372,21 @@ def test_from_disk():
     ]
 
     with TempStorage() as st:
-        bs = fmt.doclist_to_bytes(target)
+        raw_posts = [fmt.condition_post(x) for x in target]
+        bs = fmt.doclist_to_bytes(raw_posts)
         with st.create_file("test") as f:
             f.write(bs)
             f.write(bs)
 
         with st.map_file("test") as mm:
             r = fmt.doclist_reader(mm)
-            assert list(r.postings()) == target
+            for i, post in enumerate(r.postings()):
+                assert post[p.DOCID] == target[i][p.DOCID]
+                assert post[p.LENGTH] == target[i][p.LENGTH]
+                assert post[p.WEIGHT] == target[i][p.WEIGHT]
+                assert list(post[p.POSITIONS]) == target[i][p.POSITIONS]
+                assert list(post[p.CHARS]) == target[i][p.CHARS]
+                assert list(post[p.PAYLOADS]) == target[i][p.PAYLOADS]
 
 
 def test_minmax_length():
@@ -405,6 +415,39 @@ def test_minmax_length():
             # But the min and max were recorded
             assert r.min_length() == 2
             assert r.max_length() == 6
+
+
+def test_formats_equal():
+    empty = p.Format(False, False, False, False, False)
+
+    def do(*flags):
+        fmt1 = p.Format(*flags)
+        fmt2 = p.Format(*flags)
+        assert fmt1 == fmt2
+        if flags != (False, False, False, False, False):
+            assert fmt1 != empty
+
+    for has_lengths in (0, 1):
+        for has_weights in (0, 1):
+            for has_poses in (0, 1):
+                for has_chars in (0, 1):
+                    for has_pays in (0, 1):
+                        do(has_lengths, has_weights, has_poses, has_chars,
+                           has_pays)
+
+    fmt1 = p.Format(has_weights=True, has_positions=True,
+                    io=p.BasicIO())
+    fmt2 = p.Format(has_weights=True, has_positions=True,
+                    io=p.BasicIO())
+    assert fmt1 == fmt2
+
+    class FakePostingsIO(p.PostingsIO):
+        def __init__(self, label):
+            super(FakePostingsIO, self).__init__()
+            self.label = label
+
+    fmt2.io = FakePostingsIO("foo")
+    assert fmt1 != fmt2
 
 
 #

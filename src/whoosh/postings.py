@@ -1,18 +1,23 @@
+import logging
 from abc import abstractmethod
 from bisect import bisect_left
 from collections import defaultdict, namedtuple
 from operator import itemgetter
-from struct import Struct, calcsize
+from struct import Struct, calcsize, pack
 from typing import (Any, Callable, Iterable, List, Optional,
                     Sequence, Tuple, Union, cast)
 
 from array import array
 
 from whoosh.ifaces import analysis
-from whoosh.compat import array_tobytes, array_frombytes
+from whoosh.compat import array_tobytes, array_frombytes, izip
 from whoosh.compat import text_type, xrange, zip_
 from whoosh.system import IS_LITTLE
-from whoosh.util.numlists import min_array_code, delta_encode, delta_decode
+from whoosh.util.numlists import (min_array_code, delta_encode, delta_decode,
+                                  delta_decode_inplace)
+
+
+logger = logging.getLogger(__name__)
 
 
 # Typing aliases
@@ -29,6 +34,15 @@ PostTuple = Tuple[
     Optional[PosList],  # positions
     Optional[CharList],  # chars
     Optional[PayList],  # payloads
+]
+RawPost = Tuple[
+    Optional[int],  # docid
+    Optional[bytes],  # termbytes
+    Optional[int],  # length
+    Optional[float],  # weight
+    Optional[bytes],  # positions
+    Optional[bytes],  # chars
+    Optional[bytes],  # payloads
 ]
 
 
@@ -102,329 +116,11 @@ def min_array(nums: Sequence[int]) -> array:
     return array(code, nums)
 
 
-# Basic implementation functions for encoding/decoding data to/from bytes.
-# These are broken out from the BasicPostingIO object to make them easier to
-# test.
+# Struct for encoding the length typecode and count of a list of byte chunks
+tcodes_and_len = Struct("<ccI")
 
-def encode_docids(docids: Sequence[int]) -> bytes:
-    if not docids:
-        raise ValueError
-    if any(n < 0 for n in docids):
-        raise ValueError("Negative docid in %s" % docids)
 
-    arr = min_array(list(delta_encode(docids)))
-    if not IS_LITTLE:
-        arr.byteswap()
-    return arr.typecode.encode("ascii") + array_tobytes(arr)
-
-
-def decode_docids(src: bytes, offset: int, size: int) -> Sequence[int]:
-    typecode = bytes(src[offset:offset + 1]).decode("ascii")
-    arr = array(typecode)
-    array_frombytes(arr, src[offset + 1: offset + size])
-    if not IS_LITTLE:
-        arr.byteswap()
-
-    return list(delta_decode(arr))
-
-
-def encode_terms(terms: Sequence[bytes]) -> bytes:
-    len_array = min_array([len(t) for t in terms])
-    if not IS_LITTLE:
-        len_array.byteswap()
-
-    termbytes = b''.join(terms)
-    return b''.join((len_array.typecode.encode("ascii"),
-                     array_tobytes(len_array),
-                     termbytes))
-
-
-def decode_terms(src: bytes, offset: int, size: int,
-                 count: int) -> Sequence[bytes]:
-    lens_typecode = src[offset:offset + 1].decode("ascii")
-    len_array = array(lens_typecode)
-    start = offset + 1
-    end = start + count * len_array.itemsize
-    array_frombytes(len_array, src[start: end])
-    if not IS_LITTLE:
-        len_array.byteswap()
-
-    base = end
-    terms = []
-    for length in len_array:
-        terms.append(src[base:base + length])
-        base += length
-    return terms
-
-
-def encode_lengths(lengths: Sequence[int]) -> bytes:
-    if any(not isinstance(n, int) or n < 0 or n > 255 for n in lengths):
-        raise ValueError("Bad byte in %r" % lengths)
-    return array_tobytes(array("B", lengths))
-
-
-def decode_lengths(src: bytes, offset: int, size: int) -> Sequence[int]:
-    end = offset + size
-    len_array = array("B")
-    array_frombytes(len_array, src[offset:end])
-    return len_array
-
-
-def encode_weights(weights: Sequence[float]) -> bytes:
-    if not weights or any(not isinstance(w, (int, float)) for w in weights):
-        raise ValueError("Bad weight in %r" % weights)
-
-    if all(w == 1 for w in weights):
-        return b"1"
-
-    intweights = [int(w) for w in weights]
-    if all(w == wi for w, wi in zip_(weights, intweights)):
-        arr = min_array(intweights)
-    else:
-        arr = array("f", weights)
-
-    if not IS_LITTLE:
-        arr.byteswap()
-    return arr.typecode.encode("ascii") + array_tobytes(arr)
-
-
-def decode_weights(src: bytes, offset: int, size: int,
-                   count: int) -> Sequence[float]:
-    end = offset + size
-
-    typecode = bytes(src[offset:offset + 1]).decode("ascii")
-    if typecode == "1":
-        return array("f", (1 for _ in xrange(count)))
-
-    arr = array(typecode)
-    array_frombytes(arr, src[offset + 1: end])
-
-    if not IS_LITTLE:
-        arr.byteswap()
-
-    return arr
-
-
-def encode_list_list(lens: List[int], data: List[int]) -> bytes:
-    # This encodes a list of lists of numbers as bytes.
-    # The first argument is the length of each sublist.
-    # The second argument is the sublists smushed together into one big list.
-
-    # Convert the lengths into an array
-    len_array = min_array(lens)
-    if not IS_LITTLE:
-        len_array.byteswap()
-
-    # Convert the big list into an array
-    data_array = min_array(data)
-    if not IS_LITTLE:
-        data_array.byteswap()
-
-    # Join the lengths typecode, the lengths, the data typecode, and the data
-    return b''.join((len_array.typecode.encode("ascii"),
-                     array_tobytes(len_array),
-                     data_array.typecode.encode("ascii"),
-                     array_tobytes(data_array)))
-
-
-# A named tuple to hold info about the list list bytes structure
-listinfo = namedtuple("listinfo", "offsets lengths data_typecode data_start")
-
-
-def decode_list_list(src: bytes, offset: int, size: int,
-                     count: int) -> listinfo:
-    # This function decodes the structure of bytes created by encode_list_list,
-    # and loads the lengths, but does NOT load the numbers. This is to allow
-    # a reader to only load the numbers they need.
-
-    len_typecode = bytes(src[offset: offset + 1]).decode("ascii")
-    lengths = array(len_typecode)
-    len_end = offset + 1 + calcsize(len_typecode) * count
-    array_frombytes(lengths, src[offset + 1: len_end])
-    if not IS_LITTLE:
-        lengths.byteswap()
-
-    data_typecode = bytes(src[len_end: len_end + 1]).decode("ascii")
-    data_start = len_end + 1
-
-    offsets = array("i")
-    base = 0
-    for length in lengths:
-        offsets.append(base)
-        base += length
-
-    return listinfo(offsets, lengths, data_typecode, data_start)
-
-
-def encode_positions(poslists: Sequence[Sequence[int]]) -> bytes:
-    if not poslists:
-        raise ValueError
-
-    lens = []
-    all_poses = []
-    for ps in poslists:
-        lens.append(len(ps))
-        all_poses.extend(delta_encode(ps))
-    return encode_list_list(lens, all_poses)
-
-
-def decode_position_list(src: bytes, offset: int, size: int, n: int,
-                         count: int, cache=None) -> Sequence[int]:
-    # Try to get cached info, and if it's not available, generate it
-    info = cache._positions_info if cache else None
-    if info is None:
-        info = decode_list_list(src, offset, size, count)
-        if cache:
-            cache._positions_info = info
-
-    # Calculate where the nth position list starts
-    itemsize = calcsize(info.data_typecode)
-    start = info.data_start + info.offsets[n] * itemsize
-    # Get the number of items in this particular list
-    count = info.lengths[n]
-    # Build a struct to unpack a list of this length
-    s = Struct("<" + str(count) + info.data_typecode)
-    # Calculate the end byte position
-    end = start + s.size
-    # Read and unpack the list
-    dposes = s.unpack(src[start:end])
-    # The positions are delta coded, decode and return them
-    return list(delta_decode(dposes))
-
-
-def encode_chars(charlists: Sequence[Sequence[Tuple[int, int]]]) -> bytes:
-    if not charlists:
-        raise ValueError
-
-    lens = []
-    all_indices = []
-    for cs in charlists:
-        lens.append(len(cs))
-
-        base = 0
-        for startchar, endchar in cs:
-            if startchar < base:
-                raise ValueError("Chars out of order: %s %s"
-                                 % (base, startchar))
-            if endchar < startchar:
-                raise ValueError("Negative char range: %s %s"
-                                 % (startchar, endchar))
-
-            all_indices.append(startchar - base)
-            all_indices.append(endchar - startchar)
-            base = endchar
-
-    return encode_list_list(lens, all_indices)
-
-
-def decode_chars_list(src: bytes, offset: int, size: int, n: int,
-                      count: int, cache=None) -> Sequence[Tuple[int, int]]:
-    # Try to get cached info, and if it's not available, generate it
-    info = cache._chars_info if cache else None
-    if info is None:
-        info = decode_list_list(src, offset, size, count)
-        if cache:
-            cache._chars_info = info
-
-    # Calculate the start offset byte, multiplying by 2 because each item
-    # in a list is TWO numbers (start and end)
-    itemsize = calcsize(info.data_typecode)
-    start = info.data_start + itemsize * info.offsets[n] * 2
-    # Get the number of items in this particular list
-    count = info.lengths[n]
-    # Build a struct to unpack a list of this length
-    s = Struct("<" + str(count * 2) + info.data_typecode)
-    # Calculate the end byte position
-    end = start + s.size
-    # Read and unpack the list of character indices
-    indices = s.unpack(src[start:end])
-
-    # Unzip the linear list into pairs, and at the same time delta-decode
-    # the numbers
-    base = 0
-    cs = []
-    for i in xrange(0, len(indices), 2):
-        start = base + indices[i]
-        end = start + indices[i + 1]
-        cs.append((start, end))
-        base = end
-    return cs
-
-
-def encode_payloads(paylists: Sequence[Sequence[bytes]]) -> bytes:
-    lens = []
-    pay_lens = []
-    pay_bytes = bytearray()
-    for paylist in paylists:
-        lens.append(len(paylist))
-        pay_lens.extend([len(pay) for pay in paylist])
-        pay_bytes += b''.join(paylist)
-
-    list_bytes = encode_list_list(lens, pay_lens)
-    return list_bytes + pay_bytes
-
-
-def build_payload_index(src: bytes, offset: int, size: int,
-                        count: int) -> Sequence[Tuple[int, Sequence[int]]]:
-    # Get the info on the payloads; we don't need to cache it, so the
-    # key argument is None
-    info = decode_list_list(src, offset, size, count)
-    data_start = info.data_start
-
-    # This gets confusing because there are two types of lists here. What's in
-    # info.lengths is the length of each LIST of payload lengths. To avoid
-    # confusion, in this code we'll call those "widths". The numbers in the
-    # sublist of the data is the length of each payload string. In this code
-    # we'll call those "lengths".
-    widths = info.lengths
-
-    # The total number of payloads in the block is the sum of the widths
-    total_width = sum(widths)
-
-    # Create an array to hold all payload lengths
-    all_lengths = array(info.data_typecode)
-
-    # Compute the end of the list data/beginning of the actual payload strings
-    payloads_start = data_start + total_width * all_lengths.itemsize
-
-    # Load the full list of payload lengths
-    array_frombytes(all_lengths, src[data_start:payloads_start])
-    if not IS_LITTLE:
-        all_lengths.byteswap()
-
-    # Chunk the full lengths list based on the counts, and build an index of
-    # (offset, [lengths]) for each item
-    ix = []
-    i = 0
-    for width in widths:
-        j = i + width
-        lengths = all_lengths[i:j]
-        ix.append((payloads_start, lengths))
-        payloads_start += sum(lengths)
-        i = j
-
-    return ix
-
-
-def decode_pays_list(src: bytes, offset: int, size: int, n: int, count: int,
-                     cache=None) -> Sequence[bytes]:
-    # Try to get cached index, and if it's not available, generate it
-    ix = cache._payload_index if cache else None
-    if ix is None:
-        ix = build_payload_index(src, offset, size, count)
-        if cache:
-            cache._payload_index = ix
-
-    # Find the offset and lengths for this item
-    pos, lengths = ix[n]
-
-    # Read the payloads from the file
-    payloads = []
-    for length in lengths:
-        payloads.append(src[pos:pos + length])
-        pos += length
-    return payloads
-
+# Interfaces
 
 # Classes
 
@@ -450,6 +146,10 @@ class PostingReader(object):
     def total_weight(self) -> float:
         # Sublclasses should replace this with something more efficient
         return sum(self.weight(i) for i in xrange(len(self)))
+
+    @abstractmethod
+    def raw_bytes(self) -> bytes:
+        raise NotImplementedError
 
     @abstractmethod
     def end_offset(self) -> int:
@@ -524,6 +224,10 @@ class DocListReader(PostingReader):
                        weight=weight, positions=poses, chars=chars,
                        payloads=pays)
 
+    @abstractmethod
+    def raw_posting_at(self, i) -> RawPost:
+        raise NotImplementedError
+
     def postings(self, termbytes: bytes=None) -> Iterable[PostTuple]:
         """
         Generates a series posting tuples corresponding to the data in the
@@ -535,6 +239,10 @@ class DocListReader(PostingReader):
 
         for i in xrange(len(self)):
             yield self.posting_at(i, termbytes)
+
+    def raw_postings(self) -> Iterable[RawPost]:
+        for i in xrange(len(self)):
+            yield self.raw_posting_at(i)
 
 
 class VectorReader(PostingReader):
@@ -634,13 +342,13 @@ class VectorReader(PostingReader):
 
 class PostingsIO(object):
     def __eq__(self, other):
-        return type(self) is type(other)
+        return type(self) is type(other) and self.__dict__ == other.__dict__
 
     def __ne__(self, other):
         return not self == other
 
     @staticmethod
-    def _extract(posts: Sequence[PostTuple], member: int):
+    def _extract(posts: Sequence[RawPost], member: int):
         # Return a list of all the values of a certain member of a list of
         # posting tuples
 
@@ -654,6 +362,13 @@ class PostingsIO(object):
                     raise ValueError("Post %r is missing %s" % (post, n))
 
         return vals
+
+    def can_copy_raw_to(self, io: 'PostingsIO') -> bool:
+        return False
+
+    @abstractmethod
+    def condition_post(self, post: PostTuple) -> RawPost:
+        raise NotImplementedError
 
     @abstractmethod
     def doclist_to_bytes(self, fmt: 'Format', posts: Sequence[PostTuple]
@@ -675,6 +390,8 @@ class PostingsIO(object):
         raise NotImplementedError
 
 
+# Classes
+
 class Format(object):
     """
     Base class of objects representing a format for storing postings in the
@@ -685,7 +402,7 @@ class Format(object):
                  has_positions: bool=False, has_chars: bool=False,
                  has_payloads: bool=False, io: PostingsIO=None,
                  boost=1.0):
-        self._io = io or BasicPostingsIO()
+        self._io = io or BasicIO()
         self.has_lengths = has_lengths
         self.has_weights = has_weights
         self.has_positions = has_positions
@@ -709,6 +426,16 @@ class Format(object):
     def __ne__(self, other):
         return not self == other
 
+    def can_copy_raw_to(self, fmt: 'Format') -> bool:
+        return (
+            fmt.has_lengths == self.has_lengths and
+            fmt.has_weights == self.has_weights and
+            fmt.has_positions == self.has_positions and
+            fmt.has_chars == self.has_chars and
+            fmt.has_payloads == self.has_payloads and
+            fmt.io().can_copy_raw_to(self.io())
+        )
+
     def supports(self, feature: str) -> bool:
         """
         Returns True if this format object supports the named information type:
@@ -723,7 +450,10 @@ class Format(object):
     def io(self) -> PostingsIO:
         return self._io
 
-    def doclist_to_bytes(self, posts: Sequence[PostTuple]) -> bytes:
+    def condition_post(self, post: PostTuple) -> RawPost:
+        return self.io().condition_post(post)
+
+    def doclist_to_bytes(self, posts: Sequence[RawPost]) -> bytes:
         return self.io().doclist_to_bytes(self, posts)
 
     def doclist_reader(self, bs: bytes, offset: int=0) -> DocListReader:
@@ -819,9 +549,7 @@ class Format(object):
         return fieldlen, posts
 
 
-# Basic implementation of postings IO
-
-class BasicPostingsIO(PostingsIO):
+class BasicIO(PostingsIO):
     MAGIC_NUMBER = 51966
 
     # Encoded post list header
@@ -832,26 +560,68 @@ class BasicPostingsIO(PostingsIO):
     # i - minimum field length of docs in the block, or 0xffffffff
     # i - maximum field length of docs in the block, or 0
     # i - length of IDs section
-    # H - length of lengths section
-    # H - length of weights section
-    # H - length of poses section
-    # H - length of chars section
+    # i - length of lengths section
+    # i - length of weights section
+    # i - length of poses section
+    # i - length of chars section
     # i - length of payloads section
-    header = Struct("<HHHxxiiiHHHHi")
+    header = Struct("<HHHxxiiiiiiii")
 
-    # Encoded single post header
-    # B - flags
-    # I - docid
-    # H - termbytes length
-    # B - field length (encoded as byte)
-    post_header = Struct("<BIHB")
+    def can_copy_raw_to(self, io: PostingsIO) -> bool:
+        return type(io) is type(self)
 
-    def _posts_to_bytes(self, fmt: Format, posts: Sequence[PostTuple],
+    def doclist_reader(self, fmt: Format, src: bytes,
+                       offset: int=0) -> 'BasicDocListReader':
+        return BasicDocListReader(fmt, src, offset)
+
+    def vector_reader(self, fmt: Format, src: bytes,
+                      offset: int=0) -> 'BasicVectorReader':
+        return BasicVectorReader(fmt, src, offset)
+
+    def doclist_to_bytes(self, fmt: Format,
+                         posts: Sequence[PostTuple]) -> bytes:
+        if not posts:
+            raise ValueError("Empty document postings list")
+
+        flags = 0
+        id_bytes = self.encode_docids([p[DOCID] for p in posts])
+        return self._posts_to_bytes(fmt, posts, flags, id_bytes)
+
+    def vector_to_bytes(self, fmt: Format, posts: List[PostTuple]) -> bytes:
+        if not posts:
+            raise ValueError("Empty vector postings list")
+
+        flags = 1
+        posts = [self.condition_post(p) for p in posts]
+        id_bytes = self.encode_terms([p[TERMBYTES] for p in posts])
+        return self._posts_to_bytes(fmt, posts, flags, id_bytes)
+
+    # Encoding methods
+
+    def condition_post(self, post: PostTuple) -> RawPost:
+        poses = post[POSITIONS]
+        enc_poses = self.encode_positions(poses) if poses else None
+        chars = post[CHARS]
+        enc_chars = self.encode_chars(chars) if chars else None
+        pays = post[PAYLOADS]
+        enc_pays = self.encode_payloads(pays) if pays else None
+
+        return (
+            post[DOCID],
+            post[TERMBYTES],
+            post[LENGTH],
+            post[WEIGHT],
+            enc_poses,
+            enc_chars,
+            enc_pays,
+        )
+
+    def _posts_to_bytes(self, fmt: Format, posts: Sequence[RawPost],
                         flags: int, id_bytes: bytes) -> bytes:
         len_bytes = b''
         if fmt.has_lengths:
             lengths = self._extract(posts, LENGTH)  # type: List[int]
-            len_bytes = encode_lengths(lengths)
+            len_bytes = self.encode_lengths(lengths)
             min_len = min(lengths)
             max_len = max(lengths)
         else:
@@ -873,75 +643,243 @@ class BasicPostingsIO(PostingsIO):
         weight_bytes = b''
         if fmt.has_weights:
             weights = self._extract(posts, WEIGHT)  # type: List[float]
-            weight_bytes = encode_weights(weights)
+            weight_bytes = self.encode_weights(weights)
 
         pos_bytes = b''
         if fmt.has_positions:
-            poslists = self._extract(posts, POSITIONS)  # type: List[PosList]
-            pos_bytes = encode_positions(poslists)
+            poslists = self._extract(posts, POSITIONS)  # type: List[bytes]
+            pos_bytes = self.encode_chunk_list(poslists)
 
         char_bytes = b''
         if fmt.has_chars:
-            charlists = self._extract(posts, CHARS)  # type: List[CharList]
-            char_bytes = encode_chars(charlists)
+            charlists = self._extract(posts, CHARS)  # type: List[bytes]
+            char_bytes = self.encode_chunk_list(charlists)
 
         pay_bytes = b''
         if fmt.has_payloads:
-            paylists = self._extract(posts, PAYLOADS)  # type: List[PayList]
-            pay_bytes = encode_payloads(paylists)
+            paylists = self._extract(posts, PAYLOADS)  # type: List[bytes]
+            pay_bytes = self.encode_chunk_list(paylists)
 
         # Pack the metadata into the header struct
-        header = self.header.pack(self.MAGIC_NUMBER, len(posts), flags,
-                                  min_len, max_len,
-                                  len(id_bytes),
-                                  len(len_bytes),
-                                  len(weight_bytes),
-                                  len(pos_bytes),
-                                  len(char_bytes),
-                                  len(pay_bytes))
+        header = self.header.pack(
+            self.MAGIC_NUMBER, len(posts), flags, min_len, max_len,
+            len(id_bytes), len(len_bytes), len(weight_bytes), len(pos_bytes),
+            len(char_bytes), len(pay_bytes)
+        )
 
         # Join the header with all the byte strings
         return b''.join((header, id_bytes, len_bytes, weight_bytes, pos_bytes,
                          char_bytes, pay_bytes))
 
-    def doclist_to_bytes(self, fmt: Format,
-                         posts: Sequence[PostTuple]) -> bytes:
-        if not posts:
-            raise ValueError("Empty document postings list")
+    @staticmethod
+    def encode_docids(docids: Sequence[int]) -> bytes:
+        if not docids:
+            raise ValueError
+        if any(n < 0 for n in docids):
+            raise ValueError("Negative docid in %s" % docids)
 
-        flags = 0
-        id_bytes = encode_docids([p[DOCID] for p in posts])
-        return self._posts_to_bytes(fmt, posts, flags, id_bytes)
+        deltas = min_array(list(delta_encode(docids)))
+        if not IS_LITTLE:
+            deltas.byteswap()
+        return deltas.typecode.encode("ascii") + array_tobytes(deltas)
 
-    def vector_to_bytes(self, fmt: Format, posts: List[PostTuple]) -> bytes:
-        if not posts:
-            raise ValueError("Empty vector postings list")
+    @staticmethod
+    def decode_docids(src: bytes, offset: int, size: int) -> Sequence[int]:
+        typecode = bytes(src[offset:offset + 1]).decode("ascii")
+        deltas = array(typecode)
+        array_frombytes(deltas, src[offset + 1: offset + size])
+        if not IS_LITTLE:
+            deltas.byteswap()
+        return tuple(delta_decode(deltas))
 
-        flags = 1
-        id_bytes = encode_terms([p[TERMBYTES] for p in posts])
-        return self._posts_to_bytes(fmt, posts, flags, id_bytes)
+    @staticmethod
+    def encode_terms(terms: Sequence[bytes]) -> bytes:
+        return BasicIO.encode_chunk_list(terms)
 
-    def doclist_reader(self, fmt: Format, src: bytes,
-                       offset: int=0) -> 'BasicDocListReader':
-        return BasicDocListReader(fmt, src, offset)
+    @staticmethod
+    def decode_terms(src: bytes, offset: int, size: int) -> Sequence[bytes]:
+        return BasicIO.decode_chunk_list(src, offset, size)
 
-    def vector_reader(self, fmt: Format, src: bytes,
-                      offset: int=0) -> 'BasicVectorReader':
-        return BasicVectorReader(fmt, src, offset)
+    @staticmethod
+    def encode_lengths(lengths: Sequence[int]) -> bytes:
+        if any(not isinstance(n, int) or n < 0 or n > 255 for n in lengths):
+            raise ValueError("Bad byte in %r" % lengths)
+        return array_tobytes(array("B", lengths))
+
+    @staticmethod
+    def decode_lengths(src: bytes, offset: int, count: int) -> Sequence[int]:
+        end = offset + count
+        len_array = array("B")
+        array_frombytes(len_array, src[offset:end])
+        return len_array
+
+    @staticmethod
+    def encode_weights(weights: Sequence[float]) -> bytes:
+        if not weights or any(not isinstance(w, (int, float)) for w in weights):
+            raise ValueError("Bad weight in %r" % weights)
+
+        if all(w == 1 for w in weights):
+            return b"1"
+
+        intweights = [int(w) for w in weights]
+        if all(w == wi for w, wi in zip_(weights, intweights)):
+            arr = min_array(intweights)
+        else:
+            arr = array("f", weights)
+        if not IS_LITTLE:
+            arr.byteswap()
+
+        return arr.typecode.encode("ascii") + array_tobytes(arr)
+
+    @staticmethod
+    def decode_weights(src: bytes, offset: int, size: int, count: int
+                       ) -> Sequence[float]:
+        typecode = str(bytes(src[offset:offset + 1]).decode("ascii"))
+        if typecode == "1":
+            return array("f", (1.0 for _ in xrange(count)))
+
+        arr = array(typecode)
+        array_frombytes(arr, src[offset + 1: offset + size])
+        if not IS_LITTLE:
+            arr.byteswap()
+        return arr
+
+    @staticmethod
+    def encode_positions(poses: Sequence[int]) -> bytes:
+        deltas = min_array(list(delta_encode(poses)))
+        if not IS_LITTLE:
+            deltas.byteswap()
+        return deltas.typecode.encode("ascii") + array_tobytes(deltas)
+
+    @staticmethod
+    def decode_positions(src: bytes, offset: int, size: int) -> Sequence[int]:
+        typecode = str(bytes(src[offset:offset + 1]).decode("ascii"))
+        deltas = array(typecode)
+        array_frombytes(deltas, src[offset + 1:offset + size])
+        if not IS_LITTLE:
+            deltas.byteswap()
+        return tuple(delta_decode(deltas))
+
+    @staticmethod
+    def encode_chars(chars: Sequence[Tuple[int, int]]) -> bytes:
+        base = 0
+        deltas = []
+        for startchar, endchar in chars:
+            if startchar < base:
+                raise ValueError("Chars out of order: %s %s"
+                                 % (base, startchar))
+            if endchar < startchar:
+                raise ValueError("Negative char range: %s %s"
+                                 % (startchar, endchar))
+
+            deltas.append(startchar - base)
+            deltas.append(endchar - startchar)
+            base = endchar
+        deltas = min_array(deltas)
+        return deltas.typecode.encode("ascii") + array_tobytes(deltas)
+
+    @staticmethod
+    def decode_chars(src: bytes, offset: int, size: int
+                     ) -> Sequence[Tuple[int, int]]:
+        typecode = str(bytes(src[offset:offset + 1]).decode("ascii"))
+        indices = array(typecode)
+        array_frombytes(indices, src[offset + 1:offset + size])
+        if IS_LITTLE:
+            indices.byteswap()
+
+        if len(indices) % 2:
+            raise Exception("Odd number of char indices: %r" % indices)
+
+        # Zip up the linear list into pairs, and at the same time delta-decode
+        # the numbers
+        base = 0
+        cs = []
+        for i in xrange(0, len(indices), 2):
+            start = base + indices[i]
+            end = start + indices[i + 1]
+            cs.append((start, end))
+            base = end
+        return cs
+
+    @staticmethod
+    def encode_payloads(payloads: Sequence[bytes]) -> bytes:
+        return BasicIO.encode_chunk_list(payloads)
+
+    @staticmethod
+    def decode_payloads(src: bytes, offset: int, size: int) -> Sequence[bytes]:
+        return BasicIO.decode_chunk_list(src, offset, size)
+
+    @staticmethod
+    def encode_chunk_list(chunks: Sequence[bytes]) -> bytes:
+        # Encode the lengths of the chunks
+        lens = [len(chunk) for chunk in chunks]
+        len_array = min_array(lens)
+        if not IS_LITTLE:
+            len_array.byteswap()
+
+        # Encode the offsets from the lengths (unfortunately rebuilding this
+        # information from the lengths is SLOW, so we have to encode it)
+        base = 0
+        offsets = []
+        for length in len_array:
+            offsets.append(base)
+            base += length
+        offsets_array = min_array(offsets)
+
+        # Encode the header
+        header = tcodes_and_len.pack(offsets_array.typecode.encode("ascii"),
+                                     len_array.typecode.encode("ascii"),
+                                     len(chunks))
+        index = [header, array_tobytes(offsets_array), array_tobytes(len_array)]
+        return b''.join(index + chunks)
+
+    @staticmethod
+    def decode_chunk_index(src: bytes, offset: int, size: int
+                           ) -> Sequence[Tuple[int, int]]:
+        # Decode the header
+        h_end = offset + tcodes_and_len.size
+        off_code, lens_code, count = tcodes_and_len.unpack(src[offset:h_end])
+        off_code = str(off_code.decode("ascii"))
+        lens_code = str(lens_code.decode("ascii"))
+
+        # Load the offsets array
+        off_array = array(off_code)
+        off_end = h_end + off_array.itemsize * count
+        array_frombytes(off_array, src[h_end: off_end])
+        if not IS_LITTLE:
+            off_array.byteswap()
+        # Translate the local offsets to global offsets
+        offsets = [h_end + off for off in off_array]
+
+        # Load the lengths array
+        len_array = array(lens_code)
+        lens_end = off_end + len_array.itemsize * count
+        array_frombytes(len_array, src[off_end: lens_end])
+        if not IS_LITTLE:
+            len_array.byteswap()
+
+        return list(izip(offsets, len_array))
+
+    @staticmethod
+    def decode_chunk_list(src: bytes, offset: int, size: int
+                          ) -> Sequence[bytes]:
+        ix = BasicIO.decode_chunk_index(src, offset, size)
+        return tuple(bytes(src[chunk_off:chunk_off + length])
+                     for chunk_off, length in ix)
 
 
 class BasicPostingReader(PostingReader):
     def __init__(self, fmt: Format, src: bytes, offset: int=0):
         super(BasicPostingReader, self).__init__(fmt, src, offset)
 
-        header_struct = BasicPostingsIO.header
+        header_struct = BasicIO.header
 
         # Unpack the header from the beginning of the byte range
         (magic, self._count, flags, self._min_len, self._max_len,
          self._ids_size, self._lens_size, self._weights_size,
          self._poses_size, self._chars_size, self._pays_size,
          ) = header_struct.unpack(src[offset: offset + header_struct.size])
-        assert magic == BasicPostingsIO.MAGIC_NUMBER
+        assert magic == BasicIO.MAGIC_NUMBER
 
         # Compute the offset of each section based on their sizes
         self._ids_offset = offset + header_struct.size
@@ -955,17 +893,21 @@ class BasicPostingReader(PostingReader):
         # Until we load a section, store None
         self._lens = None  # type: Sequence[int]
         self._weights = None  # type: Sequence[float]
-        self._positions_info = None  # type: listinfo
-        self._chars_info = None  # type: listinfo
-        self._payload_index = None  # type: Sequence[Tuple[int, Sequence[int]]
+        self._chunk_indexes = [None, None, None]
+
+    def raw_bytes(self) -> bytes:
+        return self._src[self._offset: self._end_offset]
+
+    def can_copy_raw_to(self, fmt: Format):
+        return self._format.can_copy_raw_to(fmt)
 
     def end_offset(self) -> int:
         return self._end_offset
 
-    def _get_lens(self):
+    def _get_lens(self) -> Sequence[int]:
         if self._lens is None:
-            self._lens = decode_lengths(self._src, self._lens_offset,
-                                        self._lens_size)
+            self._lens = BasicIO.decode_lengths(self._src, self._lens_offset,
+                                                self._lens_size)
         return self._lens
 
     def length(self, n: int):
@@ -982,10 +924,11 @@ class BasicPostingReader(PostingReader):
     def max_length(self):
         return self._max_len
 
-    def _get_weights(self):
+    def _get_weights(self) -> Sequence[float]:
         if self._weights is None:
-            self._weights = decode_weights(self._src, self._weights_offset,
-                                           self._weights_size, self._count)
+            self._weights = BasicIO.decode_weights(
+                self._src, self._weights_offset, self._weights_size, self._count
+            )
         return self._weights
 
     def weight(self, n: int) -> float:
@@ -1011,41 +954,57 @@ class BasicPostingReader(PostingReader):
 
         return max(self._get_weights())
 
-    def positions(self, n: int) -> Sequence[int]:
+    def _chunk_offsets(self, n: int, offset: int, size: int,
+                       ix_pos: int) -> Tuple[int, int]:
         if n < 0 or n >= self._count:
             raise IndexError
-        if not self._poses_size:
+        if not size:
             raise UnsupportedFeature
 
-        return decode_position_list(self._src, self._poses_offset,
-                                    self._poses_size, n, self._count,
-                                    cache=self)
+        ix = self._chunk_indexes[ix_pos]
+        if ix is None:
+            ix = BasicIO.decode_chunk_index(self._src, offset, size)
+            self._chunk_indexes[ix_pos] = ix
+
+        return ix[n]
+
+    def positions(self, n: int) -> Sequence[int]:
+        offset, length = self._chunk_offsets(n, self._poses_offset,
+                                             self._poses_size, 0)
+        return BasicIO.decode_positions(self._src, offset, length)
+
+    def raw_positions(self, n: int) -> bytes:
+        offset, length = self._chunk_offsets(n, self._poses_offset,
+                                             self._poses_size, 0)
+        return self._src[offset: offset + length]
 
     def chars(self, n: int) -> Sequence[Tuple[int, int]]:
-        if n < 0 or n >= self._count:
-            raise IndexError
-        if not self._chars_size:
-            raise UnsupportedFeature
+        offset, length = self._chunk_offsets(n, self._chars_offset,
+                                             self._chars_size, 1)
+        return BasicIO.decode_chars(self._src, offset, length)
 
-        return decode_chars_list(self._src, self._chars_offset,
-                                 self._chars_size, n, self._count,
-                                 cache=self)
+    def raw_chars(self, n: int) -> bytes:
+        offset, length = self._chunk_offsets(n, self._chars_offset,
+                                             self._chars_size, 1)
+        return self._src[offset: offset + length]
 
     def payloads(self, n: int) -> Sequence[bytes]:
-        if n < 0 or n >= self._count:
-            raise IndexError
-        if not self._pays_size:
-            raise UnsupportedFeature
+        offset, length = self._chunk_offsets(n, self._pays_offset,
+                                             self._pays_size, 2)
+        return BasicIO.decode_payloads(self._src, offset, length)
 
-        return decode_pays_list(self._src, self._pays_offset, self._pays_size,
-                                n, self._count, cache=self)
+    def raw_payloads(self, n: int) -> Sequence[bytes]:
+        offset, length = self._chunk_offsets(n, self._pays_offset,
+                                             self._pays_size, 2)
+        return self._src[offset: offset + length]
 
 
 class BasicDocListReader(BasicPostingReader, DocListReader):
     def __init__(self, fmt: Format, src: bytes, offset: int=0):
         super(BasicDocListReader, self).__init__(fmt, src, offset)
 
-        self._ids = decode_docids(self._src, self._ids_offset, self._ids_size)
+        self._ids = BasicIO.decode_docids(self._src, self._ids_offset,
+                                          self._ids_size)
 
     def __repr__(self):
         return "<%s %r>" % (type(self).__name__, list(self.postings()))
@@ -1062,13 +1021,28 @@ class BasicDocListReader(BasicPostingReader, DocListReader):
     def all_ids(self):
         return self._ids
 
+    def raw_posting_at(self, n: int) -> RawPost:
+        docid = self.id(n)
+        length = self.length(n) if self.has_lengths else None
+        weight = self.weight(n) if self.has_weights else None
+
+        posbytes = charbytes = paybytes = None
+        if self.has_positions:
+            posbytes = self.raw_positions(n)
+        if self.has_chars:
+            charbytes = self.raw_chars(n)
+        if self.has_payloads:
+            paybytes = self.raw_payloads(n)
+
+        return docid, None, length, weight, posbytes, charbytes, paybytes
+
 
 class BasicVectorReader(BasicPostingReader, VectorReader):
     def __init__(self, fmt: Format, src: bytes, offset: int=0):
         super(BasicVectorReader, self).__init__(fmt, src, offset)
 
-        self._terms = decode_terms(self._src, self._ids_offset, self._ids_size,
-                                   self._count)
+        self._terms = BasicIO.decode_terms(self._src, self._ids_offset,
+                                           self._ids_size)
 
     def all_terms(self):
         for tbytes in self._terms:
@@ -1090,73 +1064,3 @@ class BasicVectorReader(BasicPostingReader, VectorReader):
         else:
             raise KeyError(termbytes)
 
-
-# Term cache
-
-# class TermCache(object):
-#     def __init__(self, schema: 'fields.Schema', postlimit: int=1000000):
-#         self.schema = schema
-#         self.postlimit = postlimit
-#
-#         # {fieldname: {termbytes: [list of postings]}}
-#         self._cache = {}  # type: Dict[str, Dict[bytes, List[PostTuple]]]
-#         self._count = 0
-#
-#         self.key_flushes = 0
-#         self.limit_flushes = 0
-#
-#     def __len__(self) -> int:
-#         return self._count
-#
-#     def add_posting(self, fieldname, post: PostTuple):
-#         cache = self._cache
-#         if fieldname in cache:
-#             fcache = cache[fieldname]
-#         else:
-#             fcache = cache[fieldname] = {}
-#
-#         self._count += 1
-#         termbytes = post[TERMBYTES]
-#         if termbytes in fcache:
-#             ls = fcache[termbytes]
-#         else:
-#             fcache[termbytes] = ls = []
-#
-#         ls.append(post)
-#
-#     def add_postings(self, fieldname: str, posts: Sequence[PostTuple]):
-#         cache = self._cache
-#         if fieldname in cache:
-#             fcache = cache[fieldname]
-#         else:
-#             fcache = cache[fieldname] = {}
-#
-#         self._count += len(posts)
-#         for post in posts:
-#             termbytes = post[TERMBYTES]
-#             if termbytes in fcache:
-#                 ls = fcache[termbytes]
-#             else:
-#                 fcache[termbytes] = ls = []
-#
-#             ls.append(post)
-#
-#     def term_postings(self, fieldname
-#                       ) -> Iterable[Tuple[bytes, List[PostTuple]]]:
-#         cache = self._cache[fieldname]
-#         if fieldname not in cache:
-#             return
-#         fcache = cache[fieldname]
-#         for termbytes in sorted(fcache):
-#             yield termbytes, fcache[termbytes]
-#
-#     def write_to(self, writer: 'codec.FieldWriter'):
-#         for fieldname in sorted(self._cache):
-#             fieldobj = self.schema[fieldname]
-#             writer.start_field(fieldname, fieldobj)
-#             for termbytes, postings in self.term_postings(fieldname):
-#                 writer.start_term(termbytes)
-#                 writer.add_posting_list(postings)
-#                 writer.finish_term()
-#             writer.finish_field()
-#

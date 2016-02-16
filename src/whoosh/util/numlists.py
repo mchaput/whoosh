@@ -25,7 +25,6 @@ def delta_decode(nums: Iterable[int], base: int=0) -> Iterable[int]:
 
 
 def delta_decode_inplace(nums: Sequence):
-    print("nums=", nums)
     for i in xrange(1, len(nums)):
         nums[i] += nums[i - 1]
 
@@ -33,7 +32,7 @@ def delta_decode_inplace(nums: Sequence):
 def min_array_code(maxval: int) -> str:
     if maxval <= 255:
         return "B"
-    elif maxval <= 2**16:
+    elif maxval <= 2**16 - 1:
         return "H"
     elif maxval <= 2**31 - 1:
         return "i"

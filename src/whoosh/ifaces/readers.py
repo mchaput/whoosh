@@ -244,6 +244,14 @@ class IndexReader(object):
 
         return None
 
+    def set_merging_hint(self):
+        """
+        Signals to the reader that it is being used for merging, so it should
+        enable any optimizations to make linear, batch reading faster.
+        """
+
+        pass
+
     @abstractmethod
     def indexed_field_names(self) -> Sequence[str]:
         """

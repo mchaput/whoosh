@@ -13,8 +13,10 @@ from whoosh.util.testing import TempStorage
 
 def test_terminfo():
     fmt = postings.Format(has_weights=True, has_positions=True)
-    posts = [postings.posting(docid=100, length=1, weight=2.5,
-                              positions=[1, 9, 30])]
+
+    single = postings.posting(docid=100, length=1, weight=2.5,
+                              positions=[1, 9, 30])
+    posts = [fmt.condition_post(single)]
 
     infos = [
         x1.X1TermInfo(weight=3.0, df=3, minlength=7, maxlength=10,
@@ -65,7 +67,7 @@ def test_terminfo():
 
             inline_post = ti.posting_reader(fmt).posting_at(0)
             assert inline_post == postings.posting(
-                docid=100, weight=2.5, positions=[1, 9, 30]
+                docid=100, weight=2.5, positions=(1, 9, 30)
             )
 
 
@@ -147,8 +149,8 @@ def test_perdoc():
 
     with TempStorage() as st:
         cdc = x1.X1Codec()
-        seg = cdc.new_segment(st, "test")
         sesh = st.open("test", writable=True)
+        seg = cdc.new_segment(sesh)
         pdw = x1.X1PerDocWriter(sesh, seg)
 
         pdw.start_doc(0)
@@ -221,8 +223,8 @@ def test_terms():
 
     with TempStorage() as st:
         cdc = x1.X1Codec()
-        seg = cdc.new_segment(st, "test")
         sesh = st.open("test", writable=True)
+        seg = cdc.new_segment(sesh)
         fw = x1.X1FieldWriter(sesh, seg)
 
         for i, fname in enumerate(fnames):
@@ -297,8 +299,8 @@ def test_cursor():
 
     with TempStorage() as st:
         cdc = x1.X1Codec()
-        seg = cdc.new_segment(st, "test")
         sesh = st.open("test", writable=True)
+        seg = cdc.new_segment(sesh)
         fw = x1.X1FieldWriter(sesh, seg)
         fw.start_field("a", field)
         for i, term in enumerate(terms):

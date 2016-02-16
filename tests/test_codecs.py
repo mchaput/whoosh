@@ -14,7 +14,8 @@ from whoosh.util.testing import TempIndex, TempStorage
 def _make_codec(**kwargs):
     st = RamStorage()
     codec = default_codec(**kwargs)
-    seg = codec.new_segment(st, "test")
+    sesh = st.open()
+    seg = codec.new_segment(sesh)
     return st, codec, seg
 
 
@@ -103,9 +104,8 @@ def test_stored_fields():
     codec = default_codec()
     fieldobj = fields.TEXT(stored=True)
     with TempStorage("storedfields") as st:
-        seg = codec.new_segment(st, "test")
-
         sesh = st.open(writable=True)
+        seg = codec.new_segment(sesh)
         dw = codec.per_document_writer(sesh, seg)
         dw.start_doc(0)
         dw.add_field("a", fieldobj, "hello", 1)

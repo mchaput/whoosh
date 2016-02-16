@@ -739,8 +739,7 @@ class CompactIntWriter(ColumnWriter):
         self._values = []
 
     def finish(self, doccount: int):
-        # Don't _fill() at the end... in the reader, we'll just return
-        # everything after the written blocks as default
+        self._fill(doccount)
 
         # If a block is in progress, fill it in
         if self._values:
@@ -773,7 +772,7 @@ class CompactIntReader(ColumnReader):
         codestart = fstart - self._count
         self._codes = bytes(data[codestart:fstart]).decode("ascii")
 
-        # Build an arry of the offsets to each block
+        # Build an array of the offsets to each block
         self._offsets = array("I")
         base = 0
         for code in self._codes:
@@ -819,8 +818,9 @@ class CompactIntReader(ColumnReader):
     def __getitem__(self, docnum: int) -> int:
         blocksize = self._size
         block = docnum // blocksize
+
         code = self._codes[block]
-        if block >= len(self._cache) or code == "-":
+        if code == "-":
             return self._default
         if code.isdigit():
             return int(code)

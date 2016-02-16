@@ -90,15 +90,25 @@ class SegmentReader(readers.IndexReader):
         self._gen = generation
 
         # Create a new reading session
-        self._storage = storage
-        self._session = storage.open(segment.indexname, writable=False)
         self._codec = use_codec if use_codec else segment.codec()
+        self._main_storage = storage
+
+        # Give the codec a chance to give us a specialized storage object
+        # (e.g. for compound segments)
+        self._storage = self._codec.segment_storage(storage, segment)
+        # Open a read-only session
+        self._session = self._storage.open(segment.indexname, writable=False)
+
         # Get sub-readers from codec
         self._terms = self._codec.terms_reader(self._session, segment)
         self._perdoc = self._codec.per_document_reader(self._session, segment)
 
         self.default_idset_type = idsets.BitSet
         self._deleted_set = None
+
+    def __repr__(self):
+        return "%s(%r, %r)" % (self.__class__.__name__, self._storage,
+                               self._segment)
 
     def segment(self) -> 'codecs.Segment':
         return self._segment
@@ -123,12 +133,13 @@ class SegmentReader(readers.IndexReader):
         return self._gen
 
     @unclosed
+    def set_merging_hint(self):
+        self._terms.set_merging_hint()
+        self._perdoc.set_merging_hint()
+
+    @unclosed
     def indexed_field_names(self) -> Sequence[str]:
         return self._terms.indexed_field_names()
-
-    def __repr__(self):
-        return "%s(%r, %r)" % (self.__class__.__name__, self._storage,
-                               self._segment)
 
     @unclosed
     def __contains__(self, term: TermTuple) -> bool:
@@ -211,7 +222,7 @@ class SegmentReader(readers.IndexReader):
         try:
             return self._terms.term_info(fieldname, termbytes)
         except KeyError:
-            raise TermNotFound("%s:%r" % (fieldname, termbytes))
+            raise readers.TermNotFound("%s:%r" % (fieldname, termbytes))
 
     @unclosed
     def __iter__(self) -> 'Iterable[Tuple[TermTuple, readers.TermInfo]]':
@@ -281,7 +292,7 @@ class SegmentReader(readers.IndexReader):
         try:
             fieldobj = self.schema[fieldname]
         except KeyError:
-            raise TermNotFound("No %r field" % fieldname)
+            raise readers.TermNotFound("No %r field" % fieldname)
         if not fieldobj.vector:
             raise Exception("Field %r does not store vectors" % fieldname)
         return self._perdoc.vector(docnum, fieldname, fieldobj.vector)
@@ -319,7 +330,7 @@ class SegmentReader(readers.IndexReader):
         try:
             fieldobj = self.schema[fieldname]
         except KeyError:
-            raise TermNotFound("No %r field" % fieldname)
+            raise readers.TermNotFound("No %r field" % fieldname)
 
         column = column or fieldobj.column
         if not column:
@@ -364,7 +375,7 @@ class EmptyReader(readers.IndexReader):
 
     def term_info(self, fieldname: str, termbytes: TermText
                   ) -> 'readers.TermInfo':
-        raise TermNotFound((fieldname, termbytes))
+        raise readers.TermNotFound((fieldname, termbytes))
 
     def __iter__(self) -> 'Iterable[Tuple[TermTuple, readers.TermInfo]]':
         return iter(())
@@ -422,7 +433,7 @@ class EmptyReader(readers.IndexReader):
                 include: 'Union[idsets.DocIdSet, Set]'=None,
                 exclude: 'Union[idsets.DocIdSet, Set]'=None
                 ) -> 'matchers.Matcher':
-        raise TermNotFound("%s:%r" % (fieldname, termbytes))
+        raise readers.TermNotFound("%s:%r" % (fieldname, termbytes))
 
     def has_vector(self, docnum: int, fieldname: str) -> bool:
         return False
@@ -472,6 +483,10 @@ class MultiReader(readers.IndexReader):
         self.readers.append(reader)
         self.doc_offsets.append(self.base)
         self.base += reader.doc_count_all()
+
+    def set_merging_hint(self):
+        for r in self.readers:
+            r.set_merging_hint()
 
     def close(self):
         for d in self.readers:
@@ -559,7 +574,7 @@ class MultiReader(readers.IndexReader):
                if term in r]
 
         if not tis:
-            raise TermNotFound(term)
+            raise readers.TermNotFound(term)
 
         return readers.TermInfo.combine(tis)
 
@@ -578,43 +593,39 @@ class MultiReader(readers.IndexReader):
                 ) -> 'matchers.Matcher':
         from whoosh.matching.wrappers import MultiMatcher
 
+        rs = self.readers
+        doc_offsets = self.doc_offsets
+        doccount = self.doc_count_all()
         termbytes = self._text_to_bytes(fieldname, termbytes)
-        term = fieldname, termbytes
 
-        # Build the list of relevant readers and doc offsets
-        rs = []
-        docoffsets = []
-        for i, r in enumerate(self.readers):
-            if term in r:
-                rs.append(r)
-                docoffsets.append(self.doc_offsets[i])
-        if not rs:
-            raise TermNotFound(fieldname, termbytes)
-
-        postreaders = []
+        ms = []
+        m_offsets = []
         for i, r in enumerate(rs):
-            offset = docoffsets[i]
+            start = doc_offsets[i]
+            end = doc_offsets[i + 1] if i < len(rs) - 1 else doccount
             subinclude = subexclude = None
-            end = (docoffsets[i + 1] if i < len(rs) - 1 else
-                       self.doc_count_all())
-
-            # "De-global-ize" the include/exclude sets by subsetting them for
-            # each sub-reader :/
             if include:
-                subinclude = idsets.SubSet(include, offset, end)
+                subinclude = idsets.SubSet(include, start, end)
             if exclude:
-                subexclude = idsets.SubSet(exclude, offset, end)
+                subexclude = idsets.SubSet(exclude, start, end)
+            try:
+                m = r.matcher(fieldname, termbytes, scorer=scorer,
+                              include=subinclude, exclude=subexclude)
+            except readers.TermNotFound:
+                pass
+            else:
+                ms.append(m)
+                m_offsets.append(start)
 
-            pr = r.matcher(fieldname, termbytes, scorer=scorer,
-                           include=subinclude, exclude=subexclude)
-            postreaders.append(pr)
+        if not ms:
+            raise readers.TermNotFound(fieldname, termbytes)
 
         # Even if there's only one matcher, we still wrap it with a MultiMatcher
         # so it adds the correct offset, UNLESS the offset is 0
-        if len(postreaders) == 1 and docoffsets[0] == 0:
-            return postreaders[0]
+        if len(ms) == 1 and m_offsets[0] == 0:
+            return ms[0]
         else:
-            return MultiMatcher(postreaders, docoffsets, scorer)
+            return MultiMatcher(ms, m_offsets, scorer)
 
     def cursor(self, fieldname: str) -> 'codecs.TermCursor':
         return codecs.MultiCursor([r.cursor(fieldname) for r in self.readers])

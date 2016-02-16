@@ -47,7 +47,9 @@ class Merge(object):
         self.delete_queries = []
 
     def __repr__(self):
-        return "<%s %r>" % (type(self).__name__, self.segments)
+        return "<%s %s %r>" % (
+            type(self).__name__, self.merge_id, self.segments
+        )
 
     def __eq__(self, other: 'Merge'):
         return isinstance(other, Merge) and self.segments == other.segments
@@ -152,7 +154,7 @@ class TieredMergeStrategy(MergeStrategy):
     def get_merges(self, segments: 'Sequence[codecs.Segment]',
                    merging: Union[Sequence[str], Set[str]],
                    expunge_deleted: bool=False) -> Sequence[Merge]:
-        logger.info("Starting merge")
+        logger.info("Looking for merges of %r", segments)
 
         # Associate each segment with its size
         sized = [(s.size(), s) for s in segments]
@@ -162,6 +164,7 @@ class TieredMergeStrategy(MergeStrategy):
             logger.debug("Segment %r size=%d", seg, size)
             if size >= self.max_merged_size / 2.0:
                 logger.debug("Segment %r too big to merge", seg)
+                pass
             else:
                 segs.append((size, seg))
 

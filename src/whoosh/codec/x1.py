@@ -30,6 +30,7 @@ This module implements a "codec" for writing/reading Whoosh X indexes.
 """
 
 import re
+import logging
 import struct
 from collections import defaultdict
 from typing import (Any, Callable, Dict, Iterable, List, Optional, Sequence,
@@ -37,13 +38,9 @@ from typing import (Any, Callable, Dict, Iterable, List, Optional, Sequence,
 
 from whoosh import columns, fields, postings
 from whoosh.ifaces import codecs, matchers, readers, storage, weights
-from whoosh.columns import Column, ColumnWriter
-from whoosh.compat import bytes_type, text_type
-from whoosh.compat import xrange
-from whoosh.fields import FieldType
-from whoosh.filedb import blueline
+from whoosh.compat import bytes_type, text_type, xrange
+from whoosh.filedb import blueline, filestore
 from whoosh.filedb.datafile import Data, OutputFile
-from whoosh.filedb.filestore import FileStorage
 from whoosh.metadata import MetaData
 from whoosh.system import IS_LITTLE
 
@@ -51,6 +48,9 @@ try:
     import zlib
 except ImportError:
     zlib = None
+
+
+logger = logging.getLogger(__name__)
 
 
 # Typing aliases
@@ -80,14 +80,6 @@ x1_  # Identifies this file as having been written by this codec
 _(?P<name>[A-Za-z]*)  # Field name (may be blank for general files)
 (?P<ext>[.][A-Za-z]+)  # Extension, indicates type of data in file
 """, re.VERBOSE | re.UNICODE)
-
-
-def make_filename(segid: str, name: str, ext) -> str:
-    return "x1_%s_%s%s" % (segid, name, ext)
-
-
-def make_col_filename(segid: str, fieldname: str) -> str:
-    return make_filename(segid, fieldname, X1Codec.COLUMN_EXT)
 
 
 # Header for terms file
@@ -293,7 +285,7 @@ class X1TermInfo(readers.TermInfo):
 
 # Segment implementation
 
-class X1Segment(codecs.Segment):
+class X1Segment(codecs.FileSegment):
     def __init__(self, _codec: 'X1Codec', indexname: str, doccount: int=0,
                  segid: str=None, deleted: Set=None, fieldlengths: Dict=None,
                  was_little: bool=IS_LITTLE):
@@ -306,7 +298,8 @@ class X1Segment(codecs.Segment):
         self._deleted = deleted
         self.fieldlengths = fieldlengths or {}
         self.was_little = was_little
-        self.compound = False
+        self.is_compound = False
+        self.compound_filename = None
 
     def __repr__(self):
         return "<%s %s %d/%d>" % (
@@ -314,8 +307,8 @@ class X1Segment(codecs.Segment):
             self.doc_count_all()
         )
 
-    def make_filename(self, ext: str) -> str:
-        return "%s%s" % (self.segment_id(), ext)
+    def make_col_filename(self, fieldname: str) -> str:
+        return self.make_filename(fieldname, X1Codec.COLUMN_EXT)
 
     def native(self) -> bool:
         return IS_LITTLE == self.was_little
@@ -374,6 +367,7 @@ class X1Codec(codecs.Codec):
     POSTS_EXT = ".pst"  # Term postings
     VPOSTS_EXT = ".vps"  # Vector postings
     COLUMN_EXT = ".col"  # Per-document value columns
+    SEGMENT_EXT = ".seg"  # Compound segment
 
     def __init__(self, blocklimit: int=128, compression: int=3,
                  inlinelimit: int=1, assemble: bool=False):
@@ -387,6 +381,9 @@ class X1Codec(codecs.Codec):
     def name(self) -> str:
         return 'whoosh.codec.x1.X1Codec'
 
+    def short_name(self) -> str:
+        return "x1"
+
     # def automata(self):
 
     # Per-document value writer
@@ -396,7 +393,7 @@ class X1Codec(codecs.Codec):
 
     # Inverted index writer
     def field_writer(self, session: 'storage.Session',
-                     segment: 'codecs.Segment') -> 'X1FieldWriter':
+                     segment: X1Segment) -> 'X1FieldWriter':
         return X1FieldWriter(session, segment)
 
     # automata
@@ -412,8 +409,26 @@ class X1Codec(codecs.Codec):
 
     # Segments
 
-    def new_segment(self, store: FileStorage, indexname: str) -> X1Segment:
-        return X1Segment(self, indexname)
+    def new_segment(self, session: 'storage.Session') -> X1Segment:
+        return X1Segment(self, session.indexname)
+
+    def finish_segment(self, session: 'storage.Session', segment: X1Segment):
+        from whoosh.filedb.compound import assemble_segment
+
+        store = session.store
+        filename = segment.make_filename("", X1Codec.SEGMENT_EXT)
+        assemble_segment(store, store, segment, filename, delete=True)
+        segment.is_compound = True
+        segment.compound_filename = filename
+
+    def segment_storage(self, store: 'filestore.FileStorage',
+                        segment: X1Segment) -> 'filestore.FileStorage':
+        if segment.is_compound:
+            from whoosh.filedb.compound import CompoundStorage
+
+            return CompoundStorage(store, segment.compound_filename)
+
+        return store
 
     @classmethod
     def segment_from_bytes(cls, bs) -> X1Segment:
@@ -432,7 +447,7 @@ class X1PerDocWriter(codecs.PerDocumentWriter):
         self._segid = segment.segment_id()
 
         # Cached column writers map fieldname -> (OutputFile, colwriter)
-        self._cws = {}  # type: Dict[str, Tuple[OutputFile, ColumnWriter]]
+        self._cws = {}  # type: Dict[str, Tuple[OutputFile, columns.ColumnWriter]]
 
         self._fieldlengths = defaultdict(int)
         self._docnum = -1
@@ -440,13 +455,14 @@ class X1PerDocWriter(codecs.PerDocumentWriter):
         self._indoc = False
         self.closed = False
 
-    def _colwriter(self, fieldname: str, column: Column) -> ColumnWriter:
+    def _colwriter(self, fieldname: str, column: 'columns.Column'
+                   ) -> 'columns.ColumnWriter':
         # Return a column writer for the given field
         _cws = self._cws
         if fieldname in _cws:
             cw = _cws[fieldname][1]
         else:
-            filename = make_col_filename(self._segid, fieldname)
+            filename = self._segment.make_col_filename(fieldname)
             f = self._store.create_file(filename)
             cw = column.writer(f)
             _cws[fieldname] = f, cw
@@ -463,8 +479,8 @@ class X1PerDocWriter(codecs.PerDocumentWriter):
         self._storedfields = {}
         self._indoc = True
 
-    def add_field(self, fieldname: str, fieldobj: FieldType, value: Any,
-                  length: int):
+    def add_field(self, fieldname: str, fieldobj: 'fields.FieldType',
+                  value: Any, length: int):
 
         if fieldobj.stored and value is not None:
             self._storedfields[fieldname] = value
@@ -474,15 +490,19 @@ class X1PerDocWriter(codecs.PerDocumentWriter):
             self.add_column_value(_lenfield(fieldname), LENGTHS_COLUMN, length)
             self._fieldlengths[fieldname] += length
 
-    def add_column_value(self, fieldname: str, column: Column, value: Any):
+    def add_column_value(self, fieldname: str, column: 'columns.Column',
+                         value: Any):
         cw = self._colwriter(fieldname, column)
         cw.add(self._docnum, value)
 
-    def add_vector_postings(self, fieldname: str, fieldobj: FieldType,
+    def add_vector_postings(self, fieldname: str, fieldobj: 'fields.FieldType',
                             posts: 'Sequence[postings.PostTuple]'):
         fmt = fieldobj.vector
-        self.add_column_value(_vecfield(fieldname), VECTOR_COLUMN,
-                              fmt.vector_to_bytes(posts))
+        data = fmt.vector_to_bytes(posts)
+        self.add_raw_vector(fieldname, data)
+
+    def add_raw_vector(self, fieldname: str, data: bytes):
+        self.add_column_value(_vecfield(fieldname), VECTOR_COLUMN, data)
 
     def finish_doc(self):
         if not self._indoc:
@@ -573,7 +593,7 @@ class X1PerDocReader(codecs.PerDocumentReader):
     # Columns
 
     def has_column(self, fieldname: str) -> bool:
-        filename = make_col_filename(self._segid, fieldname)
+        filename = self._segment.make_col_filename(fieldname)
         return self._store.file_exists(filename)
 
     def column_reader(self, fieldname: str, column: columns.Column,
@@ -582,7 +602,7 @@ class X1PerDocReader(codecs.PerDocumentReader):
         if fieldname in _colfiles:
             colfile, offset, length, _ = _colfiles[fieldname]
         else:
-            filename = make_col_filename(self._segid, fieldname)
+            filename = self._segment.make_col_filename(fieldname)
             length = self._store.file_length(filename)
             colfile = self._store.map_file(filename)
             offset = 0
@@ -687,25 +707,27 @@ class X1FieldWriter(codecs.FieldWriter):
         self._blocksize = blocksize
         self._inlinelimit = inlinelimit
 
-        segid = segment.segment_id()
-        terms_filename = make_filename(segid, "", X1Codec.TERMS_EXT)
+        terms_filename = segment.make_filename("", X1Codec.TERMS_EXT)
         self._termsfile = self._store.create_file(terms_filename)
         self._termitems = []
         self._refs = []  # type: List[blueline.Ref]
 
-        posts_filename = make_filename(segid, "", X1Codec.POSTS_EXT)
+        posts_filename = segment.make_filename("", X1Codec.POSTS_EXT)
         self._postsfile = self._store.create_file(posts_filename)
         self._postsfile.write(PostFileHeader(was_little=IS_LITTLE).encode())
 
         # Assign numbers to fieldnames to shorten keys
         self._fieldnames = []
 
+        # Set by start_field
         self._fieldname = None
         self._fieldnum = None
         self._fieldobj = None
-        self._format = None
+        self._format = None  # type: postings.Format
+        self._io = None  # type: postings.PostingsIO
         self._infield = False
 
+        # Set by start_term
         self._termbytes = None
         self._terminfo = X1TermInfo()
         self._postbuf = []
@@ -713,11 +735,12 @@ class X1FieldWriter(codecs.FieldWriter):
 
         self.closed = False
 
-    def start_field(self, fieldname: str, fieldobj: FieldType):
+    def start_field(self, fieldname: str, fieldobj: 'fields.FieldType'):
         assert not self._infield
         self._fieldname = fieldname
         self._fieldobj = fieldobj
         self._format = fieldobj.format
+        self._io = fieldobj.format.io()
         self._infield = True
 
         self._fieldnum = len(self._fieldnames)
@@ -732,7 +755,10 @@ class X1FieldWriter(codecs.FieldWriter):
         self._blockcount = 0
 
     def add_posting(self, post: 'postings.PostTuple'):
-        self._postbuf.append(post)
+        self.add_raw_post(self._io.condition_post(post))
+
+    def add_raw_post(self, rawpost: 'postings.RawPost'):
+        self._postbuf.append(rawpost)
         if len(self._postbuf) >= self._blocksize:
             self._flush_postings()
 
@@ -747,8 +773,7 @@ class X1FieldWriter(codecs.FieldWriter):
         # offset = postsfile.tell()
 
         # Use the format to write the postings
-        fmt = self._fieldobj.format
-        postsfile.write(fmt.doclist_to_bytes(block))
+        postsfile.write(self._format.doclist_to_bytes(block))
 
         self._blockcount += 1
         self._postbuf = []
@@ -779,6 +804,7 @@ class X1FieldWriter(codecs.FieldWriter):
         self._termitems.append((keybytes, valbytes))
         if len(self._termitems) >= self._regionsize:
             self._flush_terms()
+        self._postbuf = None
 
     def _flush_terms(self):
         self._refs.append(blueline.write_region(self._termsfile,
@@ -840,11 +866,10 @@ class X1TermsReader(codecs.TermsReader):
         self._store = session.store
         self._segment = segment
 
-        segid = segment.segment_id()
-        terms_filename = make_filename(segid, "", X1Codec.TERMS_EXT)
+        terms_filename = segment.make_filename("", X1Codec.TERMS_EXT)
         self._termsdata = self._store.map_file(terms_filename)
 
-        posts_filename = make_filename(segid, "", X1Codec.POSTS_EXT)
+        posts_filename = segment.make_filename("", X1Codec.POSTS_EXT)
         self._postsdata = self._store.map_file(posts_filename)
 
         # Read terms footer
@@ -897,6 +922,9 @@ class X1TermsReader(codecs.TermsReader):
         except readers.TermNotFound:
             return False
         return key in self._kv
+
+    def set_merging_hint(self):
+        self._kv.enable_preread()
 
     def indexed_field_names(self) -> Sequence[str]:
         return list(self._fieldnames)
@@ -979,16 +1007,33 @@ class X1TermsReader(codecs.TermsReader):
 
         return X1TermInfo.decode_doc_freq(data, 0)
 
+    def matcher_from_terminfo(self, fieldname: str, tbytes: bytes,
+                              format_: 'postings.Format', ti: 'X1TermInfo',
+                              scorer: 'weights.Scorer'=None
+                              ) -> 'matchers.Matcher':
+        if ti.inlinebytes:
+            return matchers.PostReaderMatcher(
+                ti.posting_reader(format_), format_, fieldname, tbytes, ti,
+                scorer=scorer
+            )
+        else:
+            return X1Matcher(
+                self._postsdata, fieldname, tbytes, ti, format_, scorer=scorer
+            )
+
     def matcher(self, fieldname: str, tbytes: bytes, format_: 'postings.Format',
-                scorer: 'weights.Scorer'=None):
+                scorer: 'weights.Scorer'=None) -> 'matchers.Matcher':
         ti = self.term_info(fieldname, tbytes)
 
         if ti.inlinebytes:
-            return matchers.PostReaderMatcher(ti.posting_reader(format_), format_,
-                                              fieldname, tbytes, ti, scorer=scorer)
+            return matchers.PostReaderMatcher(
+                ti.posting_reader(format_), format_, fieldname, tbytes, ti,
+                scorer=scorer
+            )
         else:
-            return X1Matcher(self._postsdata, fieldname, tbytes, ti, format_,
-                             scorer=scorer)
+            return X1Matcher(
+                self._postsdata, fieldname, tbytes, ti, format_, scorer=scorer
+            )
 
     def close(self):
         self._kv.close()
@@ -1078,6 +1123,12 @@ class X1Matcher(matchers.LeafMatcher):
             skipped += 1
         return skipped
 
+    def raw_postings(self) -> 'Iterable[matchers.RawPost]':
+        while self._blocknum < self._blockcount:
+            for rawpost in self._posts.raw_postings():
+                yield rawpost
+            self._next_block()
+
     def is_active(self) -> bool:
         return self._blocknum < self._blockcount
 
@@ -1117,6 +1168,22 @@ class X1Matcher(matchers.LeafMatcher):
     @matchers.check_active
     def posting(self) -> 'postings.PostTuple':
         return self._posts.posting_at(self._i, termbytes=self._tbytes)
+
+    @matchers.check_active
+    def all_postings(self) -> 'Iterable[postings.PostTuple]':
+        while self._blocknum < self._blockcount:
+            for rp in self._posts.postings():
+                yield rp
+            self._next_block()
+
+    def raw_posting(self) -> 'postings.RawPost':
+        return self._posts.raw_posting_at(self._i)
+
+    def all_raw_postings(self) -> 'Iterable[postings.RawPost]':
+        while self._blocknum < self._blockcount:
+            for rp in self._posts.raw_postings():
+                yield rp
+            self._next_block()
 
     @matchers.check_active
     def skip_to_quality(self, minquality: float) -> int:

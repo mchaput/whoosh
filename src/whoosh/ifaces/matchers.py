@@ -59,6 +59,11 @@ from whoosh.compat import next
 from whoosh.ifaces import codecs, readers, weights
 
 
+# Typing aliases
+
+RawPost = Tuple[int, Tuple[bytes, bytes, bytes, bytes, bytes]]
+
+
 # Exceptions
 
 class ReadTooFar(Exception):
@@ -377,6 +382,9 @@ class Matcher(object):
         else:
             return []
 
+    def can_copy_raw_to(self, fmt: 'postings.Format') -> bool:
+        return False
+
     # Leaf methods
 
     def term(self) -> Optional[Tuple[str, bytes]]:
@@ -395,11 +403,23 @@ class Matcher(object):
 
         raise NotLeafMatcher(self.__class__.__name__)
 
-    def all_postings(self) -> Iterable[postings.PostTuple]:
+    def raw_posting(self) -> 'postings.RawPost':
+        raise NotLeafMatcher(self.__class__.__name__)
+
+    def all_postings(self) -> 'Iterable[postings.PostTuple]':
         """
         Returns a generator of posting tuples for each document in the matcher.
         What happens if you call this on a matcher that's already advanced is
         undefined.
+        """
+
+        raise NotLeafMatcher(self.__class__.__name__)
+
+    def all_raw_postings(self) -> 'Iterable[postings.PostTuple]':
+        """
+        Returns a generator of "raw" (partially encoded) posting tuples for each
+        document in the matcher. What happens if you call this on a matcher
+        that's already advanced is undefined.
         """
 
         raise NotLeafMatcher(self.__class__.__name__)
@@ -569,8 +589,14 @@ class LeafMatcher(Matcher):
         return "%s(%r, %s)" % (self.__class__.__name__, self.term(),
                                self.is_active())
 
-    def term(self):
+    def term(self) -> Tuple[str, bytes]:
         return self._fieldname, self._tbytes
+
+    def format(self) -> 'postings.Format':
+        return self._format
+
+    def can_copy_raw_to(self, fmt: 'postings.Format') -> bool:
+        return self.format().can_copy_raw_to(fmt)
 
     def replace(self, minquality: float=0.0) -> Matcher:
         if not self.is_active():
@@ -633,9 +659,8 @@ class LeafMatcher(Matcher):
     def posting(self):
         raise NotImplementedError(self.__class__.__name__)
 
-    def all_postings(self) -> Iterable[postings.PostTuple]:
-        for m in self._run_out():
-            yield m.posting()
+    def raw_posting(self) -> 'postings.RawPost':
+        raise NotImplementedError(self.__class__.__name__)
 
     def length(self) -> int:
         raise NotImplementedError(self.__class__.__name__)
@@ -659,6 +684,16 @@ class LeafMatcher(Matcher):
 
     def block_max_weight(self):
         raise NoQualityAvailable
+
+    # Derived
+
+    def all_postings(self) -> 'Iterable[postings.PostTuple]':
+        for m in self._run_out():
+            yield m.posting()
+
+    def all_raw_postings(self) -> 'Iterable[postings.RawPost]':
+        for m in self._run_out():
+            yield m.raw_posting()
 
 
 # Provide a Matcher interface for a postings.DocPostReader object
@@ -718,6 +753,9 @@ class PostReaderMatcher(LeafMatcher):
     def posting(self) -> 'postings.PostTuple':
         return self._posts.posting_at(self._i, termbytes=self._tbytes)
 
+    def raw_posting(self) -> 'postings.RawPost':
+        return self._posts.raw_posting_at(self._i)
+
     def skip_to_quality(self, minquality: float):
         # This whole reader acts as one "block", so if the max quality isn't
         # good enough, we can just give up
@@ -730,6 +768,11 @@ class PostReaderMatcher(LeafMatcher):
         while i < len(posts):
             yield posts.id(i)
             i += 1
+
+    # Raw copy methods
+
+    def raw_postings(self) -> Iterable[RawPost]:
+        return self._posts.raw_postings()
 
     # Format methods
 
