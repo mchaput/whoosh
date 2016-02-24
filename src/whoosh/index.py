@@ -694,6 +694,9 @@ class TOC(object):
                 except pickle.PicklingError:
                     e = sys.exc_info()[1]
                     raise pickle.PicklingError("%s %s=%r" % (e, fieldname, field))
+                except TypeError:
+                    e = sys.exc_info()[1]
+                    raise TypeError("%s %s=%r" % (e, fieldname, field))
             # Otherwise, re-raise the original exception
             raise
 
