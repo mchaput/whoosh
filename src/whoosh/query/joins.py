@@ -42,7 +42,7 @@ RelFn = Callable[[Any], bool]
 
 # Different configurations for how to deal with overlapping facet keys
 
-class KeyPolicy(object):
+class KeyPolicy:
     @staticmethod
     def add_keys(catter: 'sorting.Categorizer', matcher: 'matchers.Matcher',
                  docid: int, keyset: Set):

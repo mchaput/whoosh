@@ -28,7 +28,7 @@
 from whoosh.automata.fst import Arc
 
 
-class Instruction(object):
+class Instruction:
     def __repr__(self):
         return "%s()" % (self.__class__.__name__, )
 
@@ -153,7 +153,7 @@ def fixup(program):
     return program + [Match]
 
 
-class ThreadList(object):
+class ThreadList:
     def __init__(self, program, max=1000):
         self.program = program
         self.max = max
@@ -177,7 +177,7 @@ class ThreadList(object):
             self.threads.append(thread)
 
 
-class Thread(object):
+class Thread:
     def __init__(self, pc, address, sofar='', accept=False):
         self.pc = pc
         self.address = address

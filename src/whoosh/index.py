@@ -111,7 +111,7 @@ class TocHeader(MetaData):
     segment_count = "i"  # number of segments
 
 
-class Toc(object):
+class Toc:
     """
     Holds information about a particular revision of the index, including the
     schema and a list of segments.
@@ -205,7 +205,7 @@ class Toc(object):
 
 # Index class
 
-class Index(object):
+class Index:
     """
     Represents an indexed collection of documents.
     """

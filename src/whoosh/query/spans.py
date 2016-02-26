@@ -62,7 +62,7 @@ __all__ = ("Span", "SpanWrappingMatcher", "SpanBiMatcher", "SpanQuery",
 # Span class
 
 # TODO: Add fieldname and termbytes to Span object
-class Span(object):
+class Span:
     __slots__ = ("start", "end", "startchar", "endchar", "boost", "payload",
                  "fieldname", "text")
 

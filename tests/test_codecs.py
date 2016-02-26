@@ -19,7 +19,7 @@ def _make_codec(**kwargs):
     return st, codec, seg
 
 
-class FakeLengths(object):
+class FakeLengths:
     def __init__(self, **lens):
         self.lens = lens
 

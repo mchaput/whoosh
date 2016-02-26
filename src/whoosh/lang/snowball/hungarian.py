@@ -1,6 +1,6 @@
 
 
-class HungarianStemmer(object):
+class HungarianStemmer:
 
     """
     The Hungarian Snowball stemmer.

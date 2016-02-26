@@ -31,7 +31,7 @@ from whoosh import query
 from whoosh.qparser.common import get_single_text, QueryParserError, attach
 
 
-class SyntaxNode(object):
+class SyntaxNode:
     """Base class for nodes that make up the abstract syntax tree (AST) of a
     parsed user query string. The AST is an intermediate step, generated
     from the query string, then converted into a :class:`whoosh.query.Query`

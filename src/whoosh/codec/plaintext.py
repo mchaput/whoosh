@@ -39,7 +39,7 @@ _reprable = (bytes_type, text_type, integer_types, float)
 
 # Mixin classes for producing and consuming the simple text format
 
-class LineWriter(object):
+class LineWriter:
     def _print_line(self, indent, command, **kwargs):
         self._dbfile.write(b"  " * indent)
         self._dbfile.write(command.encode("latin1"))
@@ -52,7 +52,7 @@ class LineWriter(object):
         self._dbfile.write(b"\n")
 
 
-class LineReader(object):
+class LineReader:
     def __init__(self, dbfile):
         self._dbfile = dbfile
 

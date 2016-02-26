@@ -51,7 +51,7 @@ FilterType = 'Union[idsets.DocIdSet, queries.Query, Set[int]]'
 
 # Context class
 
-class SearchContext(object):
+class SearchContext:
     """
     A container for information about the current search that may be used
     by the collector or the query objects to change how they operate.
@@ -116,7 +116,7 @@ class SearchContext(object):
 
 # Searcher interface
 
-class Searcher(object):
+class Searcher:
     """
     Wraps an :class:`~whoosh.reading.IndexReader` object and provides
     methods for searching the index.

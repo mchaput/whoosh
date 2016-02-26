@@ -57,7 +57,7 @@ class OverrunError(Exception):
     pass
 
 
-class Database(object):
+class Database:
     """
     Base class for key-value database implementations.
     """
@@ -107,7 +107,7 @@ class Database(object):
         return cls(temppath)
 
 
-class DBReader(object):
+class DBReader:
     __metaclass__ = ABCMeta
 
     def __init__(self):
@@ -243,7 +243,7 @@ class DBWriter(DBReader):
 
 # Cursor
 
-class Cursor(object):
+class Cursor:
     __metaclass__ = ABCMeta
 
     def __enter__(self):

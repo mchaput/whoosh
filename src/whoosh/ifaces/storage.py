@@ -78,7 +78,7 @@ def from_url(url: str) -> 'Storage':
 
 # Base classes
 
-class Lock(object):
+class Lock:
     # This is a typing system stand in for any object that implements the lock
     # protocol
 
@@ -89,7 +89,7 @@ class Lock(object):
         pass
 
 
-class Session(object):
+class Session:
     def __init__(self, store: 'Storage', indexname: str, writable: bool):
         self.store = store
         self.indexname = indexname
@@ -113,7 +113,7 @@ class Session(object):
         pass
 
 
-class Storage(object):
+class Storage:
     """
     Base class for Storage implementations. A Storage represents the source of
     index data, for example a directory of files or a database.

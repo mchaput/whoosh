@@ -64,7 +64,7 @@ class InvalidCursor(Exception):
 
 # Region reference
 
-class Ref(object):
+class Ref:
     __slots__ = ("offset", "count", "minkey", "maxkey", "end_offset")
 
     # I - offset
@@ -309,7 +309,7 @@ def write_region(output: OutputFile, items: List[Tuple[bytes, bytes]]
 
 # Region readers
 
-class KeyValueReader(object):
+class KeyValueReader:
     def close(self):
         pass
 
@@ -930,7 +930,7 @@ class MultiRegion(KeyValueReader):
 
 # Cursors
 
-class Cursor(object):
+class Cursor:
     def __iter__(self) -> Iterable[bytes]:
         while self.is_valid():
             yield self.key()

@@ -38,7 +38,7 @@ __all__ = ("TermRange", "NumericRange", "DateRange", "Every")
 
 
 @collectors.register("range")
-class RangeMixin(object):
+class RangeMixin:
     # Contains methods shared by TermRange and NumericRange
 
     def __repr__(self):

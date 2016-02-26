@@ -59,7 +59,7 @@ TermText = Union[text_type, bytes]
 
 # Term Info base class
 
-class TermInfo(object):
+class TermInfo:
     """
     Represents a set of statistics about a term. This object is returned by
     :meth:`IndexReader.term_info`. These statistics may be useful for
@@ -164,7 +164,7 @@ class TermInfo(object):
 
 # Reader base class
 
-class IndexReader(object):
+class IndexReader:
     """
     Do not instantiate this object directly. Instead use Index.reader().
     """

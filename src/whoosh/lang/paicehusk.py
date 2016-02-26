@@ -18,7 +18,7 @@ import re
 from collections import defaultdict
 
 
-class PaiceHuskStemmer(object):
+class PaiceHuskStemmer:
     """Implements the Paice-Husk stemming algorithm.
     """
 

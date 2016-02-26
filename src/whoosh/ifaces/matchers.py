@@ -103,7 +103,7 @@ def check_active(method):
 
 # Classes
 
-class Matcher(object):
+class Matcher:
     """
     Base class for all matchers.
     """

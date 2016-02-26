@@ -217,7 +217,7 @@ class CompoundStorage(filestore.FileStorage):
         raise storage.ReadOnlyError
 
 
-class SubFile(object):
+class SubFile:
     """
     Presents a subset of a real file as a file-like object.
     """

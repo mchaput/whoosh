@@ -34,7 +34,7 @@ _ulong_be = struct.Struct(">Q")
 
 # Writing class
 
-class OutputFile(object):
+class OutputFile:
     def __init__(self, f, name: str=None,
                  onclose: 'Callable[[OutputFile], None]'=None,
                  afterclose: 'Callable[[OutputFile], None]'=None):
@@ -137,7 +137,7 @@ class OutputFile(object):
 
 #
 
-class Data(object):
+class Data:
     is_mapped = False
 
     def __init__(self):
@@ -354,7 +354,7 @@ class MemData(Data):
 
 # Fake an on-disk array using Struct reads
 
-class FileArray(object):
+class FileArray:
     """
     Implements an array-like interface similar to a ``cast()``-ed ``memorymap``,
     but fakes item access using ``Struct.unpack()``, for Python versions that

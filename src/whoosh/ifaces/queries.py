@@ -47,7 +47,7 @@ class QueryError(Exception):
 
 # Interface
 
-class Query(object):
+class Query:
     """
     Base class for all queries.
     """
@@ -435,7 +435,7 @@ def make_weighted_tree(mcls: 'type(matchers.Matcher)',
 
 # Utility classes
 
-class Lowest(object):
+class Lowest:
     """
     A value that is always compares lower than any other object except
     itself.
@@ -465,7 +465,7 @@ class Lowest(object):
         return self.__eq__(other) or self.__gt__(other)
 
 
-class Highest(object):
+class Highest:
     """
     A value that is always compares higher than any other object except
     itself.

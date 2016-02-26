@@ -51,7 +51,7 @@ class NoScoringQuality(Exception):
 
 # Base classes
 
-class WeightingModel(object):
+class WeightingModel:
     """
     Abstract base class for scoring models. A WeightingModel object provides
     a method, ``scorer``, which returns an instance of
@@ -117,7 +117,7 @@ class WeightingModel(object):
         return score
 
 
-class Scorer(object):
+class Scorer:
     """
     Base class for "scorer" implementations. A scorer provides a method for
     scoring a document, and sometimes methods for rating the "quality" of a

@@ -39,7 +39,7 @@ from whoosh.util import random_name
 logger = logging.getLogger(__name__)
 
 
-class Merge(object):
+class Merge:
     def __init__(self, segments: 'Sequence[codecs.Segment]'):
         assert segments
         self.merge_id = random_name(24)
@@ -102,7 +102,7 @@ class Merge(object):
         return sum(s.doc_count_all() for s in self.segments)
 
 
-class MergeStrategy(object):
+class MergeStrategy:
     @abstractmethod
     def get_merges(self, segments: 'Sequence[codecs.Segment]',
                    merging: Union[Sequence[str], Set[str]],

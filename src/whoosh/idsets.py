@@ -35,7 +35,7 @@ ROARING_CUTOFF = 1 << 12
 
 # Base class
 
-class DocIdSet(object):
+class DocIdSet:
     """
     Base class for a set of positive integers, implementing a subset of the
     built-in ``set`` type's interface with extra docid-related methods.

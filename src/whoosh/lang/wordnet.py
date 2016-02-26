@@ -97,7 +97,7 @@ def synonyms(word2nums, num2words, word):
     return sorted(syns)
 
 
-class Thesaurus(object):
+class Thesaurus:
     """Represents the WordNet synonym database, either loaded into memory
     from the wn_s.pl Prolog file, or stored on disk in a Whoosh index.
 

@@ -8,7 +8,7 @@ class FileHeaderError(Exception):
     pass
 
 
-class MetaData(object):
+class MetaData:
     flags = ""
     field_order = ""
     version_number = 0

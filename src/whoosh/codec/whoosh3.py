@@ -634,7 +634,7 @@ class W3TermsReader(codecs.TermsReader):
 
 # Postings
 
-class W3PostingsWriter(object):
+class W3PostingsWriter:
     """This object writes posting lists to the postings file. It groups postings
     into blocks and tracks block level statistics to makes it easier to skip
     through the postings.

@@ -6,7 +6,7 @@ from whoosh.compat import text_type
 from whoosh.ifaces import queries, searchers
 
 
-class Results(object):
+class Results:
     """
     This object is returned by a Searcher. This object represents the
     results of a search query. You can mostly use it as if it was a list of
@@ -398,7 +398,7 @@ class Results(object):
         self.top_n = arein + notin + other
 
 
-class Hit(object):
+class Hit:
     """
     Represents a single search result ("hit") in a Results object.
 

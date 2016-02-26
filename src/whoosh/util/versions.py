@@ -28,7 +28,7 @@
 from whoosh.util.text import rcompile
 
 
-class BaseVersion(object):
+class BaseVersion:
     @classmethod
     def parse(cls, text):
         obj = cls()

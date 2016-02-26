@@ -52,7 +52,7 @@ def print_debug(level, msg, *args):
 
 # Parser element objects
 
-class Props(object):
+class Props:
     """A dumb little object that just puts copies a dictionary into attibutes
     so I can use dot syntax instead of square bracket string item lookup and
     save a little bit of typing. Used by :class:`Regex`.
@@ -68,7 +68,7 @@ class Props(object):
         return self.__dict__.get(key, default)
 
 
-class ParserBase(object):
+class ParserBase:
     """Base class for date parser elements.
     """
 
@@ -578,7 +578,7 @@ class Time12(Regex):
 
 # Top-level parser classes
 
-class DateParser(object):
+class DateParser:
     """Base class for locale-specific parser classes.
     """
 

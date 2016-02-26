@@ -80,7 +80,7 @@ def mkfrag(text, tokens, startchar=None, endchar=None,
     return Fragment(text, tokens, startchar, endchar)
 
 
-class Fragment(object):
+class Fragment:
     """Represents a fragment (extract) from a hit document. This object is
     mainly used to keep track of the start and end points of the fragment and
     the "matched" character ranges inside; it does not contain the text of the
@@ -165,7 +165,7 @@ def set_matched_filter(tokens, termset):
 
 # Fragmenters
 
-class Fragmenter(object):
+class Fragmenter:
     def must_retokenize(self):
         """Returns True if this fragmenter requires retokenized text.
 
@@ -495,7 +495,7 @@ class PinpointFragmenter(Fragmenter):
 
 # Fragment scorers
 
-class FragmentScorer(object):
+class FragmentScorer:
     pass
 
 
@@ -550,7 +550,7 @@ def get_text(original, token, replace):
         return original[token.startchar:token.endchar]
 
 
-class Formatter(object):
+class Formatter:
     """Base class for formatters.
 
     For highlighters that return strings, it is usually only necessary to
@@ -813,7 +813,7 @@ def highlight(text, terms, analyzer, fragmenter, formatter, top=3,
     return formatter(text, fragments)
 
 
-class Highlighter(object):
+class Highlighter:
     def __init__(self, fragmenter=None, scorer=None, formatter=None,
                  always_retokenize=False, order=FIRST):
         self.fragmenter = fragmenter or ContextFragmenter()

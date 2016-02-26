@@ -13,7 +13,7 @@ unull = chr(0)
 
 # Marker constants
 
-class Marker(object):
+class Marker:
     def __init__(self, name):
         self.name = name
 
@@ -27,7 +27,7 @@ ANY = Marker("ANY")
 
 # Base class
 
-class FSA(object):
+class FSA:
     def __init__(self, initial):
         self.initial = initial
         self.transitions = {}
@@ -627,7 +627,7 @@ def optional_nfa(n):
 
 # Daciuk Mihov DFA construction algorithm
 
-class DMNode(object):
+class DMNode:
     def __init__(self, n):
         self.n = n
         self.arcs = {}

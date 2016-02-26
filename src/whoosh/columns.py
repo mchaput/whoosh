@@ -68,7 +68,7 @@ from whoosh.util.numlists import GrowableArray, min_array_code, min_signed_code
 
 # Base classes
 
-class ColumnWriter(object):
+class ColumnWriter:
     def __init__(self, output: OutputFile):
         self._output = output
         self._count = 0
@@ -87,7 +87,7 @@ class ColumnWriter(object):
         pass
 
 
-class ColumnReader(object):
+class ColumnReader:
     def __init__(self, data: Data, basepos: int, length: int,
                  doccount: int, native: bool, reverse: bool=False):
         self._data = data
@@ -115,7 +115,7 @@ class ColumnReader(object):
         pass
 
 
-class Column(object):
+class Column:
     """
     Represents a "column" of rows mapping docnums to document values.
 

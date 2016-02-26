@@ -30,7 +30,7 @@ from whoosh.util.text import rcompile
 
 # Tagger objects
 
-class Tagger(object):
+class Tagger:
     """Base class for taggers, objects which match syntax in the query string
     and translate it into a :class:`whoosh.qparser.syntax.SyntaxNode` object.
     """

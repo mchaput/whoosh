@@ -61,7 +61,7 @@ def min_signed_code(minval: int, maxval: int) -> str:
         return "q"
 
 
-class GrowableArray(object):
+class GrowableArray:
     def __init__(self, inittype: str="B", allow_longs: bool=True):
         self.array = array(inittype)
         self._allow_longs = allow_longs
@@ -114,7 +114,7 @@ class GrowableArray(object):
 
 # Number list encoding base class
 
-class NumberEncoding(object):
+class NumberEncoding:
     maxint = None
 
     @abstractmethod
@@ -317,7 +317,7 @@ class GInts(NumberEncoding):
         return [(key >> (i * 2) & 3) + 1 for i in range(4)]
 
 
-# class MmapArray(object):
+# class MmapArray:
 #     """
 #     Implements an array-like interface similar to a ``cast()``-ed ``memorymap``,
 #     but fakes item access using ``Struct.unpack()``, for Python versions that

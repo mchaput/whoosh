@@ -24,7 +24,7 @@ class FieldConfigurationError(Exception):
     pass
 
 
-class FieldType(object):
+class FieldType:
     multitoken_query = "default"
     spelling = False
 
@@ -732,7 +732,7 @@ class DateTime(Numeric):
 
 # Schema object
 
-class Schema(object):
+class Schema:
     """
     Represents the collection of fields in an index. Maps field names to
     FieldType objects which define the behavior of each field.

@@ -727,7 +727,7 @@ class SerialCursor(Cursor):
 
 # TOC objects
 
-class Toc(object):
+class Toc:
     def __init__(self, datatfilename, blockrefs):
         self.filename = datatfilename
         self.blockrefs = blockrefs
@@ -787,7 +787,7 @@ class Toc(object):
         return set(ref.tag for ref in self.blockrefs)
 
 
-class BlockRef(object):
+class BlockRef:
     def __init__(self, tag=None, minkey=None, maxkey=None, length=0, offset=0):
         self.tag = tag
         self.minkey = minkey
@@ -823,7 +823,7 @@ class BlockRef(object):
 
 # Block reading/writing objects
 
-class BlockCache(object):
+class BlockCache:
     def __init__(self, load, save, newtag, callback, size):
         self.load = load
         self.save = save
@@ -915,7 +915,7 @@ class BlockCache(object):
             self._flush(tag)
 
 
-class BufferBlock(object):
+class BufferBlock:
     write = True
 
     def __init__(self, tag, items, dirty=False, sorted=True):
@@ -1025,7 +1025,7 @@ class BufferBlock(object):
             return emptybytes
 
 
-class DiskBlock(object):
+class DiskBlock:
     load_arrays = True
     write = False
     dirty = False
@@ -1141,7 +1141,7 @@ class DiskBlock(object):
 
 # Fallback objects
 
-class FileMap(object):
+class FileMap:
     """
     Implements an object with a similar interface to a ``mmap``, but fakes
     atomic access to the file using ``seek()`` and ``read()``, for platforms
@@ -1164,7 +1164,7 @@ class FileMap(object):
         return _file.read(end - start)
 
 
-class MmapArray(object):
+class MmapArray:
     """
     Implements an array-like interface similar to a ``cast()``-ed ``memorymap``,
     but fakes item access using ``Struct.unpack()``, for Python versions that
@@ -1215,7 +1215,7 @@ class MmapArray(object):
 
 # File lock object
 
-class FileLock(object):
+class FileLock:
     """
     Implements a process-level file lock using ``msvcrt`` on Windows and
     ``fcntl`` on UNIX.
@@ -1294,7 +1294,7 @@ class FileLock(object):
         self.locked = False
 
 
-class Header(object):
+class Header:
     # The header struct
     # B   = version
     # B   = flag bits

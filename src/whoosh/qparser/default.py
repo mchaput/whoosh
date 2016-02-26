@@ -35,7 +35,7 @@ from whoosh.qparser.common import print_debug, QueryParserError
 
 # Query parser object
 
-class QueryParser(object):
+class QueryParser:
     """A hand-written query parser built on modular plug-ins. The default
     configuration implements a powerful fielded query language similar to
     Lucene's.

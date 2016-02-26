@@ -200,7 +200,7 @@ class DataStoreCursor(Cursor):
         return self._value
 
 
-class Mutex(object):
+class Mutex:
     def __init__(self, name):
         self.name = name
 

@@ -98,7 +98,7 @@ def codec_by_name(name: str) -> 'Codec':
 
 # Base classes
 
-class Segment(object):
+class Segment:
     """
     Do not instantiate this object directly. It is used by the Index object
     to hold information about a segment. A list of objects of this class are
@@ -264,7 +264,7 @@ class FileSegment(Segment):
 
 # Base codec class
 
-class Codec(object):
+class Codec:
     length_stats = True
 
     # Self
@@ -373,7 +373,7 @@ class WrappingCodec(Codec):
 
 # Writer classes
 
-class PerDocumentWriter(object):
+class PerDocumentWriter:
     @abstractmethod
     def start_doc(self, docnum: int):
         raise NotImplementedError
@@ -404,7 +404,7 @@ class PerDocumentWriter(object):
         pass
 
 
-class FieldWriter(object):
+class FieldWriter:
     @abstractmethod
     def start_field(self, fieldname: str, fieldobj: 'fields.FieldType'):
         raise NotImplementedError
@@ -456,7 +456,7 @@ class FieldWriter(object):
 
 # Cursor classes
 
-class TermCursor(object):
+class TermCursor:
     def __init__(self, fieldname: str, fieldobj: 'fields.FieldType'):
         self.fieldname = fieldname
         self.field = fieldobj
@@ -585,7 +585,7 @@ class MultiCursor(TermCursor):
 
 # Reader classes
 
-class TermsReader(object):
+class TermsReader:
     @abstractmethod
     def __contains__(self, term: TermTuple) -> bool:
         raise NotImplementedError
@@ -643,7 +643,7 @@ class TermsReader(object):
         pass
 
 
-class Automata(object):
+class Automata:
     @staticmethod
     def levenshtein_dfa(uterm: text_type, maxdist: int, prefix: int=0):
         return lev.levenshtein_automaton(uterm, maxdist, prefix).to_dfa()
@@ -676,7 +676,7 @@ class Automata(object):
 
 # Per-doc value reader
 
-class PerDocumentReader(object):
+class PerDocumentReader:
     def set_merging_hint(self):
         pass
 

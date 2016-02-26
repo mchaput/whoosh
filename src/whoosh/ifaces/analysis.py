@@ -87,7 +87,7 @@ def entoken(textstream: Iterable[text_type], positions: bool=False,
 
 # Token object
 
-class Token(object):
+class Token:
     """
     Represents a "token" (usually a word) extracted from the source text being
     indexed.
@@ -162,7 +162,7 @@ class Token(object):
 
 # Base class
 
-class Analyzer(object):
+class Analyzer:
     # True if this analyzer morphs term texts (e.g. stemming)
     is_morph = False
 

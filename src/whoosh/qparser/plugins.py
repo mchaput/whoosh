@@ -34,7 +34,7 @@ from whoosh.query import positional, terms
 from whoosh.util.text import rcompile
 
 
-class Plugin(object):
+class Plugin:
     """Base class for parser plugins.
     """
 

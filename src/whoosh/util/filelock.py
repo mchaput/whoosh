@@ -58,7 +58,7 @@ def try_for(fn, timeout=5.0, delay=0.1):
     return v
 
 
-class LockBase(object):
+class LockBase:
     """Base class for file locks.
     """
 

@@ -41,7 +41,7 @@ from whoosh.ifaces import queries, searchers
 
 # Expansion models
 
-class ExpansionModel(object):
+class ExpansionModel:
     def __init__(self, doc_count: int, field_length: int):
         self.N = doc_count
         self.collection_total = field_length
@@ -104,7 +104,7 @@ class KLModel(ExpansionModel):
 
 # "More like this" object
 
-class MoreLike(object):
+class MoreLike:
     def __init__(self, searcher: 'searchers.Searcher', fieldname: str,
                  modelclass: ExpansionModel=None, minweight: float=0.0,
                  maxterms: int=25):

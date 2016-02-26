@@ -134,7 +134,7 @@ tcodes_and_len = struct.Struct("<ccI")
 
 # Classes
 
-class PostingReader(object):
+class PostingReader:
     def __init__(self, fmt: 'Format', src: bytes, offset: int=0):
         self._format = fmt
         self._src = src
@@ -353,7 +353,7 @@ class VectorReader(PostingReader):
             )
 
 
-class PostingsIO(object):
+class PostingsIO:
     def __eq__(self, other):
         return type(self) is type(other) and self.__dict__ == other.__dict__
 
@@ -405,7 +405,7 @@ class PostingsIO(object):
 
 # Classes
 
-class Format(object):
+class Format:
     """
     Base class of objects representing a format for storing postings in the
     database.

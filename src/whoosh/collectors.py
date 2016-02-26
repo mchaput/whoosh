@@ -50,7 +50,7 @@ def as_query(obj):
 
 # Classes
 
-class Collector(object):
+class Collector:
     collector_priority = 0
 
     def __init__(self, searcher: 'searchers.Searcher', q: 'queries.Query'):

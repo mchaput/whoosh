@@ -88,7 +88,7 @@ def posting_sort_key(post: PostTuple):
 
 # Object for keeping track of segments and merges
 
-class SegmentList(object):
+class SegmentList:
     def __init__(self, session: 'storage.Session', schema: 'fields.Schema',
                  segments: 'Sequence[codecs.Segment]'):
         from whoosh.reading import SegmentReader
@@ -284,7 +284,7 @@ class SegmentList(object):
 
 # Codec and segment-based writer
 
-class SegmentWriter(object):
+class SegmentWriter:
     def __init__(self, store: 'storage.Storage', indexname: 'str',
                  schema: 'fields.Schema', generation: int,
                  segments: 'Sequence[codecs.Segment]'=None,
