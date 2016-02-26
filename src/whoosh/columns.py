@@ -65,7 +65,7 @@ from whoosh.compat import array_tobytes, xrange, zip_
 from whoosh.compat import dumps, loads
 from whoosh.filedb.datafile import Data, FileArray, OutputFile
 from whoosh.system import IS_LITTLE
-from whoosh.util.cache import lru_cache
+from whoosh.util import cache
 from whoosh.util.numlists import (GrowableArray, min_array_code,
                                   min_signed_code, delta_encode, delta_decode)
 
@@ -186,11 +186,26 @@ class VarBytesColumn(Column):
     value assigned to it at indexing time) is an empty bytestring (``b''``).
     """
 
+    def __init__(self, allow_offsets: bool=True,
+                 write_offsets_cutoff: int=2**15):
+        """
+        :param allow_offsets: Whether the column should write offsets when there
+            are many rows in the column (this makes opening the column much
+            faster). This argument is mostly for testing.
+        :param write_offsets_cutoff: Write offsets (for speed) when there are
+            more than this many rows in the column. This argument is mostly
+            for testing.
+        """
+
+        self.allow_offsets = allow_offsets
+        self.write_offsets_cutoff = write_offsets_cutoff
+
     def default_value(self, reverse=False) -> bytes:
         return b''
 
     def writer(self, output: OutputFile) -> 'VarBytesWriter':
-        return VarBytesWriter(output)
+        return VarBytesWriter(output, self.allow_offsets,
+                              self.write_offsets_cutoff)
 
     def reader(self, data: Data, basepos: int, length: int,
                doccount: int, native: bool, reverse: bool=False
@@ -200,28 +215,49 @@ class VarBytesColumn(Column):
 
 
 class VarBytesWriter(ColumnWriter):
-    def __init__(self, output: OutputFile):
+    def __init__(self, output: OutputFile, allow_offsets: bool=True,
+                 cutoff: int=2**15):
         self._output = output
         self._count = 0
+        self._base = 0
+        self._offsets = GrowableArray(allow_longs=False)
         self._lengths = GrowableArray(allow_longs=False)
+        self.allow_offsets = allow_offsets
+        self.cutoff = cutoff
 
     def _fill(self, docnum: int):
+        base = self._base
         if docnum > self._count:
             self._lengths.extend(0 for _ in xrange(docnum - self._count))
+            self._offsets.extend(base for _ in xrange(docnum - self._count))
 
     def add(self, docnum: int, v: bytes):
         self._fill(docnum)
+        self._offsets.append(self._base)
         self._output.write(v)
         self._lengths.append(len(v))
+        self._base += len(v)
         self._count = docnum + 1
 
     def finish(self, doccount: int):
-        self._fill(doccount)
+        output = self._output
         lengths = self._lengths.array
+        offsets = self._offsets.array
+        self._fill(doccount)
 
-        self._output.write_array(lengths)
-        # Write the typecode for the lengths
+        output.write_array(lengths)
+
+        # Only write the offsets if there is a large number of items in the
+        # column, otherwise it's fast enough to derive them from the lens
+        write_offsets = self.allow_offsets and doccount > self.cutoff
+        offsets_tc = "-"
+        if write_offsets:
+            offsets_tc = offsets.typecode
+            output.write_array(offsets)
+
+        # Write the typecodes for the offsets and lengths at the end
         self._output.write(lengths.typecode.encode("ascii"))
+        self._output.write(offsets_tc.encode("ascii"))
 
 
 class VarBytesReader(ColumnReader):
@@ -230,31 +266,46 @@ class VarBytesReader(ColumnReader):
         super(VarBytesReader, self).__init__(data, basepos, length, doccount,
                                              native)
 
-        self._lengths = self._read_lengths()
-        # Create an array of offsets into the strings using the lengths
-        offsets = array("L", (0,))
-        for length in self._lengths:
-            offsets.append(offsets[-1] + length)
-        self._offsets = offsets
+        self.had_stored_offsets = False  # for testing
+        self._read_offsets_and_lengths()
 
-    def _read_lengths(self) -> Union[memoryview, FileArray]:
+    def _read_offsets_and_lengths(self) -> Union[memoryview, FileArray]:
         data = self._data
-        basepos = self._basepos
-        length = self._length
         doccount = self._doccount
 
-        # The end of the lengths array is the end of the data minus the
-        # typecode byte
-        endoflens = basepos + length - 1
-        # Load the length typecode from before the key length
-        typecode = bytes(data[endoflens:endoflens + 1]).decode("ascii")
-        itemsize = struct.calcsize(typecode)
+        # Read the two typecodes from the end of the column
+        end = self._basepos + self._length - 2
+        lens_code, offsets_tc = data.unpack("cc", end)
+        lens_code = str(lens_code.decode("ascii"))
+        offsets_code = str(offsets_tc.decode("ascii"))
 
-        # Calculate the start of the lengths array backwards
-        lengthsbase = endoflens - (itemsize * doccount)
-        # Map the length array
-        return data.map_array(typecode, lengthsbase, doccount,
-                              native=self._native)
+        offsets = None
+        if offsets_code != "-":
+            self.had_stored_offsets = True
+
+            # Read the offsets from before the last byte
+            itemsize = struct.calcsize(offsets_code)
+            offsetstart = end - doccount * itemsize
+            offsets = data.map_array(offsets_code, offsetstart, doccount,
+                                     native=self._native)
+            end = offsetstart
+
+        # Load the length array
+        itemsize = struct.calcsize(lens_code)
+        lenstart = end - itemsize * doccount
+        lengths = data.map_array(lens_code, lenstart, doccount,
+                                 native=self._native)
+
+        # If we didn't write the offsets, derive them from the lengths
+        if offsets is None:
+            offsets = array("L")
+            base = 0
+            for length in lengths:
+                offsets.append(base)
+                base += length
+
+        self._offsets = offsets
+        self._lengths = lengths
 
     # @lru_cache()
     def __getitem__(self, docnum: int) -> bytes:
@@ -273,6 +324,8 @@ class VarBytesReader(ColumnReader):
 
     def close(self):
         self._lengths.release()
+        if self.had_stored_offsets:
+            self._offsets.release()
 
 
 class FixedBytesColumn(Column):
@@ -1287,56 +1340,6 @@ class CompressedBytesReader(VarBytesReader):
 
     def close(self):
         self._sub.close()
-
-
-# class StructColumn(FixedBytesColumn):
-#     def __init__(self, spec, default):
-#         self._spec = spec
-#         self._fixedlen = struct.calcsize(spec)
-#         self._default = default
-#
-#     def default_value(self, reverse=False):
-#         return self._default
-#
-#     def writer(self, output: StructFile) -> 'StructColumn.Writer':
-#         return self.Writer(output, self._spec, self._default)
-#
-#     def reader(self, output: StructFile, basepos: int, length: int,
-#                doccount: int, reverse: bool=False) -> 'StructColumn.Reader':
-#         assert not reverse
-#         return self.Reader(output, basepos, length, doccount, self._spec,
-#                            self._default)
-#
-#
-# class StructWriter(FixedBytesWriter):
-#     def __init__(self, output: StructFile, spec: str, default: bytes):
-#         self._output = output
-#         self._struct = struct.Struct(spec)
-#         self._fixedlen = self._struct.size
-#         self._default = default
-#         self._defaultbytes = self._struct.pack(*default)
-#         self._count = 0
-#
-#     def add(self, docnum, v):
-#         bs = self._struct.pack(*v)
-#         FixedBytesColumn.Writer.add(self, docnum, bs)
-#
-#
-# class StructReader(FixedBytesReader):
-#     def __init__(self, output: StructFile, basepos: int, length: int,
-#                  doccount: int, spec: str, default: bytes):
-#         self._output = output
-#         self._basepos = basepos
-#         self._doccount = doccount
-#         self._struct = struct.Struct(spec)
-#         self._fixedlen = self._struct.size
-#         self._default = default
-#         self._defaultbytes = self._struct.pack(*default)
-#         self._count = length // self._fixedlen
-#
-#     def __getitem__(self, docnum):
-#         v = FixedBytesColumn.Reader.__getitem__(self, docnum)
-#         return self._struct.unpack(v)
 
 
 # Utility readers
