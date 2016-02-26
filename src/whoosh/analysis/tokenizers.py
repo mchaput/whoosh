@@ -321,7 +321,7 @@ class CommaSeparatedTokenizer(analysis.CompositeAnalyzer):
 
     def __init__(self):
         super(CommaSeparatedTokenizer, self).__init__(
-            RegexTokenizer(r"[^ \t\r\n]+"),
+            RegexTokenizer(r"[^,]+"),
             filters.StripFilter(),
         )
 
