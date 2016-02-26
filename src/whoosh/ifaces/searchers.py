@@ -38,7 +38,7 @@ from typing import (Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple,
 
 from whoosh import fields, sorting, results, spelling
 from whoosh.ifaces import matchers, queries, readers, weights
-from whoosh.compat import text_type
+from whoosh.compat import bytes_type, text_type
 from whoosh.idsets import DocIdSet, BitSet
 
 
@@ -359,7 +359,9 @@ class Searcher:
                 op = "contains"
 
             fieldobj = self.schema[k]
-            kw[k] = fieldobj.to_bytes(v)
+            if not isinstance(v, bytes_type):
+                v = fieldobj.to_bytes(v)
+            kw[k] = v
 
         # Make Term queries for each value
         subqueries = []
