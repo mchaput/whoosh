@@ -107,7 +107,7 @@ class CompoundStorage(filestore.FileStorage):
 
     def __init__(self, store: filestore.BaseFileStorage, name: str,
                  offset: int=0, length: int=0):
-        logger.info("Opening compound segment %r in storage %r", name, store)
+        logger.debug("Opening compound segment %r in storage %r", name, store)
         self._storage = store
         self._name = name
         self._data = data = store.map_file(name, offset=offset, length=length)

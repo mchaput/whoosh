@@ -77,6 +77,10 @@ class FieldType(object):
               **kwargs) -> 'Tuple[int, Sequence[postings.PostTuple]]':
         raise NotImplementedError
 
+    def process_text(self, qstring: text_type, mode='', **kwargs
+                     ) -> Iterable[text_type]:
+        raise Exception("This field type does not implement process_text")
+
     def separate_spelling(self) -> bool:
         return False
 

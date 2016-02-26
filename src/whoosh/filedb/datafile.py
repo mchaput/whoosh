@@ -4,12 +4,10 @@ import mmap
 import struct
 from abc import abstractmethod
 from array import array
-from typing import Callable, Union
+from typing import Callable, Tuple, Union
 
 from whoosh.compat import array_tobytes, array_frombytes, xrange
 from whoosh.util import unclosed
-from whoosh.util.varints import varint, read_varint
-from whoosh.util.varints import signed_varint, decode_signed_varint
 from whoosh.system import IS_LITTLE
 
 
@@ -97,18 +95,6 @@ class OutputFile(object):
         if hasattr(self._file, "flush"):
             self._file.flush()
 
-    def write_varint(self, v: int):
-        self.write(varint(i))
-
-    def read_varint(self) -> int:
-        return read_varint(self.read)
-
-    def write_signed_varint(self, v: int):
-        self.write(signed_varint(i))
-
-    def read_signed_varint(self) -> int:
-        return decode_signed_varint(read_varint(self.read))
-
     def write_byte(self, v: int):
         self.write(_byte.pack(v))
 
@@ -194,6 +180,10 @@ class Data(object):
 
     def get_long_le(self, offset: int) -> int:
         return _long_le.unpack(self[offset:offset + 8])[0]
+
+    def unpack(self, fmt: str, offset: int) -> Tuple:
+        size = struct.calcsize(fmt)
+        return struct.unpack(fmt, self[offset:offset + size])
 
     @abstractmethod
     def map_array(self, typecode: str, offset: int, count: int,
@@ -351,6 +341,10 @@ class MemData(Data):
 
     def get_long_le(self, offset: int) -> int:
         return _long_le.unpack_from(self._source, offset)[0]
+
+    def unpack(self, fmt: str, offset: int) -> Tuple:
+        size = struct.calcsize(fmt)
+        return struct.unpack_from(fmt, self._source, offset)
 
     def close(self):
         self._source.release()

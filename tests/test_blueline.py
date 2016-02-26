@@ -47,7 +47,7 @@ def test_region_prefix():
         r = bl.Region.load(m)
         assert len(r) == 8
         assert r._prefixlen == 3
-        assert r._prefixbytes == b"aaa"
+        assert r._prefix == b"aaa"
         keys = list(r)
         assert keys == [b"aaaa", b"aaab", b"aaac", b"aaad", b"aaae", b"aaaf",
                         b"aaag", b"aaah"]

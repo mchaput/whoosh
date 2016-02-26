@@ -554,6 +554,30 @@ def test_token_boost():
     assert [p[postings.TERMBYTES] for p in posts] == [b"F", b"FF", b"SPRS"]
 
 
+def test_email_field():
+    from whoosh import analysis
+
+    domains = ["yahoo.com", "hotmail.com", "gmail.com", "rogers.com",
+               "example.com"]
+    addresses = []
+    for i in xrange(5000):
+        addresses.append("%04d@%s" % (i, domains[i % len(domains)]))
+
+    addrs = (analysis.RegexTokenizer(r'[-+\[\]A-Za-z0-9.@_"]+') |
+             analysis.LowercaseFilter() |
+             analysis.ReverseTextFilter())
+    schema = fields.Schema(email=fields.KEYWORD(analyzer=addrs))
+
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            for address in addresses:
+                w.add_document(email=address)
+
+        for name in ix.store.list():
+            print(name, ix.store.file_length(name))
+
+
+
 
 
 

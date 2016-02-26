@@ -417,7 +417,7 @@ class Region(KeyValueReader):
         self._klens = klens
         self._vlens = vlens
 
-        self._prefixbytes = prefix
+        self._prefix = prefix
         self._prefixlen = len(prefix)
 
         self._fixedklen = fixedklen
@@ -551,7 +551,7 @@ class Region(KeyValueReader):
     def _unprefix(self, key: bytes) -> bytes:
         prefixlen = self._prefixlen
         if prefixlen:
-            if key.startswith(self._prefixbytes):
+            if key.startswith(self._prefix):
                 return key[prefixlen:]
             else:
                 raise KeyError(key)
@@ -559,7 +559,7 @@ class Region(KeyValueReader):
 
     def _reprefix(self, suffix: bytes) -> bytes:
         if self._prefixlen:
-            return self._prefixbytes + suffix
+            return self._prefix + suffix
         else:
             return suffix
 
@@ -569,7 +569,7 @@ class Region(KeyValueReader):
         # this region, or the region length if it would be after the keys in
         # this region
         prefix = key[:self._prefixlen]
-        if prefix < self._prefixbytes:
+        if prefix < self._prefix:
             return 0
         else:
             return self._count
@@ -598,7 +598,7 @@ class Region(KeyValueReader):
         data = self._data
         contentstart = self._content_start
         prefixlen = self._prefixlen
-        prefixbytes = self._prefixbytes
+        prefixbytes = self._prefix
 
         hi = hi if hi is not None else self._count
         for i in xrange(lo, hi):
@@ -620,7 +620,7 @@ class Region(KeyValueReader):
         data = self._data
         contentstart = self._content_start
         prefixlen = self._prefixlen
-        prefixbytes = self._prefixbytes
+        prefixbytes = self._prefix
 
         hi = hi if hi is not None else self._count
         for i in xrange(lo, hi):
@@ -771,7 +771,7 @@ class MultiRegion(KeyValueReader):
         """
 
         self._data = data
-        self._reflist = reflist
+        self._refs = reflist
         self._cachesize = cachesize
         self._load_arrays = load_arrays
         self._preread_keys = preread_keys
@@ -783,10 +783,10 @@ class MultiRegion(KeyValueReader):
         self.misses = 0
 
     def __len__(self) -> int:
-        return sum(len(r) for r in self._reflist)
+        return sum(len(r) for r in self._refs)
 
     def __iter__(self) -> Iterable[bytes]:
-        for ref in self._reflist:
+        for ref in self._refs:
             region = self._region_for_ref(ref)
             for key in region:
                 yield key
@@ -800,7 +800,7 @@ class MultiRegion(KeyValueReader):
         return key in region
 
     def __getitem__(self, key: bytes) -> bytes:
-        reflist = self._reflist
+        reflist = self._refs
         i = self.ref_index(key)
         if i < len(reflist):
             ref = reflist[i]
@@ -818,7 +818,7 @@ class MultiRegion(KeyValueReader):
     # KeyValueReader interface
 
     def key_range(self, start: bytes, end: Optional[bytes]) -> Iterable[bytes]:
-        reflist = self._reflist
+        reflist = self._refs
         left = self.ref_index(start)
 
         if end is None:
@@ -841,7 +841,7 @@ class MultiRegion(KeyValueReader):
                     yield key
 
     def items(self) -> Iterable[Tuple[bytes, bytes]]:
-        for ref in self._reflist:
+        for ref in self._refs:
             region = self._region_for_ref(ref)
             for item in region.items():
                 yield item
@@ -853,23 +853,23 @@ class MultiRegion(KeyValueReader):
     #
 
     def min_key(self) -> bytes:
-        region = self._region_for_ref(self._reflist[0])
+        region = self._region_for_ref(self._refs[0])
         return region.min_key()
 
     def max_key(self) -> bytes:
-        region = self._region_for_ref(self._reflist[-1])
+        region = self._region_for_ref(self._refs[-1])
         return region.max_key()
 
     def region_count(self) -> int:
-        return len(self._reflist)
+        return len(self._refs)
 
     def region_at(self, i) -> Region:
-        ref = self._reflist[i]
+        ref = self._refs[i]
         return self._region_for_ref(ref)
 
     def ref_index(self, key: bytes) -> int:
         # Do a binary search of the on-disk keys
-        reflist = self._reflist
+        reflist = self._refs
         lo = 0
         hi = len(reflist)
         while lo < hi:
@@ -902,7 +902,7 @@ class MultiRegion(KeyValueReader):
 
     def _ref_for_key(self, key: bytes) -> Ref:
         # Find the reference for the region that would contain the given key
-        reflist = self._reflist
+        reflist = self._refs
         i = self.ref_index(key)
         if i >= len(reflist):
             i = len(reflist) - 1
