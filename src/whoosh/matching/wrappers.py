@@ -399,6 +399,36 @@ class MultiMatcher(matchers.Matcher):
                 for id in mr.all_ids():
                     yield id + offset
 
+    # Since this matcher serializes the sub-matchers, rather than combines them,
+    # it can forward the leaf methods to the current sub-matcher
+
+    def has_weights(self) -> bool:
+        return self._matchers[self._current].has_weights()
+
+    def has_lengths(self) -> bool:
+        return self._matchers[self._current].has_lengths()
+
+    def has_positions(self) -> bool:
+        return self._matchers[self._current].has_positions()
+
+    def has_chars(self) -> bool:
+        return self._matchers[self._current].has_chars()
+
+    def has_payloads(self) -> bool:
+        return self._matchers[self._current].has_payloads()
+
+    def length(self) -> int:
+        return self._matchers[self._current].length()
+
+    def positions(self) -> Sequence[int]:
+        return self._matchers[self._current].positions()
+
+    def chars(self) -> Sequence[Tuple[int]]:
+        return self._matchers[self._current].chars()
+
+    def payloads(self) -> Sequence[bytes]:
+        return self._matchers[self._current].payloads()
+
 
 class FilterMatcher(WrappingMatcher):
     """
