@@ -650,7 +650,7 @@ class Automata:
 
     @staticmethod
     def find_matches(dfa: DFA, cur: TermCursor) -> Iterable[text_type]:
-        unull = unichr(0)
+        unull = chr(0)
 
         if not cur.is_valid():
             return

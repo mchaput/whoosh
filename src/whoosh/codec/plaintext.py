@@ -26,9 +26,9 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from ast import literal_eval
+from pickle import dumps, loads
 
-from whoosh.compat import b, bytes_type, text_type, integer_types
-from whoosh.compat import iteritems, dumps, loads, xrange
+from whoosh.compat import bytes_type, text_type, integer_types
 from whoosh.ifaces import codecs
 from whoosh.matching import ListMatcher
 from whoosh.reading import TermInfo, TermNotFound

@@ -80,7 +80,7 @@ class TaggingPlugin(RegexTagger):
     def create(self, parser, match):
         # Groupdict keys can be unicode sometimes apparently? Convert them to
         # str for use as keyword arguments. This should be Py3-safe.
-        kwargs = dict((str(k), v) for k, v in iteritems(match.groupdict()))
+        kwargs = dict((str(k), v) for k, v in match.groupdict().items())
         return self.nodetype(**kwargs)
 
 
@@ -1201,7 +1201,7 @@ class FieldAliasPlugin(Plugin):
     def __init__(self, fieldmap):
         self.fieldmap = fieldmap
         self.reverse = {}
-        for key, values in fieldmap,items():
+        for key, values in fieldmap.items():
             for value in values:
                 self.reverse[value] = key
 

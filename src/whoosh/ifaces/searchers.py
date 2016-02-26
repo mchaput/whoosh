@@ -363,7 +363,7 @@ class Searcher:
 
         # Make Term queries for each value
         subqueries = []
-        for key, value in iteritems(kw):
+        for key, value in kw.items():
             subqueries.append(Term(key, value))
 
         # Make an And query from the terms
