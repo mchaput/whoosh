@@ -21,7 +21,7 @@ def test_huge_postfile():
         fpw = FilePostingWriter(pf)
         format = formats.Frequency(None)
         offset = fpw.start(format)
-        for i in xrange(10):
+        for i in range(10):
             fpw.write(i, float(i), struct.pack("!I", i), 10)
         posttotal = fpw.finish()
         assert_equal(posttotal, 10)

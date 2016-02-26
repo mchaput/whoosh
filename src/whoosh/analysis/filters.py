@@ -31,7 +31,7 @@ from itertools import chain
 from typing import Any, Dict, Iterable, Sequence, Set, Union
 
 from whoosh.ifaces import analysis
-from whoosh.compat import next, text_type
+from whoosh.compat import text_type
 from whoosh.util.text import rcompile
 
 

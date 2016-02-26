@@ -100,7 +100,7 @@ class LineReader(object):
         parts = line.split("\t")
         command = parts[0]
         args = {}
-        for i in xrange(1, len(parts)):
+        for i in range(1, len(parts)):
             n, v = parts[i].split("=")
             args[n] = literal_eval(v)
         return (indent, command, args)

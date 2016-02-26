@@ -5,7 +5,7 @@ import pytest
 
 from whoosh import fields, query, writing
 from whoosh.ifaces import analysis
-from whoosh.compat import xrange, text_type, permutations
+from whoosh.compat import text_type
 from whoosh.util.testing import TempIndex
 
 
@@ -16,7 +16,7 @@ def test_no_stored():
                   u"foxtrot", u"golf", u"hotel", u"india")
 
         with ix.writer() as w:
-            for i in xrange(20):
+            for i in range(20):
                 w.add_document(id=text_type(i),
                                text=u" ".join(random.sample(domain, 5)))
 
@@ -35,7 +35,7 @@ def test_no_stored():
 #         # Simulate doing 20 (near-)simultaneous commits. If we weren't using
 #         # AsyncWriter, at least some of these would fail because the first
 #         # writer wouldn't be finished yet.
-#         for i in xrange(20):
+#         for i in range(20):
 #             w = writing.AsyncWriter(ix)
 #             writers.append(w)
 #             w.add_document(id=text_type(i),
@@ -62,7 +62,7 @@ def test_no_stored():
 #         # Simulate doing 20 (near-)simultaneous commits. If we weren't using
 #         # AsyncWriter, at least some of these would fail because the first
 #         # writer wouldn't be finished yet.
-#         for i in xrange(20):
+#         for i in range(20):
 #             w = writing.AsyncWriter(ix)
 #             writers.append(w)
 #             w.add_document(id=text_type(i),
@@ -82,7 +82,7 @@ def test_no_stored():
 def test_updates():
     schema = fields.Schema(id=fields.ID(unique=True, stored=True))
     with TempIndex(schema) as ix:
-        for _ in xrange(10):
+        for _ in range(10):
             with ix.writer() as w:
                 w.update_document(id=u"a")
         assert ix.doc_count() == 1
@@ -96,7 +96,7 @@ def test_updates():
 #
 #         w = writing.BufferedWriter(ix, period=None, limit=10,
 #                                    commitargs={"merge": False})
-#         for i in xrange(20):
+#         for i in range(20):
 #             w.add_document(id=text_type(i),
 #                            text=u" ".join(random.sample(domain, 5)))
 #         time.sleep(0.1)
@@ -135,7 +135,7 @@ def test_updates():
 #                            payload=fields.STORED)
 #     with TempIndex(schema, "bufferedupdate") as ix:
 #         w = writing.BufferedWriter(ix, period=None, limit=5)
-#         for i in xrange(10):
+#         for i in range(10):
 #             for char in u"abc":
 #                 fs = dict(id=char, payload=text_type(i) + char)
 #                 w.update_document(**fs)
@@ -159,11 +159,11 @@ def test_updates():
 #
 #         class SimWriter(threading.Thread):
 #             def run(self):
-#                 for _ in xrange(5):
+#                 for _ in range(5):
 #                     w.update_document(name=random.choice(domain))
 #                     time.sleep(random.uniform(0.01, 0.1))
 #
-#         threads = [SimWriter() for _ in xrange(5)]
+#         threads = [SimWriter() for _ in range(5)]
 #         for thread in threads:
 #             thread.start()
 #         for thread in threads:
@@ -356,7 +356,7 @@ def test_add_reader():
             }
             for docnum, stored in r.iter_docs():
                 v = r.vector(docnum, "b")
-                terms = [v.termbytes(i).decode("utf8") for i in xrange(len(v))]
+                terms = [v.termbytes(i).decode("utf8") for i in range(len(v))]
                 target = targets[stored["i"]]
                 assert terms == target
 
@@ -475,9 +475,9 @@ def test_merge_lengths():
     words = u"alfa bravo charlie delta echo foxtrot hotel india foxtrot".split()
     with TempIndex(schema) as ix:
         count = 0
-        for _ in xrange(5):
+        for _ in range(5):
             with ix.writer() as w:
-                for j in xrange(1000):
+                for j in range(1000):
                     length = j % len(words) + 1
                     doc = " ".join(words[:length])
                     count += 1

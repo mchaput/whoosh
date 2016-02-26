@@ -1,5 +1,4 @@
 from whoosh import idsets
-from whoosh.compat import xrange
 
 
 def test_bit_basics(c=idsets.BitSet):
@@ -147,18 +146,18 @@ def test_before_after(c=idsets.BitSet):
 
 def test_roaring():
     limit = 200000
-    nums = list(xrange(0, limit, 2))
+    nums = list(range(0, limit, 2))
     numset = set(nums)
     ris = idsets.RoaringIntSet.from_sorted_ints(nums)
 
-    for i in xrange(limit):
+    for i in range(limit):
         assert (i in numset) == (i in ris)
 
 
 def test_roaring_beforeafter():
     # Create some ints with large gaps to make sure some befores/afters cross
     # bucket boundaries
-    nums = [int(i ** 3) + i for i in xrange(1000)]
+    nums = [int(i ** 3) + i for i in range(1000)]
 
     ris = idsets.RoaringIntSet(nums)
     for i, n in enumerate(nums):

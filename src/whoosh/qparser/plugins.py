@@ -27,8 +27,6 @@
 
 import copy
 
-from whoosh.compat import u
-from whoosh.compat import iteritems, xrange
 from whoosh.qparser import syntax
 from whoosh.qparser.common import attach
 from whoosh.qparser.taggers import RegexTagger, FnTagger
@@ -174,7 +172,7 @@ class WildcardPlugin(TaggingPlugin):
                     self.do_wildcards(parser, node)
                 i += 1
 
-        for i in xrange(len(group)):
+        for i in range(len(group)):
             node = group[i]
             if isinstance(node, self.WildcardNode):
                 text = node.text
@@ -1203,7 +1201,7 @@ class FieldAliasPlugin(Plugin):
     def __init__(self, fieldmap):
         self.fieldmap = fieldmap
         self.reverse = {}
-        for key, values in iteritems(fieldmap):
+        for key, values in fieldmap,items():
             for value in values:
                 self.reverse[value] = key
 
@@ -1262,7 +1260,7 @@ class CopyFieldPlugin(Plugin):
         self.group = group
         if mirror:
             # Add in reversed mappings
-            map.update(dict((v, k) for k, v in iteritems(map)))
+            map.update(dict((v, k) for k, v in map.items()))
 
     def filters(self, parser):
         # Run after the fieldname filter (100) but before multifield (110)

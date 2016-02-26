@@ -13,11 +13,11 @@ def test_bigtable():
     with TempStorage("bigtable") as st:
         def randstring(min, max):
             return "".join(chr(randint(1, 255))
-                           for _ in xrange(randint(min, max)))
+                           for _ in range(randint(min, max)))
 
         count = 100000
         samp = dict((randstring(1,50), randstring(1,50))
-                    for _ in xrange(count))
+                    for _ in range(count))
 
         fhw = HashWriter(st.create_file("big.hsh"))
         fhw.add_all(iteritems(samp))

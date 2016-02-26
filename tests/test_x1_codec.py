@@ -6,7 +6,6 @@ import pytest
 from whoosh import postings
 from whoosh import fields
 from whoosh.codec import x1
-from whoosh.compat import xrange
 from whoosh.ifaces import codecs, readers
 from whoosh.util.testing import TempStorage
 
@@ -216,7 +215,7 @@ def test_terms():
         all_posts[fname] = termposts = {}
         for j, term in enumerate(terms):
             termposts[term] = posts = []
-            for k in xrange((i + j) // 2 + 1):
+            for k in range((i + j) // 2 + 1):
                 posts.append(postings.posting(
                     docid=j + k, length=5, weight=i + k * 1.5,
                 ))
@@ -246,8 +245,8 @@ def test_terms():
         for fname in fnames:
             terms = termlists[fname]
 
-            for i in xrange(0, len(terms) - 1, 3):
-                for j in xrange(i, len(terms), 3):
+            for i in range(0, len(terms) - 1, 3):
+                for j in range(i, len(terms), 3):
                     start = terms[i]
                     end = terms[j]
 
@@ -350,9 +349,9 @@ def test_matcher():
     words = u"alfa bravo charlie delta echo foxtrot golf hotel india juliet"
     domain = words.split()
     docs = [u"zebra"]
-    for i in xrange(2000):
+    for i in range(2000):
         words = []
-        for j in xrange(i, i + (i % 100) + 1):
+        for j in range(i, i + (i % 100) + 1):
             words.append(domain[j % len(domain)])
         docs.append(" ".join(words))
     docs.append(u"kilo")

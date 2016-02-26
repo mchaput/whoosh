@@ -29,7 +29,7 @@ import re
 import sys
 from datetime import datetime, timedelta
 
-from whoosh.compat import string_type, iteritems
+from whoosh.compat import string_type
 from whoosh.qparser import plugins, syntax
 from whoosh.qparser.taggers import Tagger
 from whoosh.support.relativedelta import relativedelta
@@ -453,7 +453,7 @@ class Regex(ParserBase):
 
     def extract(self, match):
         d = match.groupdict()
-        for key, value in iteritems(d):
+        for key, value in d.items():
             try:
                 value = int(value)
                 d[key] = value

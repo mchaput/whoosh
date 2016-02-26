@@ -31,7 +31,7 @@ from bisect import bisect_left
 from struct import pack, unpack
 from typing import Iterable, Tuple
 
-from whoosh.compat import b, long_type
+from whoosh.compat import long_type
 from whoosh.system import pack_byte, unpack_byte, pack_ushort, unpack_ushort
 from whoosh.system import pack_int, unpack_int, pack_uint, unpack_uint
 from whoosh.system import pack_long, unpack_long, pack_ulong, unpack_ulong
@@ -285,7 +285,7 @@ def byte_to_float(b: bytes, mantissabits: int=5, zeroexp: int=2) -> float:
 #    return int(round(log((length / 27.0) + 1, 1.033)))
 #def _byte_to_length(n):
 #    return int(round((pow(1.033, n) - 1) * 27))
-#_b2l_cache = array("i", (_byte_to_length(i) for i in xrange(256)))
+#_b2l_cache = array("i", (_byte_to_length(i) for i in range(256)))
 #byte_to_length = _b2l_cache.__getitem__
 
 # New implementation

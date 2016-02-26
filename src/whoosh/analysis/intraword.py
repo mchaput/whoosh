@@ -30,8 +30,7 @@ from collections import deque
 from typing import Iterable
 
 from whoosh.ifaces import analysis
-from whoosh.compat import u, text_type
-from whoosh.compat import xrange
+from whoosh.compat import text_type
 
 
 class CompoundWordFilter(analysis.Filter):
@@ -75,7 +74,7 @@ class CompoundWordFilter(analysis.Filter):
         if s in memo:
             return memo[s]
 
-        for i in xrange(1, len(s)):
+        for i in range(1, len(s)):
             prefix = s[:i]
             if prefix in self.wordset:
                 suffix = s[i:]
@@ -295,7 +294,7 @@ class IntraWordFilter(analysis.Filter):
     __inittypes__ = dict(delims=text_type, splitwords=bool, splitnums=bool,
                          mergewords=bool, mergenums=bool)
 
-    def __init__(self, delims=u("-_'\"()!@#$%^&*[]{}<>\|;:,./?`~=+"),
+    def __init__(self, delims=u"-_'\"()!@#$%^&*[]{}<>\|;:,./?`~=+",
                  splitwords=True, splitnums=True,
                  mergewords=False, mergenums=False):
         """

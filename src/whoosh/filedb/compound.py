@@ -11,7 +11,6 @@ try:
 except ImportError:
     mmap = None
 
-from whoosh.compat import xrange
 from whoosh.ifaces import codecs, storage
 from whoosh.filedb import datafile, filestore
 from whoosh.metadata import MetaData
@@ -128,7 +127,7 @@ class CompoundStorage(filestore.FileStorage):
         de = dir_entry
         entry_start = foot.dir_offset
         self._directory = {}  # type: Dict[str, Tuple[int, int, float]]
-        for _ in xrange(foot.dir_count):
+        for _ in range(foot.dir_count):
             entry_end = entry_start + de.size
             nmlen, off, size, modt = de.unpack(data[entry_start:entry_end])
             name_end = entry_end + nmlen

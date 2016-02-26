@@ -27,7 +27,6 @@
 
 from bisect import bisect_left
 
-from whoosh.compat import xrange
 from whoosh.kv.db import Database, DBReader, DBWriter, Cursor
 from whoosh.kv.db import OverrunError, ReadOnlyError
 
@@ -119,7 +118,7 @@ class MemoryView(DBWriter):
         _keys = self._keys
         left = bisect_left(_keys, start)
         right = bisect_left(_keys, end)
-        for i in xrange(left, right):
+        for i in range(left, right):
             yield _keys[i]
 
     def _sort(self):

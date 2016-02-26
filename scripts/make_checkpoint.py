@@ -8,7 +8,6 @@ import os.path, random, sys
 from datetime import datetime
 
 from whoosh import fields, index
-from whoosh.compat import u, xrange
 
 
 if len(sys.argv) < 2:
@@ -26,9 +25,9 @@ schema = fields.Schema(path=fields.ID(stored=True, unique=True),
                        ngrams=fields.NGRAMWORDS,
                        )
 
-words = u("alfa bravo charlie delta echo foxtrot golf hotel india"
-          "juliet kilo lima mike november oskar papa quebec romeo"
-          "sierra tango").split()
+words = (u"alfa bravo charlie delta echo foxtrot golf hotel india"
+         u"juliet kilo lima mike november oskar papa quebec romeo"
+         u"sierra tango").split()
 
 if not os.path.exists(indexdir):
     os.makedirs(indexdir)
@@ -40,8 +39,8 @@ for segnum in range(3):
     with ix.writer() as w:
         for num in range(100):
             frac += 0.15
-            path = u("%s/%s" % (segnum, num))
-            title = " ".join(random.choice(words) for _ in xrange(100))
+            path = u"%s/%s" % (segnum, num)
+            title = " ".join(random.choice(words) for _ in range(100))
             dt = datetime(year=2000 + counter, month=(counter % 12) + 1, day=15)
 
             w.add_document(path=path, num=counter, frac=frac, dt=dt,

@@ -3,9 +3,9 @@ from __future__ import with_statement
 import random
 
 from whoosh import fields
-from whoosh.compat import xrange, text_type, u
-from whoosh.support.testing import TempIndex
+from whoosh.compat import text_type
 from whoosh.util import now
+from whoosh.util.testing import TempIndex
 
 
 def test_20000_single():
@@ -15,7 +15,7 @@ def test_20000_single():
                   "golf", "hotel", "india", "juliet", "kilo", "lima"]
 
         t = now()
-        for i in xrange(20000):
+        for i in range(20000):
             w = ix.writer()
             w.add_document(id=text_type(i),
                            text=u" ".join(random.sample(domain, 5)))
@@ -37,7 +37,7 @@ def test_20000_buffered():
 
         t = now()
         w = BufferedWriter(ix, limit=100, period=None)
-        for i in xrange(20000):
+        for i in range(20000):
             w.add_document(id=text_type(i),
                            text=u" ".join(random.sample(domain, 5)))
         w.close()
@@ -56,7 +56,7 @@ def test_20000_batch():
 
         t = now()
         w = ix.writer()
-        for i in xrange(20000):
+        for i in range(20000):
             w.add_document(id=text_type(i),
                            text=u" ".join(random.sample(domain, 5)))
             if not i % 100:

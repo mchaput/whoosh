@@ -6,7 +6,7 @@ from abc import abstractmethod
 from array import array
 from typing import Callable, Tuple, Union
 
-from whoosh.compat import array_tobytes, array_frombytes, xrange
+from whoosh.compat import array_tobytes, array_frombytes
 from whoosh.util import unclosed
 from whoosh.system import IS_LITTLE
 
@@ -383,7 +383,7 @@ class FileArray(object):
         _source = self._source
         size = self._struct.size
         unpack = self._struct.unpack
-        for i in xrange(self._length):
+        for i in range(self._length):
             pos = self._offset + i * size
             yield unpack(_source[pos:pos + size])[0]
 
@@ -397,7 +397,7 @@ class FileArray(object):
         if isinstance(n, slice):
             out = []
             start, stop, step = n.indices(self._length)
-            for i in xrange(start, stop, step):
+            for i in range(start, stop, step):
                 pos = _offset + i * _size
                 out.append(_unpack(_source[pos:pos + _size])[0])
             return out

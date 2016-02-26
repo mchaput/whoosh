@@ -1,13 +1,13 @@
 # coding=utf-8
 
 from __future__ import with_statement
+from pickle import dumps
 
 import pytest
 
 from whoosh import fields
 from whoosh.analysis import (analysis, analyzers, filters, intraword, morph,
                              ngrams, tokenizers)
-from whoosh.compat import dumps, unichr
 from whoosh.util.testing import TempIndex
 
 
@@ -221,13 +221,13 @@ def test_unicode_blocks():
     from whoosh.support.unicode import blocks, blockname, blocknum
 
     assert blockname(u'a') == 'Basic Latin'
-    assert blockname(unichr(0x0b80)) == 'Tamil'
-    assert blockname(unichr(2048)) is None
+    assert blockname(chr(0x0b80)) == 'Tamil'
+    assert blockname(chr(2048)) is None
     assert blocknum(u'a') == 0
-    assert blocknum(unichr(0x0b80)) == 22
-    assert blocknum(unichr(2048)) is None
+    assert blocknum(chr(0x0b80)) == 22
+    assert blocknum(chr(2048)) is None
     assert blocknum(u'a') == blocks.Basic_Latin  # @UndefinedVariable
-    assert blocknum(unichr(0x0b80)) == blocks.Tamil  # @UndefinedVariable
+    assert blocknum(chr(0x0b80)) == blocks.Tamil  # @UndefinedVariable
 
 
 def test_double_metaphone():

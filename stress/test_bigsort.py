@@ -21,7 +21,7 @@ def test_bigsort():
     print("Writing...")
     t = now()
     w = ix.writer(limitmb=512)
-    for i in xrange(times):
+    for i in range(times):
         dt = datetime.fromtimestamp(random.randint(15839593, 1294102139))
         w.add_document(id=text_type(i), date=dt)
     w.commit()

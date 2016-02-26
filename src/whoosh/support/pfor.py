@@ -1,7 +1,5 @@
 from typing import List, Sequence
 
-from whoosh.compat import xrange
-
 
 # Simple16 algorithm for storing arrays of positive integers (usually delta
 # encoded lists of sorted integers)

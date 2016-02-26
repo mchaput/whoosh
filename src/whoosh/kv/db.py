@@ -28,9 +28,7 @@
 import os.path
 import tempfile
 from abc import ABCMeta, abstractmethod
-from bisect import bisect_left, bisect_right
 
-from whoosh.compat import xrange, bytes_type
 from whoosh.util import random_name
 
 

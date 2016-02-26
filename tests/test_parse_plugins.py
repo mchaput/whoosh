@@ -3,7 +3,7 @@ import inspect
 from datetime import datetime
 
 from whoosh import analysis, fields, qparser, query
-from whoosh.compat import u, text_type, xrange
+from whoosh.compat import text_type
 from whoosh.qparser import dateparse, default, plugins, syntax
 from whoosh.util.times import adatetime
 from whoosh.util.testing import TempIndex
@@ -36,7 +36,7 @@ def test_combos():
 
     count = 0
     for i, first in enumerate(pis):
-        for j in xrange(len(pis)):
+        for j in range(len(pis)):
             if i == j:
                 continue
             plist = [p for p in pis[:j] if p is not first] + [first]
@@ -542,7 +542,7 @@ def test_function_plugin():
     qp.add_plugin(fp)
 
     def check(qstring, target):
-        q = qp.parse(u(qstring), normalize=False)
+        q = qp.parse(qstring, normalize=False)
         assert str(q) == target
 
     check("alfa #foo charlie delta",

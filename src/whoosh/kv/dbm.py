@@ -34,7 +34,6 @@ try:
 except ImportError:
     import anydbm as dbm
 
-from whoosh.compat import xrange
 from whoosh.kv.db import Database, DBReader, DBWriter, Cursor
 from whoosh.kv.db import OverrunError, ReadOnlyError
 
@@ -111,7 +110,7 @@ class DBMReader(DBReader):
         keys = self._get_sorted_keys()
         left = bisect_left(keys, start)
         right = bisect_left(keys, end)
-        for i in xrange(left, right):
+        for i in range(left, right):
             yield keys[i]
 
     def keys(self):

@@ -18,14 +18,14 @@ if not os.path.exists(dirname):
 reindex = False
 if reindex or not index.exists_in(dirname):
     tags = []
-    for _ in xrange(tagcount):
-        tag = u"".join(random.choice(string.ascii_lowercase) for _ in xrange(5))
+    for _ in range(tagcount):
+        tag = u"".join(random.choice(string.ascii_lowercase) for _ in range(5))
         tags.append(tag)
 
     ix = index.create_in(dirname, schema)
     t = now()
     with ix.writer() as w:
-        for i in xrange(doccount):
+        for i in range(doccount):
             doc = u" ".join(random.sample(tags, random.randint(10, 20)))
             w.add_document(tags=doc)
             if not i % 10000:

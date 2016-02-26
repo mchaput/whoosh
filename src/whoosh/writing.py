@@ -28,6 +28,7 @@
 import copy
 import logging
 import os
+import pickle
 from collections import defaultdict
 from concurrent import futures
 from contextlib import contextmanager
@@ -37,7 +38,6 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from whoosh import fields, index, merging
 from whoosh.ifaces import codecs, readers, searchers, storage
-from whoosh.compat import xrange
 from whoosh.postings import PostTuple, post_docid, update_post
 from whoosh.postings import TERMBYTES, DOCID
 from whoosh.ifaces import queries
@@ -166,7 +166,7 @@ class SegmentList(object):
             del self._buffered_deletes[segid]
 
             # Remove segment from segments list
-            for i in xrange(len(self.segments)):
+            for i in range(len(self.segments)):
                 if self.segments[i].segment_id() == segment.segment_id():
                     del self.segments[i]
                     break
@@ -178,7 +178,7 @@ class SegmentList(object):
             logger.info("Integrating %r (merge ID %r) into segments",
                         newsegment, merge_id)
             # Just do a simple linear search for the merge
-            for i in xrange(len(self._current_merges)):
+            for i in range(len(self._current_merges)):
                 m = self._current_merges[i]
                 if m.merge_id == merge_id:
                     break
@@ -1109,7 +1109,6 @@ def copy_reader(reader: 'readers.IndexReader', session: 'storage.Session',
 def batch_index(batch_filename: str, count: int, storage_url: str,
                 indexname: str, schema: 'fields.Schema', generation: int,
                 merge_id: str, doc_limit: int) -> Tuple[codecs.Segment, str]:
-    from whoosh.compat import pickle
 
     logger.info("Batching indexing file %r to %s", batch_filename, storage_url)
     t = now()
@@ -1119,7 +1118,7 @@ def batch_index(batch_filename: str, count: int, storage_url: str,
                       is_sub_writer=True)
 
     with open(batch_filename, "rb") as f:
-        for _ in xrange(count):
+        for _ in range(count):
             kwargs = pickle.load(f)
             w.add_document(**kwargs)
     os.remove(batch_filename)
@@ -1160,8 +1159,6 @@ class MultiWriter(SegmentWriter):
 
     @unclosed
     def add_document(self, **kwargs):
-        from whoosh.compat import pickle
-
         pickle.dump(kwargs, self._tempfile, -1)
         self._buffered += 1
         if self._buffered >= self.doc_limit and not self._group_level:

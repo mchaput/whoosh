@@ -4,7 +4,6 @@ from collections import defaultdict, namedtuple
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from whoosh import results, sorting
-from whoosh.compat import iteritems, xrange
 from whoosh.ifaces import matchers, queries, searchers, weights
 from whoosh.util import now
 
@@ -221,7 +220,7 @@ class Collector(object):
 
     def forget(self, globalid):
         items = self._items
-        for i in xrange(len(items)):
+        for i in range(len(items)):
             if items[i][1] == globalid:
                 items.pop(i)
                 break
@@ -458,7 +457,7 @@ class TopCollector(WrappingCollector):
         from heapq import heapify
 
         scored = self._scored
-        for i in xrange(len(scored)):
+        for i in range(len(scored)):
             if 0 - scored[i][1] == globalid:
                 scored.pop(i)
                 heapify(scored)

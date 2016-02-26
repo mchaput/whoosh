@@ -9,7 +9,7 @@ from array import array
 from bisect import bisect_left, bisect_right
 from typing import Iterable, List, Optional, Sequence, Tuple, Union
 
-from whoosh.compat import izip, izip_longest, next, xrange
+from whoosh.compat import zip_longest
 from whoosh.util.numeric import bytes_for_bits
 
 
@@ -48,7 +48,7 @@ class DocIdSet(object):
 
     def __eq__(self, other: 'DocIdSet'):
         # The default implementation can definitely be improved by a subclass!
-        for a, b in izip(self, other):
+        for a, b in zip(self, other):
             if a != b:
                 return False
         return True
@@ -162,7 +162,7 @@ class DocIdSet(object):
         :param size: the limit of the resulting set.
         """
 
-        for i in xrange(size):
+        for i in range(size):
             if i in self:
                 self.discard(i)
             else:
@@ -223,7 +223,7 @@ class BitSet(DocIdSet):
             if not size and isinstance(source, (list, tuple, set, frozenset)):
                 size = max(source)
             bytecount = bytes_for_bits(size)
-            self.bits = array("B", (0 for _ in xrange(bytecount)))
+            self.bits = array("B", (0 for _ in range(bytecount)))
 
             if source:
                 add = self.add
@@ -264,8 +264,8 @@ class BitSet(DocIdSet):
     @staticmethod
     def _logic(obj: 'BitSet', op, other):
         objbits = obj.bits
-        for i, (byte1, byte2) in enumerate(izip_longest(objbits, other.bits,
-                                                        fillvalue=0)):
+        for i, (byte1, byte2) in enumerate(zip_longest(objbits, other.bits,
+                                                       fillvalue=0)):
             value = op(byte1, byte2) & 0xFF
             if i >= len(objbits):
                 objbits.append(value)
@@ -283,7 +283,7 @@ class BitSet(DocIdSet):
     def __iter__(self) -> Iterable[int]:
         base = 0
         for byte in self.bits:
-            for i in xrange(8):
+            for i in range(8):
                 if byte & (1 << i):
                     yield base + i
             base += 8
@@ -393,7 +393,7 @@ class BitSet(DocIdSet):
 
     def invert_update(self, size):
         bits = self.bits
-        for i in xrange(len(bits)):
+        for i in range(len(bits)):
             bits[i] = ~bits[i] & 0xFF
         self._zero_extra_bits(size)
 
@@ -598,7 +598,7 @@ class RoaringIntSet(DocIdSet):
         if octave >= len(self.idsets):
             if create:
                 self.idsets.extend([SortedIntSet() for _
-                                    in xrange(len(self.idsets), octave + 1)])
+                                    in range(len(self.idsets), octave + 1)])
             else:
                 octave = len(self.idsets) - 1
                 floor = octave << 16
@@ -680,7 +680,7 @@ class ReverseIntSet(DocIdSet):
         except StopIteration:
             nx = -1
 
-        for i in xrange(self.limit):
+        for i in range(self.limit):
             if i == nx:
                 try:
                     nx = next(ids)
@@ -721,7 +721,7 @@ class ReverseIntSet(DocIdSet):
         if idset.last() < maxid - 1:
             return maxid
 
-        for i in xrange(maxid, -1, -1):
+        for i in range(maxid, -1, -1):
             if i not in idset:
                 return i
 

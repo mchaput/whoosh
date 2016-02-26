@@ -2,13 +2,13 @@ from __future__ import with_statement
 import random
 import sys
 from array import array
+from pickle import loads, dumps
 from typing import List
 
 from whoosh import columns
 # from whoosh import fields
 # from whoosh import query
 # from whoosh.compat import BytesIO, bytes_type, text_type
-from whoosh.compat import izip, xrange, dumps, loads
 # from whoosh.filedb.filestore import RamStorage
 from whoosh.util.testing import TempIndex, TempStorage
 
@@ -62,7 +62,7 @@ def _rt(c: columns.Column, values: List, default):
         with st.create_file("test2") as f:
             f.write(b"hello")
             w = c.writer(f)
-            for docnum, v in izip(xrange(10, doccount, 7), values):
+            for docnum, v in zip(range(10, doccount, 7), values):
                 target[docnum] = v
                 w.add(docnum, v)
             w.finish(doccount)
@@ -120,8 +120,8 @@ def test_roundtrip_nums():
 
 def _test_roundtrip_bits():
     c = columns.BitColumn()
-    _rt(c, [bool(random.randint(0, 1)) for _ in xrange(70)], False)
-    _rt(c, [bool(random.randint(0, 1)) for _ in xrange(900)], False)
+    _rt(c, [bool(random.randint(0, 1)) for _ in range(70)], False)
+    _rt(c, [bool(random.randint(0, 1)) for _ in range(900)], False)
 
 
 def _test_roundtrip_pickles():
@@ -157,13 +157,13 @@ def test_compact_ints():
     total = times * 5 + 5
     vals = [0] * total
 
-    for i in xrange(times):
+    for i in range(times):
         docnum = i * 5
         v = i % 1000 - 500
         domain.append((docnum, v))
         vals[docnum] = v
 
-    choices = list(xrange(len(domain)))
+    choices = list(range(len(domain)))
     random.shuffle(choices)
 
     compact = columns.CompactIntColumn()
@@ -283,14 +283,14 @@ def test_ref_switch():
         with TempStorage() as st:
             with st.create_file("test") as f:
                 cw = col.writer(f)
-                for i in xrange(size):
+                for i in range(size):
                     cw.add(i, hex(i).encode("latin1"))
                 cw.finish(size)
                 length = f.tell()
 
             with st.map_file("test") as m:
                 cr = col.reader(m, 0, length, size, True)
-                for i in xrange(size):
+                for i in range(size):
                     v = cr[i]
                     # Column ignores additional unique values after 65535
                     if i <= 65535 - 1:
@@ -320,7 +320,7 @@ def test_roaring_column():
         random.seed(seed)
         # Each position has one of three values; 0 simulates a missing doc,
         # 1 is False, 2 is True
-        return [random.randint(0, 2) for _ in xrange(times)]
+        return [random.randint(0, 2) for _ in range(times)]
 
     def rw(vals):
         with TempStorage() as st:
@@ -334,7 +334,7 @@ def test_roaring_column():
 
             with st.map_file("test") as m:
                 cr = col.reader(m, 0, length, len(vals), True)
-                for i in xrange(len(vals)):
+                for i in range(len(vals)):
                     v = cr[i]
                     # print(i, vals[i], cr[i])
                     if v:

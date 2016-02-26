@@ -29,7 +29,6 @@ from typing import Dict, Iterable, Sequence
 
 from whoosh import fields, merging, writing
 from whoosh.ifaces import codecs, readers, searchers
-from whoosh.compat import xrange
 from whoosh.filedb.filestore import RamStorage
 from whoosh.ifaces import matchers
 from whoosh.ifaces import queries
@@ -119,7 +118,7 @@ class FakeQuery(queries.Query):
 
 def test_simple_strategy():
     segs = []
-    for i in xrange(15):
+    for i in range(15):
         segs.append(FakeSegment(hex(i), 100))
     segs[-1].delete_percent(20)
 
@@ -135,7 +134,7 @@ def test_simulation():
     segs = []
     tms = merging.TieredMergeStrategy()
 
-    for i in xrange(2000):
+    for i in range(2000):
         for seg in segs:
             seg.delete_percent(random.randint(0, 5))
         segs.append(FakeSegment(hex(i), random.randint(1, 100)))

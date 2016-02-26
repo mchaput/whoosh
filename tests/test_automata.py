@@ -1,11 +1,10 @@
 import gzip
 import os.path
 from bisect import bisect_left
+from itertools import permutations
 
 import pytest
 
-from whoosh.compat import permutations
-from whoosh.compat import xrange
 from whoosh.automata import fsa, glob, lev
 from whoosh.support.levenshtein import levenshtein
 
@@ -362,7 +361,7 @@ def test_strings_dfa():
 
     domain = "abcd"
     words = set()
-    for i in xrange(1, len(domain) + 1):
+    for i in range(1, len(domain) + 1):
         words.update("".join(p) for p in permutations(domain[:i]))
     words = sorted(words)
     dfa = fsa.strings_dfa(words)

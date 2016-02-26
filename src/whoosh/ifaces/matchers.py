@@ -55,7 +55,6 @@ from functools import wraps
 from typing import Any, Iterable, Optional, Sequence, Set, Tuple, Union
 
 from whoosh import idsets, postings
-from whoosh.compat import next
 from whoosh.ifaces import codecs, readers, weights
 
 

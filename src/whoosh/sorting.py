@@ -31,7 +31,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, Iterable, Optional, Sequence, Set, Union
 
-from whoosh.compat import iteritems, izip, string_type, text_type, xrange
+from whoosh.compat import string_type, text_type
 from whoosh.ifaces import matchers, queries, searchers
 
 
@@ -330,7 +330,7 @@ class OverlappingCategorizer(Categorizer):
             field = segment_searcher.schema[fieldname]
             from_bytes = field.from_bytes
 
-            self._lists = [[] for _ in xrange(dc)]
+            self._lists = [[] for _ in range(dc)]
             for btext in field.sortable_terms(reader, fieldname):
                 text = from_bytes(btext)
                 m = reader.matcher(fieldname, btext)
@@ -924,7 +924,7 @@ class MultiFacet(FacetType):
         def key_to_name(self, key: Any) -> Any:
             return tuple(catter.key_to_name(keypart)
                          for catter, keypart
-                         in izip(self.catters, key))
+                         in zip(self.catters, key))
 
         def close(self):
             for catter in self.catters:
@@ -1085,7 +1085,7 @@ class OrderedList(FacetMap):
 
     def as_dict(self):
         d = {}
-        for key, items in iteritems(self.dict):
+        for key, items in self.dict.items():
             d[key] = [docnum for _, docnum in sorted(items)]
         return d
 

@@ -28,6 +28,7 @@
 import errno
 import mmap
 import os.path
+import pickle
 import struct
 import sys
 import time
@@ -36,10 +37,7 @@ from base64 import b32encode, b32decode
 from bisect import bisect_left, bisect_right
 from collections import deque
 
-from whoosh.compat import array_frombytes
-from whoosh.compat import iteritems, izip, xrange
-from whoosh.compat import pickle
-from whoosh.compat import bytes_type, string_type
+from whoosh.compat import array_frombytes, bytes_type, string_type
 from whoosh.kv.db import Database, DBReader, DBWriter, Cursor
 from whoosh.kv.db import EmptyCursor, MergeCursor
 from whoosh.kv.db import EmptyDatabaseError, OverrunError, ReadOnlyError
@@ -417,7 +415,7 @@ class BluelineWriter(BluelineReader, DBWriter):
             while end < len(sbks) and sbks[end].startswith(prefix):
                 end += 1
             if end > start:
-                for i in xrange(start, end):
+                for i in range(start, end):
                     del buff[sbks[i]]
                 del sbks[start:end]
 
@@ -470,7 +468,7 @@ class BluelineWriter(BluelineReader, DBWriter):
 
     def _calc_buffer_size(self):
         buff = self._buffer
-        return sum(len(k) + len(v) for k, v in iteritems(buff))
+        return sum(len(k) + len(v) for k, v in buff.items())
 
     def _sorted_buffer_keys(self):
         if self._bufferkeys is None:
@@ -560,9 +558,9 @@ class BluelineWriter(BluelineReader, DBWriter):
                     block = cache.pop(ref)
                     d.update(dict(block.items()))
                 d.update(dict(items))
-                items = sorted(iteritems(d))
+                items = sorted(d.items())
 
-            for i in xrange(0, len(items), blocksize):
+            for i in range(0, len(items), blocksize):
                 tag = self._db.new_tag(tagset)
                 datafile.seek(0, 2)
                 newtoc.append(write_region(tag, datafile, items[i:i + blocksize]))
@@ -577,7 +575,7 @@ class BluelineWriter(BluelineReader, DBWriter):
     def save(self, block):
         toc = self._toc
         tag = block.tag
-        for i in xrange(len(toc)):
+        for i in range(len(toc)):
             if toc[i].tag == tag:
                 break
         else:
@@ -720,7 +718,7 @@ class SerialCursor(Cursor):
 
     def keys(self):
         toc = self._toc
-        for i in xrange(len(toc)):
+        for i in range(len(toc)):
             self._i = i
             self._cursor = cursor = self._make_cursor()
             for key in cursor:
@@ -781,7 +779,7 @@ class Toc(object):
         """
 
         refs = self.blockrefs
-        for i in xrange(1, len(refs)):
+        for i in range(1, len(refs)):
             if refs[i].minkey <= refs[i - 1].maxkey:
                 raise Exception
 
@@ -970,7 +968,7 @@ class BufferBlock(object):
             self.sorted = True
 
     def _calc_size(self):
-        return sum(len(k) + len(v) for k, v in iteritems(self.keymap))
+        return sum(len(k) + len(v) for k, v in self.keymap.items())
 
     def delete_by_prefix(self, prefix):
         self._sort()
@@ -980,7 +978,7 @@ class BufferBlock(object):
         while end < len(keylist) and keylist[end].startswith(prefix):
             end += 1
         if end > start:
-            for i in xrange(start, end):
+            for i in range(start, end):
                 del keymap[keylist[i]]
             del keylist[start:end]
 
@@ -997,14 +995,14 @@ class BufferBlock(object):
         keylist = self.keylist
         left = bisect_left(keylist, start)
         right = bisect_left(keylist, end)
-        for i in xrange(left, right):
+        for i in range(left, right):
             yield keylist[i]
 
     def iter_from(self, key):
         self._sort()
         keys = self.keylist
         pos = bisect_left(keys, key)
-        for i in xrange(pos, len(keys)):
+        for i in range(pos, len(keys)):
             yield keys[i]
 
     def items(self):
@@ -1080,7 +1078,7 @@ class DiskBlock(object):
         klens = self._klens
 
         hi = hi if hi is not None else self._length
-        for i in xrange(lo, hi):
+        for i in range(lo, hi):
             pos = datastart + poses[i]
             yield mm[pos:pos + klens[i]]
 
@@ -1090,7 +1088,7 @@ class DiskBlock(object):
         klens = self._klens
         vlens = self._vlens
 
-        for i in xrange(self._length):
+        for i in range(self._length):
             yield datastart + poses[i], klens[i], vlens[i]
 
     def key_index(self, key, lo=0):
@@ -1192,7 +1190,7 @@ class MmapArray(object):
         _mm = self._mm
         size = self._struct.size
         unpack = self._struct.unpack
-        for i in xrange(self._length):
+        for i in range(self._length):
             pos = self._offset + i * size
             yield unpack(_mm[pos:pos + size])[0]
 
@@ -1206,7 +1204,7 @@ class MmapArray(object):
         if isinstance(n, slice):
             out = []
             start, stop, step = n.indices(self._length)
-            for i in xrange(start, stop, step):
+            for i in range(start, stop, step):
                 pos = _offset + i * _size
                 out.append(_unpack(_mm[pos:pos + _size])[0])
             return out
@@ -1393,7 +1391,7 @@ def write_region(tag, regionfile, items):
     base = 0
     poses = array("i")
     header.poscode = "i"
-    for klen, vlen in izip(klens, vlens):
+    for klen, vlen in zip(klens, vlens):
         poses.append(base)
         base += klen + vlen
 

@@ -5,7 +5,6 @@ import sys
 
 from whoosh import fields, query, scoring
 from whoosh.ifaces import weights
-from whoosh.compat import u, xrange, permutations
 from whoosh.util.testing import TempIndex
 
 
@@ -21,9 +20,9 @@ def test_all():
     schema = fields.Schema(text=fields.TEXT)
     with TempIndex(schema) as ix:
         with ix.writer() as w:
-            for _ in xrange(100):
+            for _ in range(100):
                 txt = u" ".join(choice(domain)
-                                for _ in xrange(randint(10, 20)))
+                                for _ in range(randint(10, 20)))
                 w.add_document(text=txt)
 
         # List ABCs that should not be tested

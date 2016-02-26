@@ -2,11 +2,12 @@ from __future__ import with_statement
 import random
 from collections import defaultdict
 from datetime import datetime
+from itertools import permutations
 
 import pytest
 
 from whoosh import fields, qparser
-from whoosh.compat import xrange, text_type, permutations
+from whoosh.compat import text_type
 from whoosh.writing import IndexingError
 from whoosh.util.numeric import length_to_byte, byte_to_length
 from whoosh.util.testing import TempIndex, TempStorage
@@ -76,7 +77,7 @@ def test_simple_indexing():
     docs = defaultdict(list)
     with TempIndex(schema, "simple") as ix:
         with ix.writer() as w:
-            for i in xrange(100):
+            for i in range(100):
                 smp = random.sample(domain, 5)
                 for word in smp:
                     docs[word].append(i)
@@ -130,7 +131,7 @@ def test_lengths():
             assert ("id", 0) in r
 
             # All lengths for a missing field should be 0
-            for i in xrange(r.doc_count_all()):
+            for i in range(r.doc_count_all()):
                 assert r.doc_field_length(i, "f1") == 0
 
             for i, length in enumerate(lengths):
@@ -146,7 +147,7 @@ def test_many_lengths():
         with ix.writer() as w:
             for i, word in enumerate(domain):
                 length = (i + 1) ** 6
-                w.add_document(text=" ".join(word for _ in xrange(length)))
+                w.add_document(text=" ".join(word for _ in range(length)))
 
         with ix.searcher() as s:
             r = s.reader()
@@ -421,7 +422,7 @@ def test_noscorables1():
     schema = fields.Schema(id=fields.ID, tags=fields.KEYWORD)
     with TempIndex(schema, "noscorables1") as ix:
         w = ix.writer()
-        for _ in xrange(times):
+        for _ in range(times):
             w.add_document(id=choice(values),
                            tags=u" ".join(sample(values, randint(2, 7))))
         w.commit()

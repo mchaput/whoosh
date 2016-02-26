@@ -29,8 +29,7 @@ from __future__ import division
 from array import array
 from typing import Any, Sequence
 
-from whoosh.ifaces import matchers, queries
-from whoosh.compat import xrange
+from whoosh.ifaces import matchers
 from whoosh.matching import binary
 
 
@@ -71,7 +70,7 @@ class ArrayUnionMatcher(matchers.Matcher):
 
         # Array to hold the scores of each document in the read part
         typecode = "d" if scored else "B"
-        self._scores = array(typecode, (0 for _ in xrange(self._partsize)))
+        self._scores = array(typecode, (0 for _ in range(self._partsize)))
         # Docnum corresponding to first item in the score array
         self._offset = 0
         # Docnum after last item in the score array
@@ -102,7 +101,7 @@ class ArrayUnionMatcher(matchers.Matcher):
         a = self._scores
 
         # Clear the array
-        for i in xrange(self._partsize):
+        for i in range(self._partsize):
             a[i] = 0
 
         # Add the scores from the submatchers into the array

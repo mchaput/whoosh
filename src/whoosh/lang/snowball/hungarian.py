@@ -1,4 +1,4 @@
-from whoosh.compat import u
+
 
 class HungarianStemmer(object):
 

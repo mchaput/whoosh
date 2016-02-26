@@ -2,14 +2,13 @@ from __future__ import with_statement
 import random
 
 from whoosh import fields, matching, scoring
-from whoosh.compat import xrange
 from whoosh.util.testing import TempIndex
 
 
 def test_max_field_length():
     schema = fields.Schema(t=fields.TEXT)
     with TempIndex(schema) as ix:
-        for i in xrange(1, 200, 7):
+        for i in range(1, 200, 7):
             with ix.writer() as w:
                 w.add_document(t=u" ".join(["word"] * i))
 
@@ -22,7 +21,7 @@ def test_minmax_field_length():
     with TempIndex(schema) as ix:
         least = 999999
         most = 0
-        for _ in xrange(1, 200, 7):
+        for _ in range(1, 200, 7):
             with ix.writer() as w:
                 count = random.randint(1, 100)
                 least = min(count, least)

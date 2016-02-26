@@ -38,7 +38,7 @@ from typing import (Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple,
 
 from whoosh import fields, sorting, results, spelling
 from whoosh.ifaces import matchers, queries, readers, weights
-from whoosh.compat import iteritems, text_type
+from whoosh.compat import text_type
 from whoosh.idsets import DocIdSet, BitSet
 
 
@@ -351,7 +351,7 @@ class Searcher(object):
         from whoosh.query import And, Every, Term
 
         # Convert the values in the dict to bytes
-        for k, v in iteritems(kw):
+        for k, v in kw.items():
             if "__" in k:
                 fieldname, op = k.split("__", 1)
             else:

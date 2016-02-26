@@ -2,7 +2,6 @@ import random
 
 import pytest
 
-from whoosh.compat import xrange
 from whoosh.filedb import blueline as bl
 from whoosh.util.testing import TempStorage
 
@@ -191,7 +190,7 @@ def test_multi():
 
 def test_multi_missing():
     items = [(hex(i)[2:].lower().encode("ascii"), str(i).encode("ascii"))
-             for i in xrange(1000)]
+             for i in range(1000)]
     items.sort()
 
     with TempStorage() as st:
@@ -211,7 +210,7 @@ def test_multi_missing():
 
 def test_load_arrays():
     items = [(hex(i)[2:].lower().encode("ascii"), str(i).encode("ascii"))
-             for i in xrange(1000)]
+             for i in range(1000)]
     items.sort()
     keys = [k for k, _ in items]
     d = dict(items)
@@ -235,7 +234,7 @@ def test_load_arrays():
 
 def test_prefix_length_gt_16():
     items = [(("1234567890abcdefgh" + str(i)).encode("ascii"),
-              str(i).encode("ascii")) for i in xrange(200)]
+              str(i).encode("ascii")) for i in range(200)]
     items.sort()
     keys = [k for k, _ in items]
     d = dict(items)
@@ -274,8 +273,8 @@ def test_key_ranges():
 
         m = st.map_file("test")
         mr = bl.MultiRegion(m, refs)
-        for i in xrange(len(slet)):
-            for j in xrange(i, len(slet) - 1):
+        for i in range(len(slet)):
+            for j in range(i, len(slet) - 1):
                 start = blet[i: i + 1]
                 end = blet[j + 1: j + 2]
                 target = blet[i: j + 1]
@@ -285,7 +284,7 @@ def test_key_ranges():
 
 
 def test_open_range():
-    keys = sorted(hex(i).encode("ascii") for i in xrange(500))
+    keys = sorted(hex(i).encode("ascii") for i in range(500))
 
     with TempStorage() as st:
         with st.create_file("test") as f:
@@ -296,12 +295,12 @@ def test_open_range():
         with st.map_file("test") as m:
             r = bl.Region.from_ref(m, refs[0])
             ks = list(r)
-            for i in xrange(len(ks)):
+            for i in range(len(ks)):
                 assert list(r.key_range(ks[i], None)) == ks[i:]
             r.close()
 
             mr = bl.MultiRegion(m, refs)
-            for i in xrange(len(keys)):
+            for i in range(len(keys)):
                 start = keys[i]
                 assert list(mr.key_range(start, None)) == keys[i:]
             mr.close()
@@ -311,7 +310,7 @@ def test_region_cursor():
     from string import ascii_letters
 
     blet = ''.join(sorted(ascii_letters)).encode("ascii")
-    items = [(blet[i: i + 1], str(i).encode("ascii")) for i in xrange(len(blet))]
+    items = [(blet[i: i + 1], str(i).encode("ascii")) for i in range(len(blet))]
 
     with TempStorage() as st:
         f = st.create_file("test")
@@ -331,7 +330,7 @@ def test_region_cursor():
 
 def test_suffix_cursor():
     items = sorted((hex(i).encode("ascii"), str(i).encode("ascii"))
-                   for i in xrange(2000))
+                   for i in range(2000))
     prefix = b"0x2"
     subset = [(k[len(prefix):], v) for k, v in items if k.startswith(prefix)]
     subkeys = [it[0] for it in subset]
@@ -390,7 +389,7 @@ def test_items_with_prefix():
         allkeys = []
         for prefix in (b'aa', b'ab', b'ac'):
             ls = []
-            for i in xrange(200):
+            for i in range(200):
                 ls.append(prefix + ("%02x" % i).encode("ascii"))
             allkeys.extend(sorted(ls))
         allitems = [(k, str(i).encode("ascii")) for i, k in enumerate(allkeys)]

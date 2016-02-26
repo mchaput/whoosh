@@ -38,7 +38,7 @@ from typing import (Any, Callable, Dict, Iterable, List, Optional, Sequence,
 
 from whoosh import columns, fields, postings
 from whoosh.ifaces import codecs, matchers, readers, storage, weights
-from whoosh.compat import bytes_type, text_type, xrange
+from whoosh.compat import bytes_type, text_type
 from whoosh.filedb import blueline, filestore
 from whoosh.filedb.datafile import Data, OutputFile
 from whoosh.metadata import MetaData
@@ -578,7 +578,7 @@ class X1PerDocReader(codecs.PerDocumentReader):
 
     def all_doc_ids(self) -> Iterable[int]:
         is_deleted = self._segment.is_deleted
-        return (docnum for docnum in xrange(self._doccount)
+        return (docnum for docnum in range(self._doccount)
                 if not is_deleted(docnum))
 
     # Deletions
@@ -881,7 +881,7 @@ class X1TermsReader(codecs.TermsReader):
         # Read the refs
         refs = []
         pos = foot.refs_offset
-        for _ in xrange(foot.refs_count):
+        for _ in range(foot.refs_count):
             ref = blueline.Ref.from_bytes(self._termsdata, pos)
             refs.append(ref)
             pos = ref.end_offset

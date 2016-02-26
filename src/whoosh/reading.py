@@ -38,7 +38,7 @@ from typing import (
 
 from whoosh import columns, fields, idsets, postings
 from whoosh.ifaces import codecs, queries, readers, storage, weights
-from whoosh.compat import iteritems, text_type
+from whoosh.compat import text_type
 from whoosh.ifaces import matchers
 from whoosh.util import unclosed
 
@@ -161,7 +161,7 @@ class SegmentReader(readers.IndexReader):
         schema = self.schema
         sfs = self._perdoc.stored_fields(docnum)
         # Double-check with schema to filter out removed fields
-        return dict(item for item in iteritems(sfs) if item[0] in schema)
+        return dict(item for item in sfs.items() if item[0] in schema)
 
     # Delegate doc methods to the per-doc reader
 

@@ -1088,9 +1088,9 @@ class W3LeafMatcher(LeafMatcher):
         # De-minify the weights
         postcount = self._blocklength
         if weights is None:
-            self._weights = array("f", (1.0 for _ in xrange(postcount)))
+            self._weights = array("f", (1.0 for _ in range(postcount)))
         elif isinstance(weights, float):
-            self._weights = array("f", (weights for _ in xrange(postcount)))
+            self._weights = array("f", (weights for _ in range(postcount)))
         else:
             self._weights = weights
 
@@ -1109,7 +1109,7 @@ class W3LeafMatcher(LeafMatcher):
         else:
             assert isinstance(vs, bytes_type)
             self._values = tuple(vs[i:i + fixedsize]
-                                 for i in xrange(0, len(vs), fixedsize))
+                                 for i in range(0, len(vs), fixedsize))
 
 
 # Term info implementation

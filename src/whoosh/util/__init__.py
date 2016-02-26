@@ -26,11 +26,12 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import with_statement
-import random, sys, time
-from bisect import insort, bisect_left
+from array import array
+import random
+import sys
+import time
+from bisect import insort
 from functools import wraps
-
-from whoosh.compat import xrange
 
 
 # These must be valid separate characters in CASE-INSENSTIVE filenames
@@ -46,11 +47,11 @@ else:
 
 
 def random_name(size=28):
-    return "".join(random.choice(IDCHARS) for _ in xrange(size))
+    return "".join(random.choice(IDCHARS) for _ in range(size))
 
 
 def random_bytes(size=28):
-    gen = (random.randint(0, 255) for _ in xrange(size))
+    gen = (random.randint(0, 255) for _ in range(size))
     if sys.version_info[0] >= 3:
         return bytes(gen)
     else:

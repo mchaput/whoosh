@@ -34,6 +34,7 @@ import sys
 import tempfile
 from abc import abstractmethod
 from binascii import crc32
+from io import BytesIO
 from threading import Lock
 from typing import Any, Dict, Iterable, List
 
@@ -41,7 +42,6 @@ import furl
 
 from whoosh import fields, index
 from whoosh.ifaces import storage
-from whoosh.compat import BytesIO
 from whoosh.filedb import datafile
 from whoosh.metadata import MetaData
 from whoosh.system import IS_LITTLE

@@ -4,8 +4,8 @@ import pytest
 
 from whoosh import analysis
 from whoosh import postings as p
+from whoosh.compat import text_type
 from whoosh.postings import BasicIO as bio
-from whoosh.compat import text_type, xrange
 from whoosh.util.testing import TempStorage
 
 
@@ -24,7 +24,7 @@ def test_encode_docids():
 
     nums = []
     base = 0
-    for _ in xrange(1000):
+    for _ in range(1000):
         nums.append(base)
         base += random.randint(1, 10)
     _roundtrip(nums)
@@ -156,7 +156,7 @@ def test_roundtrip_docs():
     bs = bf.doclist_to_bytes(raw_posts)
 
     br = bf.doclist_reader(bs)
-    for i in xrange(len(posts)):
+    for i in range(len(posts)):
         assert br.id(i) == posts[i][p.DOCID]
         assert br.length(i) == posts[i][p.LENGTH]
         assert br.weight(i) == posts[i][p.WEIGHT]
@@ -186,7 +186,7 @@ def test_lengths():
     fmt = p.Format(has_weights=True, has_lengths=True, has_positions=True,
                    has_chars=True)
     ba = bytearray()
-    for _ in xrange(3):
+    for _ in range(3):
         ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
         posts = []
         for i in ids:
@@ -227,17 +227,17 @@ def test_combos():
 
             ps = []
             base = 0
-            for _ in xrange(ln):
+            for _ in range(ln):
                 base += random.randint(0, 10)
                 ps.append(base)
 
             cs = []
             base = 0
-            for _ in xrange(ln):
+            for _ in range(ln):
                 base += random.randint(10, 20)
                 cs.append((base, base + 5))
 
-            pys = [random.choice((b'a', b'b', b'c')) for _ in xrange(ln)]
+            pys = [random.choice((b'a', b'b', b'c')) for _ in range(ln)]
 
             posts.append(p.posting(docid=i, length=ln, weight=w, positions=ps,
                                    chars=cs, payloads=pys))

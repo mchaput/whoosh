@@ -4,7 +4,6 @@ from datetime import datetime
 from whoosh import fields
 from whoosh import index
 from whoosh.codec.x1 import X1Codec
-from whoosh.compat import xrange
 from whoosh.filedb import compound
 from whoosh.util.testing import TempStorage
 
@@ -144,7 +143,7 @@ def test_compound_reads():
 
     s = Struct("<IiBfq")
     target = (2**32-1, 0-(2**30), 255, 1.5, 6000000000)
-    numbers = [2**i for i in xrange(0, 30)]
+    numbers = [2**i for i in range(0, 30)]
 
     with TempStorage() as st:
         with st.create_file("test") as f:

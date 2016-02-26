@@ -33,7 +33,6 @@ from bisect import bisect_left
 from heapq import heappush, heapreplace
 
 from whoosh import highlight
-from whoosh.compat import iteritems, xrange
 
 
 # Corrector objects
@@ -128,7 +127,7 @@ class ListCorrector(Corrector):
         from whoosh.automata.fsa import find_all_matches
 
         seen = set()
-        for i in xrange(1, maxdist + 1):
+        for i in range(1, maxdist + 1):
             dfa = levenshtein_automaton(text, maxdist, prefix).to_dfa()
             sk = self.Skipper(self.wordlist)
             for sug in find_all_matches(dfa, sk):
@@ -170,7 +169,7 @@ class MultiCorrector(Corrector):
                     seen[sug] = op(seen[sug], score)
                 else:
                     seen[sug] = score
-        return iteritems(seen)
+        return seen.items()
 
 
 # Query correction

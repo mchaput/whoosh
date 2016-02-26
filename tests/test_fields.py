@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 import pytest
 
 from whoosh import fields, query, qparser
-from whoosh.compat import xrange
 from whoosh.util import times
 from whoosh.util.testing import TempIndex
 
@@ -213,7 +212,7 @@ def test_numeric_ranges():
     schema = fields.Schema(Id=fields.Stored, num=fields.Numeric(signed=False))
     with TempIndex(schema) as ix:
         with ix.writer() as w:
-            for i in xrange(400):
+            for i in range(400):
                 w.add_document(Id=i, num=i)
 
         with ix.searcher() as s:
@@ -260,7 +259,7 @@ def test_decimal_ranges():
         with ix.writer() as w:
             count = Decimal("0.0")
             inc = Decimal("0.2")
-            for _ in xrange(500):
+            for _ in range(500):
                 w.add_document(Id=str(count), num=count)
                 count += inc
 
@@ -301,7 +300,7 @@ def test_nonText_document():
     with TempIndex(schema) as ix:
         dt = datetime.now()
         with ix.writer() as w:
-            for i in xrange(50):
+            for i in range(50):
                 w.add_document(Id=i, num=i, date=dt + timedelta(days=i),
                                even=not(i % 2))
 
@@ -321,7 +320,7 @@ def test_nonText_update():
     with TempIndex(schema) as ix:
         dt = datetime.now()
         with ix.writer() as w:
-            for i in xrange(10):
+            for i in range(10):
                 w.add_document(Id=i, num=i, date=dt + timedelta(days=i))
 
         with ix.writer() as w:
@@ -338,8 +337,8 @@ def test_datetime():
     schema = fields.Schema(Id=fields.Id(stored=True), date=dtf)
     with TempIndex(schema) as ix:
         with ix.writer() as w:
-            for month in xrange(1, 12):
-                for day in xrange(1, 28):
+            for month in range(1, 12):
+                for day in range(1, 28):
                     w.add_document(Id=u"%s-%s" % (month, day),
                                    date=datetime(2010, month, day, 14, 0, 0))
 
@@ -473,7 +472,7 @@ def test_boolean_find_deleted():
     with TempIndex(schema) as ix:
         count = 0
         # Create multiple segments just in case
-        for _ in xrange(5):
+        for _ in range(5):
             with ix.writer() as w:
                 w.merge = False
                 for c in domain:
@@ -486,7 +485,7 @@ def test_boolean_find_deleted():
         with ix.searcher() as s:
             # Double check that documents with b=True are all deleted
             reader = s.reader()
-            for docnum in xrange(s.doc_count_all()):
+            for docnum in range(s.doc_count_all()):
                 b = s.stored_fields(docnum)["b"]
                 assert b == reader.is_deleted(docnum)
 
@@ -560,7 +559,7 @@ def test_email_field():
     domains = ["yahoo.com", "hotmail.com", "gmail.com", "rogers.com",
                "example.com"]
     addresses = []
-    for i in xrange(5000):
+    for i in range(5000):
         addresses.append("%04d@%s" % (i, domains[i % len(domains)]))
 
     addrs = (analysis.RegexTokenizer(r'[-+\[\]A-Za-z0-9.@_"]+') |

@@ -116,7 +116,7 @@ def test_grouped_and_collapsed():
 #     schema = fields.Schema(text=fields.TEXT)
 #     with TempIndex(schema) as ix:
 #         w = ix.writer()
-#         for _ in xrange(50):
+#         for _ in range(50):
 #             w.add_document(text=u"alfa")
 #         w.commit()
 #

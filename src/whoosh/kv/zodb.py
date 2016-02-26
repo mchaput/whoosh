@@ -32,7 +32,6 @@ import BTrees
 import ZODB
 import transaction
 
-from whoosh.compat import next
 from whoosh.kv.db import Database, DBReader, DBWriter, Cursor
 from whoosh.kv.db import OverrunError, ReadOnlyError
 

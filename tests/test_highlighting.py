@@ -5,7 +5,6 @@ from __future__ import with_statement
 import pytest
 
 from whoosh import analysis, highlight, fields, qparser, query
-from whoosh.compat import u
 from whoosh.util.testing import TempIndex
 
 
@@ -179,8 +178,8 @@ def test_multifilter():
 
 
 def test_pinpoint():
-    domain = u("alfa bravo charlie delta echo foxtrot golf hotel india juliet "
-               "kilo lima mike november oskar papa quebec romeo sierra tango")
+    domain = (u"alfa bravo charlie delta echo foxtrot golf hotel india juliet "
+              u"kilo lima mike november oskar papa quebec romeo sierra tango")
     schema = fields.Schema(text=fields.TEXT(stored=True, chars=True))
     with TempIndex(schema) as ix:
         with ix.writer() as w:

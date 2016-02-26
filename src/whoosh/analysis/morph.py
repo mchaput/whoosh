@@ -28,7 +28,6 @@
 from typing import Callable, Iterable, Sequence, Set, Union
 
 from whoosh.ifaces import analysis
-from whoosh.compat import integer_types
 from whoosh.lang.dmetaphone import double_metaphone
 from whoosh.lang.porter import stem
 from whoosh.util.cache import lfu_cache, unbound_cache
@@ -135,7 +134,7 @@ class StemFilter(analysis.Filter):
         else:
             stemfn = self.stemfn
 
-        if isinstance(self.cachesize, integer_types) and self.cachesize != 0:
+        if isinstance(self.cachesize, int) and self.cachesize != 0:
             if self.cachesize < 0:
                 self._stem = unbound_cache(stemfn)
             elif self.cachesize > 1:

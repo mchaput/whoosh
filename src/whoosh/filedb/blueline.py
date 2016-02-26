@@ -34,7 +34,6 @@ from genericpath import commonprefix
 from struct import Struct
 from typing import Iterable, List, Optional, Sequence, Tuple, Union
 
-from whoosh.compat import izip, xrange
 from whoosh.filedb.datafile import Data, OutputFile
 from whoosh.metadata import MetaData
 from whoosh.system import IS_LITTLE
@@ -260,7 +259,7 @@ def write_region(output: OutputFile, items: List[Tuple[bytes, bytes]]
         poscode = "-"
     else:
         poses = array("i")
-        for klen, vlen in izip(klens, vlens):
+        for klen, vlen in zip(klens, vlens):
             poses.append(base)
             base += klen + vlen
         poscode = min_array_code(max(poses))
@@ -300,7 +299,7 @@ def write_region(output: OutputFile, items: List[Tuple[bytes, bytes]]
 
     # Join the key/value pairs and write them to disk in one go
     bio = bytearray()
-    for key, value in izip(keys, values):
+    for key, value in zip(keys, values):
         bio += key + value
     output.write(bio)
 
@@ -601,7 +600,7 @@ class Region(KeyValueReader):
         prefixbytes = self._prefix
 
         hi = hi if hi is not None else self._count
-        for i in xrange(lo, hi):
+        for i in range(lo, hi):
             pos = contentstart + _position_at(i)
             keybytes = bytes(data[pos:pos + _klen_at(i)])
 
@@ -623,7 +622,7 @@ class Region(KeyValueReader):
         prefixbytes = self._prefix
 
         hi = hi if hi is not None else self._count
-        for i in xrange(lo, hi):
+        for i in range(lo, hi):
             pos = contentstart + _position_at(i)
             klen =  _klen_at(i)
             keybytes = bytes(data[pos:pos + klen])
@@ -642,7 +641,7 @@ class Region(KeyValueReader):
         _klen_at = self._klen_at
         _vlen_at = self._vlen_at
 
-        for i in xrange(self._count):
+        for i in range(self._count):
             yield datastart + _position_at(i), _klen_at(i), _vlen_at(i)
 
     def key_index(self, key: bytes, lo: int=0) -> int:
@@ -826,7 +825,7 @@ class MultiRegion(KeyValueReader):
         else:
             right = self.ref_index(end) + 1
 
-        for i in xrange(left, right):
+        for i in range(left, right):
             region = self._region_for_ref(reflist[i])
 
             # Tricky: yield partials from the start and end regions, but use

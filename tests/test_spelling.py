@@ -1,14 +1,14 @@
 from __future__ import with_statement
 import gzip
+from itertools import permutations
 
 from whoosh import analysis, fields, highlight, query, spelling
-from whoosh.compat import b, u, permutations
 from whoosh.qparser import QueryParser
 from whoosh.support.levenshtein import levenshtein
 from whoosh.util.testing import TempIndex
 
 
-_wordlist = sorted(u("render animation animate shader shading zebra koala"
+_wordlist = sorted((u"render animation animate shader shading zebra koala"
                      "ready kismet reaction page delete quick fox jumped"
                      "over lazy dog wicked erase red team yellow under interest"
                      "open print acrid sear deaf feed grow heal jolly kilt"
@@ -284,8 +284,8 @@ def test_very_long_words():
     import sys
     length = int(sys.getrecursionlimit() * 1.5)
 
-    strings1 = [u(chr(i) * length) for i in range(65, 70)]
-    strings2 = [u(chr(i) * length) for i in range(71, 75)]
+    strings1 = [(chr(i) * length) for i in range(65, 70)]
+    strings2 = [(chr(i) * length) for i in range(71, 75)]
 
     ana = analysis.StemmingAnalyzer()
     schema = fields.Schema(text=fields.TEXT(analyzer=ana, ))

@@ -1,11 +1,11 @@
 from __future__ import with_statement
 import random
 from collections import deque
+from itertools import permutations
 
 import pytest
 
 from whoosh import fields, query
-from whoosh.compat import u, izip, xrange, permutations, text_type
 from whoosh.util.numeric import length_to_byte, byte_to_length
 from whoosh.util.testing import TempIndex
 
@@ -75,14 +75,14 @@ def _do_basic(*args, **kwargs):
             r = s.reader()
 
             # Check the lexicon
-            for word, term in izip(words, r.field_terms("text")):
+            for word, term in zip(words, r.field_terms("text")):
                 assert word == term
             # Check the doc count
             assert r.doc_count_all() == len(docs)
 
             # Check there are lengths
             total = sum(r.doc_field_length(docnum, "text", 0)
-                        for docnum in xrange(r.doc_count_all()))
+                        for docnum in range(r.doc_count_all()))
             assert total > 0
 
             # Check per-doc info
@@ -257,7 +257,7 @@ def test_basic_multi():
 #     schema = fields.Schema(a=fields.KEYWORD(stored=True))
 #     with TempIndex(schema) as ix:
 #         with ix.writer(procs=4, batchsize=10) as w:
-#             for i in xrange(10):
+#             for i in range(10):
 #                 w.add_document(a=u(str(i)))
 #
 #

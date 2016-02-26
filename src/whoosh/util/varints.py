@@ -28,7 +28,7 @@
 from array import array
 from typing import Sequence, Tuple
 
-from whoosh.compat import array_tobytes, xrange
+from whoosh.compat import array_tobytes
 
 
 def varint_size(value: int) -> int:
@@ -79,7 +79,7 @@ def _varint(i):
 
 def _build_varint_cache(size):
     cache = []
-    for i in xrange(0, size):
+    for i in range(0, size):
         cache.append(_varint(i))
     return tuple(cache)
 

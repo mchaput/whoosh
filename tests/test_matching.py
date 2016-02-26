@@ -1,11 +1,10 @@
 from __future__ import with_statement
+from itertools import permutations
 from random import randint, choice, sample
 
 from whoosh import fields, matching, qparser, query
-from whoosh.compat import xrange, permutations
 from whoosh.query import And, Term
 from whoosh.util import make_binary_tree
-from whoosh.ifaces.weights import WeightScorer
 from whoosh.util.testing import TempIndex
 
 
@@ -44,7 +43,7 @@ def test_listmatcher():
     assert ls == [9, 10]
 
     lm = matching.ListMatcher(ids)
-    for _ in xrange(3):
+    for _ in range(3):
         lm.next()
     lm = lm.copy()
     ls = []
@@ -292,13 +291,13 @@ def test_random_intersections():
         # Create docsperseg * segments documents containing random words from
         # the domain list. Add the documents to the index, but also keep them
         # in the "documents" list for the sanity check
-        for i in xrange(segments):
+        for i in range(segments):
             with ix.writer() as w:
-                for j in xrange(docsperseg):
+                for j in range(docsperseg):
                     docnum = i * docsperseg + j
                     # Create a string of random words
                     doc = u" ".join(choice(domain)
-                                    for _ in xrange(randint(*fieldlimits)))
+                                    for _ in range(randint(*fieldlimits)))
                     # Add the string to the index
                     w.add_document(key=docnum, value=doc)
                     # Add a (docnum, string) tuple to the documents list
@@ -309,10 +308,10 @@ def test_random_intersections():
         testlimits = (2, 5)
 
         with ix.searcher() as s:
-            for i in xrange(s.doc_count_all()):
+            for i in range(s.doc_count_all()):
                 assert s.stored_fields(i).get("key") is not None
 
-            for _ in xrange(testcount):
+            for _ in range(testcount):
                 # Create a random list of words and manually do an intersection
                 # of items in "documents" that contain the words ("target").
                 words = sample(domain, randint(*testlimits))
@@ -373,10 +372,10 @@ def test_random_union():
 
     vals = list(range(100))
 
-    for _ in xrange(testcount):
+    for _ in range(testcount):
         target = set()
         matchers = []
-        for _ in xrange(randint(*clauselimits)):
+        for _ in range(randint(*clauselimits)):
             nums = sample(vals, randint(*rangelimits))
             target = target.union(nums)
             matchers.append(matching.ListMatcher(sorted(nums)))
@@ -427,7 +426,7 @@ def test_random_andnot():
 
     rng = list(range(rangesize))
 
-    for _ in xrange(testcount):
+    for _ in range(testcount):
         negs = sorted(sample(rng, randint(0, rangesize - 1)))
         negset = frozenset(negs)
         matched = [n for n in rng if n not in negset]
@@ -470,7 +469,7 @@ def test_exclusion():
         with ix.writer() as w:
             # Make 39 documents with dates != dt1 and then make a last document
             # with feed == dt1.
-            for i in xrange(40):
+            for i in range(40):
                 w.add_document(id=str(i), date=(dt2 if i >= 1 else dt1))
 
         with ix.searcher() as s:

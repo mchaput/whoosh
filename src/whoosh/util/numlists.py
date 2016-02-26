@@ -1,9 +1,9 @@
 import struct
 from abc import abstractmethod
 from array import array
-from typing import Iterable, Sequence, Tuple
+from typing import Iterable, Sequence
 
-from whoosh.compat import array_tobytes, array_frombytes, xrange
+from whoosh.compat import array_tobytes, array_frombytes
 from whoosh.support import pfor
 from whoosh.system import IS_LITTLE
 from whoosh.util.varints import varint, decode_varint
@@ -35,7 +35,7 @@ def delta_decode(nums: Iterable[int], base: int=0) -> Iterable[int]:
 
 
 def delta_decode_inplace(nums: Sequence):
-    for i in xrange(1, len(nums)):
+    for i in range(1, len(nums)):
         nums[i] += nums[i - 1]
 
 
@@ -194,7 +194,7 @@ class Varints(NumberEncoding):
 
     def unpack(self, source: bytes, offset: int, count: int) -> Sequence[int]:
         nums = []
-        for _ in xrange(count):
+        for _ in range(count):
             n, offset = decode_varint(source, offset)
             nums.append(n)
         return nums
@@ -281,7 +281,7 @@ class GInts(NumberEncoding):
         numbers = []
         i = 0  # Grouping counter
         key = None
-        for _ in xrange(count):
+        for _ in range(count):
             # We're at the start of a grouping, get the key byte
             if i == 0:
                 key = source[offset]
@@ -314,7 +314,7 @@ class GInts(NumberEncoding):
         byte.
         """
 
-        return [(key >> (i * 2) & 3) + 1 for i in xrange(4)]
+        return [(key >> (i * 2) & 3) + 1 for i in range(4)]
 
 
 # class MmapArray(object):
@@ -343,7 +343,7 @@ class GInts(NumberEncoding):
 #         _mm = self._mm
 #         size = self._struct.size
 #         unpack = self._struct.unpack
-#         for i in xrange(self._length):
+#         for i in range(self._length):
 #             pos = self._offset + i * size
 #             yield unpack(_mm[pos:pos + size])[0]
 #
@@ -357,7 +357,7 @@ class GInts(NumberEncoding):
 #         if isinstance(n, slice):
 #             out = []
 #             start, stop, step = n.indices(self._length)
-#             for i in xrange(start, stop, step):
+#             for i in range(start, stop, step):
 #                 pos = _offset + i * _size
 #                 out.append(_unpack(_mm[pos:pos + _size])[0])
 #             return out

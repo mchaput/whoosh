@@ -1,7 +1,8 @@
 from __future__ import with_statement
+from itertools import permutations
 
 from whoosh import analysis, fields, qparser, query
-from whoosh.compat import xrange, permutations, text_type
+from whoosh.compat import text_type
 from whoosh.query import spans, And, Or, Term, Phrase
 from whoosh.util.testing import TempIndex
 
@@ -25,7 +26,7 @@ def test_multimatcher():
     domain = ("alfa", "bravo", "charlie", "delta")
     schema = fields.Schema(content=fields.TEXT(stored=True))
     with TempIndex(schema) as ix:
-        for _ in xrange(3):
+        for _ in range(3):
             with ix.writer() as w:
                 w.merge = False
                 for ls in permutations(domain):
@@ -47,7 +48,7 @@ def test_excludematcher():
     schema = fields.Schema(id=fields.Id, content=fields.TEXT(stored=True))
     with TempIndex(schema) as ix:
         count = 0
-        for _ in xrange(3):
+        for _ in range(3):
             with ix.writer() as w:
                 w.merge = False
                 for ls in permutations(domain):

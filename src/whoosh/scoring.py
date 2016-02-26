@@ -34,7 +34,7 @@ from math import log, pi
 from typing import Dict, Union
 
 from whoosh.ifaces import matchers, searchers, weights
-from whoosh.compat import iteritems, text_type
+from whoosh.compat import text_type
 
 
 # Type aliases
@@ -115,7 +115,7 @@ class BM25F(weights.WeightingModel):
         self.K1 = K1
 
         self._field_B = {}
-        for k, v in iteritems(kwargs):
+        for k, v in kwargs.items():
             if k.endswith("_B"):
                 fieldname = k[:-2]
                 self._field_B[fieldname] = v

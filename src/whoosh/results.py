@@ -2,7 +2,7 @@ from math import ceil
 from typing import Any, Dict, Iterable, List, Sequence, Set, Tuple
 
 from whoosh import collectors, highlight
-from whoosh.compat import iteritems, iterkeys, itervalues, text_type, xrange
+from whoosh.compat import text_type
 from whoosh.ifaces import queries, searchers
 
 
@@ -55,7 +55,7 @@ class Results(object):
     def __getitem__(self, n) -> 'Hit':
         if isinstance(n, slice):
             start, stop, step = n.indices(len(self.top_n))
-            return [self.hit(i) for i in xrange(start, stop, step)]
+            return [self.hit(i) for i in range(start, stop, step)]
         else:
             if n >= len(self.top_n):
                 raise IndexError("results[%r]: Results only has %s hits"
@@ -67,7 +67,7 @@ class Results(object):
         Yields a :class:`Hit` object for each result in ranked order.
         """
 
-        for i in xrange(len(self.top_n)):
+        for i in range(len(self.top_n)):
             yield self.hit(i)
 
     def __contains__(self, docnum):
@@ -458,7 +458,7 @@ class Hit(object):
         return len(self.fields())
 
     def __iter__(self):
-        return iterkeys(self.fields())
+        return self.fields().keys()
 
     def __getitem__(self, fieldname):
         if fieldname in self.fields():
@@ -602,22 +602,13 @@ class Hit(object):
         return [word for word, score in more.get_terms(top)]
 
     def items(self):
-        return list(self.fields().items())
+        return self.fields().items()
 
     def keys(self):
-        return list(self.fields().keys())
+        return self.fields().keys()
 
     def values(self):
-        return list(self.fields().values())
-
-    def iteritems(self):
-        return iteritems(self.fields())
-
-    def iterkeys(self):
-        return iterkeys(self.fields())
-
-    def itervalues(self):
-        return itervalues(self.fields())
+        return self.fields().values()
 
     def get(self, key, default=None):
         return self.fields().get(key, default)

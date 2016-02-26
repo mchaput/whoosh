@@ -42,7 +42,6 @@ from typing import Dict, Sequence, Tuple
 from whoosh import __version__
 from whoosh import fields, writing
 from whoosh.ifaces import codecs, readers, storage, searchers
-from whoosh.compat import xrange
 from whoosh.filedb import filestore
 from whoosh.metadata import MetaData
 from whoosh.util.times import datetime_to_long, long_to_datetime
@@ -188,7 +187,7 @@ class Toc(object):
         # Read the segments
         segments = []
         pos = schema_end
-        for _ in xrange(head.segment_count):
+        for _ in range(head.segment_count):
             namestart = pos + segment_entry.size
             namelen, seglen = segment_entry.unpack(bs[pos:namestart])
             name = bytes(bs[namestart:namestart + namelen]).decode("utf8")

@@ -33,8 +33,6 @@ from operator import itemgetter
 from threading import Lock
 from time import time
 
-from whoosh.compat import iteritems, xrange
-
 
 try:
     from collections import Counter
@@ -90,7 +88,7 @@ def lru_cache(maxsize=100):
                 stats[1] += 1  # Miss
                 if len(data) == maxsize:
                     for k, _ in nsmallest(maxsize // 10 or 1,
-                                          iteritems(lastused),
+                                          lastused.items(),
                                           key=itemgetter(1)):
                         del data[k]
                         del lastused[k]
@@ -142,7 +140,7 @@ def lfu_cache(maxsize=100):
                 stats[1] += 1  # Miss
                 if len(data) == maxsize:
                     for k, _ in nsmallest(maxsize // 10 or 1,
-                                          iteritems(usecount),
+                                          usecount.items(),
                                           key=itemgetter(1)):
                         del data[k]
                         del usecount[k]
@@ -192,7 +190,7 @@ def random_cache(maxsize=100):
                 stats[1] += 1  # Miss
                 if len(data) == maxsize:
                     keys = data.keys()
-                    for i in xrange(maxsize // 10 or 1):
+                    for i in range(maxsize // 10 or 1):
                         n = random.randint(0, len(keys) - 1)
                         k = keys.pop(n)
                         del data[k]
@@ -295,7 +293,7 @@ def clockface_lru_cache(maxsize=100):
             # The keys at each point on the clock face
             clock_keys = [None] * maxsize
             # The "referenced" bits at each point on the clock face
-            clock_refs = array("B", (0 for _ in xrange(maxsize)))
+            clock_refs = array("B", (0 for _ in range(maxsize)))
             lock = Lock()
 
             @functools.wraps(user_function)
@@ -364,7 +362,7 @@ def clockface_lru_cache(maxsize=100):
             """Clear the cache and cache statistics"""
             data.clear()
             stats[0] = stats[1] = stats[2] = 0
-            for i in xrange(maxsize):
+            for i in range(maxsize):
                 clock_keys[i] = None
                 clock_refs[i] = 0
 

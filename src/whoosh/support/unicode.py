@@ -1,7 +1,7 @@
 import re
 from bisect import bisect_right
 
-from whoosh.compat import text_type, u
+from whoosh.compat import text_type
 
 
 # http://unicode.org/Public/UNIDATA/Blocks.txt
@@ -274,7 +274,7 @@ def blocknum(ch):
     return i
 
 
-digits = u('0123456789\xb2\xb3\xb9\u0660\u0661\u0662\u0663\u0664\u0665\u0666'
+digits = (u'0123456789\xb2\xb3\xb9\u0660\u0661\u0662\u0663\u0664\u0665\u0666'
            '\u0667\u0668\u0669\u06f0\u06f1\u06f2\u06f3\u06f4\u06f5\u06f6\u06f7'
            '\u06f8\u06f9\u07c0\u07c1\u07c2\u07c3\u07c4\u07c5\u07c6\u07c7\u07c8'
            '\u07c9\u0966\u0967\u0968\u0969\u096a\u096b\u096c\u096d\u096e\u096f'
@@ -314,7 +314,7 @@ digits = u('0123456789\xb2\xb3\xb9\u0660\u0661\u0662\u0663\u0664\u0665\u0666'
            '\uaa51\uaa52\uaa53\uaa54\uaa55\uaa56\uaa57\uaa58\uaa59\uabf0\uabf1'
            '\uabf2\uabf3\uabf4\uabf5\uabf6\uabf7\uabf8\uabf9\uff10\uff11\uff12'
            '\uff13\uff14\uff15\uff16\uff17\uff18\uff19')
-lowercase = u('abcdefghijklmnopqrstuvwxyz\xaa\xb5\xba\xdf\xe0\xe1\xe2\xe3\xe4'
+lowercase = (u'abcdefghijklmnopqrstuvwxyz\xaa\xb5\xba\xdf\xe0\xe1\xe2\xe3\xe4'
               '\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef\xf0\xf1\xf2\xf3'
               '\xf4\xf5\xf6\xf8\xf9\xfa\xfb\xfc\xfd\xfe\xff\u0101\u0103\u0105'
               '\u0107\u0109\u010b\u010d\u010f\u0111\u0113\u0115\u0117\u0119'
@@ -433,7 +433,7 @@ lowercase = u('abcdefghijklmnopqrstuvwxyz\xaa\xb5\xba\xdf\xe0\xe1\xe2\xe3\xe4'
               '\uff44\uff45\uff46\uff47\uff48\uff49\uff4a\uff4b\uff4c\uff4d'
               '\uff4e\uff4f\uff50\uff51\uff52\uff53\uff54\uff55\uff56\uff57'
               '\uff58\uff59\uff5a')
-uppercase = u('ABCDEFGHIJKLMNOPQRSTUVWXYZ\xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8'
+uppercase = (u'ABCDEFGHIJKLMNOPQRSTUVWXYZ\xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8'
               '\xc9\xca\xcb\xcc\xcd\xce\xcf\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd8'
               '\xd9\xda\xdb\xdc\xdd\xde\u0100\u0102\u0104\u0106\u0108\u010a'
               '\u010c\u010e\u0110\u0112\u0114\u0116\u0118\u011a\u011c\u011e'

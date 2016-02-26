@@ -32,8 +32,6 @@ parser modules.
 
 import sys
 
-from whoosh.compat import string_type
-
 
 class QueryParserError(Exception):
     def __init__(self, cause, msg=None):

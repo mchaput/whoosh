@@ -52,6 +52,7 @@ import warnings
 from abc import abstractmethod
 from array import array
 from bisect import bisect_right
+from pickle import dumps, loads
 from typing import (Any, Callable, Iterable, List, Optional, Sequence, Tuple,
                     Union, cast)
 
@@ -61,13 +62,8 @@ except ImportError:
     zlib = None
 
 from whoosh import idsets
-from whoosh.compat import array_tobytes, xrange, zip_
-from whoosh.compat import dumps, loads
 from whoosh.filedb.datafile import Data, FileArray, OutputFile
-from whoosh.system import IS_LITTLE
-from whoosh.util import cache
-from whoosh.util.numlists import (GrowableArray, min_array_code,
-                                  min_signed_code, delta_encode, delta_decode)
+from whoosh.util.numlists import GrowableArray, min_array_code, min_signed_code
 
 
 # Base classes
@@ -112,7 +108,7 @@ class ColumnReader(object):
         return self[docnum]
 
     def __iter__(self) -> Iterable[Any]:
-        for i in xrange(self._doccount):
+        for i in range(self._doccount):
             yield self[i]
 
     def close(self):
@@ -228,8 +224,8 @@ class VarBytesWriter(ColumnWriter):
     def _fill(self, docnum: int):
         base = self._base
         if docnum > self._count:
-            self._lengths.extend(0 for _ in xrange(docnum - self._count))
-            self._offsets.extend(base for _ in xrange(docnum - self._count))
+            self._lengths.extend(0 for _ in range(docnum - self._count))
+            self._offsets.extend(base for _ in range(docnum - self._count))
 
     def add(self, docnum: int, v: bytes):
         self._fill(docnum)
@@ -405,7 +401,7 @@ class FixedBytesReader(ColumnReader):
     def __iter__(self) -> Iterable[bytes]:
         count = self._count
         default = self._default
-        for i in xrange(self._doccount):
+        for i in range(self._doccount):
             if i < count:
                 yield self[i]
             else:
@@ -489,10 +485,10 @@ class RefBytesWriter(ColumnWriter):
     def _fill(self, docnum: int):
         if docnum > self._count:
             if self._buffering:
-                self._refs.extend(0 for _ in xrange(docnum - self._count))
+                self._refs.extend(0 for _ in range(docnum - self._count))
             else:
                 output = self._output
-                for _ in xrange(docnum - self._count):
+                for _ in range(docnum - self._count):
                     output.write_ushort_le(0)
 
     def add(self, docnum: int, v: bytes):
@@ -581,7 +577,7 @@ class RefBytesReader(ColumnReader):
         # Read the actual unique values
         uniques = []
         pos = refs_end + 2
-        for _ in xrange(count):
+        for _ in range(count):
             if fixedlen:
                 uniques.append(data[pos:pos + fixedlen])
                 pos += fixedlen
@@ -764,7 +760,7 @@ class CompactIntWriter(ColumnWriter):
     def _fill(self, docnum):
         last = self._blockcount * self._blocksize + len(self._values)
         if docnum > last:
-            for _ in xrange(docnum - last):
+            for _ in range(docnum - last):
                 self._add(self._default)
 
     def _flush_block(self):
@@ -850,7 +846,7 @@ class CompactIntReader(ColumnReader):
         lastblock = -1
         vals = None
 
-        for i in xrange(self._doccount):
+        for i in range(self._doccount):
             block = i // blocksize
             if block >= len(cache) or codes[block] == "-":
                 yield default
@@ -1071,20 +1067,20 @@ class SparseIntReader(ColumnReader):
     def _items(self) -> Iterable[Tuple[int, int]]:
         for offset, mindoc, maxdoc, length, dtype, vtype in self._refs:
             deltas, values = self._load(offset, length, dtype, vtype, False)
-            for delta, v in zip_(deltas, values):
+            for delta, v in zip(deltas, values):
                 yield mindoc + delta, v
 
     def __iter__(self) -> Iterable[bool]:
         i = 0
         for docnum, value in self._items():
             if docnum > i:
-                for _ in xrange(docnum - i):
+                for _ in range(docnum - i):
                     yield self._default
             yield value
             i = docnum + 1
 
         if self._doccount > i:
-            for _ in xrange(self._doccount - i):
+            for _ in range(self._doccount - i):
                 yield self._default
 
     def sort_key(self, docnum: int) -> float:
@@ -1152,12 +1148,12 @@ class BitReader(ColumnReader):
         i = 0
         for num in self._bitset:
             if num > i:
-                for _ in xrange(num - i):
+                for _ in range(num - i):
                     yield False
             yield True
             i = num + 1
         if self._doccount > i:
-            for _ in xrange(self._doccount - i):
+            for _ in range(self._doccount - i):
                 yield False
 
     def id_set(self) -> 'idsets.DocIdSet':
@@ -1236,7 +1232,7 @@ class RoaringBitReader(BitReader):
         end = basepos + length
         offset = basepos
         sets = []
-        for i in xrange(blockcount):
+        for i in range(blockcount):
             assert offset < end
             blocklen = data.get_ushort_le(offset)
             bstart = offset + 2
@@ -1362,7 +1358,7 @@ class EmptyColumnReader(ColumnReader):
         return self._default
 
     def __iter__(self):
-        return (self._default for _ in xrange(self._doccount))
+        return (self._default for _ in range(self._doccount))
 
 
 class MultiColumnReader(ColumnReader):

@@ -1,7 +1,5 @@
 from .bases import _StandardStemmer
 
-from whoosh.compat import u
-
 
 class EnglishStemmer(_StandardStemmer):
     """

@@ -2,7 +2,6 @@ from __future__ import with_statement
 import random, threading, time
 
 from whoosh import fields, reading
-from whoosh.compat import xrange
 from whoosh.util.testing import TempIndex
 
 
@@ -255,7 +254,7 @@ class RecoverReader(threading.Thread):
         self.ix = ix
 
     def run(self):
-        for _ in xrange(50):
+        for _ in range(50):
             r = self.ix.reader()
             r.close()
 
@@ -269,7 +268,7 @@ class RecoverWriter(threading.Thread):
         self.ix = ix
 
     def run(self):
-        for _ in xrange(10):
+        for _ in range(10):
             w = self.ix.writer()
             w.add_document(text=random.sample(self.domain, 4))
             w.commit()
@@ -296,12 +295,12 @@ def test_nonexclusive_read():
             w.commit(merge=False)
 
         def fn():
-            for _ in xrange(5):
+            for _ in range(5):
                 r = ix.reader()
                 assert list(r.field_terms("text")) == ["document", "five", "four", "one", "test", "three", "two"]
                 r.close()
 
-        ths = [threading.Thread(target=fn) for _ in xrange(5)]
+        ths = [threading.Thread(target=fn) for _ in range(5)]
         for th in ths:
             th.start()
         for th in ths:
@@ -312,7 +311,7 @@ def test_doc_count():
     schema = fields.Schema(id=fields.NUMERIC)
     with TempIndex(schema) as ix:
         with ix.writer() as w:
-            for i in xrange(10):
+            for i in range(10):
                 w.add_document(id=i)
 
         with ix.reader() as r:
@@ -331,7 +330,7 @@ def test_doc_count():
 
         with ix.writer() as w:
             w.merge = False
-            for i in xrange(10, 15):
+            for i in range(10, 15):
                 w.add_document(id=i)
 
         with ix.reader() as r:

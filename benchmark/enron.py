@@ -4,13 +4,12 @@ import os.path
 import shutil
 import tarfile
 from datetime import datetime
-from email import message_from_bytes, message_from_string
+from email import message_from_string
 from email.utils import parsedate_tz, mktime_tz
 from gzip import GzipFile
+from pickle import load, dump
 
 from whoosh import analysis, fields, index
-from whoosh.compat import load, dump
-from whoosh.util import now
 
 
 ENRON_URL = "http://www.cs.cmu.edu/~enron/enron_mail_082109.tar.gz"

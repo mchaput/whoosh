@@ -28,7 +28,7 @@
 from abc import abstractmethod
 from typing import Iterable, List, Sequence
 
-from whoosh.compat import iteritems, text_type
+from whoosh.compat import text_type
 
 
 # Exceptions
@@ -152,7 +152,7 @@ class Token(object):
 
     def __repr__(self):
         parms = ", ".join("%s=%r" % (name, value)
-                          for name, value in iteritems(self.__dict__))
+                          for name, value in self.__dict__.items())
         return "%s(%s)" % (self.__class__.__name__, parms)
 
     def copy(self) -> 'Token':

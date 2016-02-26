@@ -1,5 +1,6 @@
 import copy
 import fnmatch
+import pickle
 import re
 import sys
 from abc import abstractmethod
@@ -12,7 +13,7 @@ from typing import cast
 from whoosh import columns, postings
 from whoosh.ifaces import analysis, readers
 from whoosh.analysis import analyzers, ngrams, tokenizers
-from whoosh.compat import itervalues, pickle, string_type, text_type, xrange
+from whoosh.compat import string_type, text_type
 from whoosh.ifaces import queries
 from whoosh.system import pack_byte
 from whoosh.util import times
@@ -525,7 +526,7 @@ class Numeric(TokenizedField):
         length = len(numbers)
         for num in numbers:
             if self.shift_step:
-                for shift in xrange(0, self.bits, self.shift_step):
+                for shift in range(0, self.bits, self.shift_step):
                     posts.append(postings.posting(
                         docid=docid, termbytes=to_bytes(num, shift),
                         length=length, weight=weight,
@@ -800,7 +801,7 @@ class Schema(object):
             return self._fields[name]
 
         # Check if the name matches a dynamic field
-        for expr, fieldtype in itervalues(self._dyn_fields):
+        for expr, fieldtype in self._dyn_fields.values():
             if expr.match(name):
                 return fieldtype
 
@@ -935,7 +936,7 @@ class Schema(object):
                 if field.supports("weights")]
 
     def clean(self):
-        for field in itervalues(self._fields):
+        for field in self._fields.values():
             field.clean()
 
 

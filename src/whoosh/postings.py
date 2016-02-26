@@ -2,16 +2,15 @@ import logging
 import struct
 from abc import abstractmethod
 from bisect import bisect_left
-from collections import defaultdict, namedtuple
+from collections import defaultdict
 from operator import itemgetter
-from typing import (Any, Callable, Iterable, List, Optional,
-                    Sequence, Tuple, Union, cast)
+from typing import (Any, Callable, Iterable, List, Optional, Sequence, Tuple,
+                    Union, cast)
 
 from array import array
 
 from whoosh.ifaces import analysis
-from whoosh.compat import array_tobytes, array_frombytes, izip
-from whoosh.compat import text_type, xrange, zip_
+from whoosh.compat import array_tobytes, array_frombytes, text_type
 from whoosh.system import IS_LITTLE
 from whoosh.util.numlists import min_array_code, delta_encode, delta_decode
 from whoosh.util.varints import varint, decode_varint
@@ -159,7 +158,7 @@ class PostingReader(object):
 
     def total_weight(self) -> float:
         # Sublclasses should replace this with something more efficient
-        return sum(self.weight(i) for i in xrange(len(self)))
+        return sum(self.weight(i) for i in range(len(self)))
 
     @abstractmethod
     def raw_bytes(self) -> bytes:
@@ -208,7 +207,7 @@ class DocListReader(PostingReader):
         raise NotImplementedError
 
     def id_slice(self, start: int, end: int) -> Sequence[int]:
-        return [self.id(i) for i in xrange(start, end)]
+        return [self.id(i) for i in range(start, end)]
 
     def min_id(self):
         return self.id(0)
@@ -217,7 +216,7 @@ class DocListReader(PostingReader):
         return self.id(len(self) - 1)
 
     def all_ids(self) -> Iterable[int]:
-        for i in xrange(len(self)):
+        for i in range(len(self)):
             yield self.id(i)
 
     def posting_at(self, i, termbytes: bytes=None) -> PostTuple:
@@ -251,11 +250,11 @@ class DocListReader(PostingReader):
         :return:
         """
 
-        for i in xrange(len(self)):
+        for i in range(len(self)):
             yield self.posting_at(i, termbytes)
 
     def raw_postings(self) -> Iterable[RawPost]:
-        for i in xrange(len(self)):
+        for i in range(len(self)):
             yield self.raw_posting_at(i)
 
 
@@ -272,19 +271,19 @@ class VectorReader(PostingReader):
 
     def seek(self, tbytes: bytes) -> int:
         termbytes = self.termbytes
-        for i in xrange(len(self)):
+        for i in range(len(self)):
             this = termbytes(i)
             if this >= tbytes:
                 return i
         return len(self)
 
     def all_terms(self) -> Iterable[bytes]:
-        for i in xrange(len(self)):
+        for i in range(len(self)):
             yield self.termbytes(i)
 
     def term_index(self, tbytes: bytes) -> int:
         termbytes = self.termbytes
-        for i in xrange(len(self)):
+        for i in range(len(self)):
             this = termbytes(i)
             if this == tbytes:
                 return i
@@ -309,13 +308,13 @@ class VectorReader(PostingReader):
             raise ValueError("Vector does not support %r" % feature)
 
         feature_method = getattr(self, feature)
-        for i in xrange(len(self)):
+        for i in range(len(self)):
             yield termbytes(i), feature_method(i)
 
     def terms_and_weights(self) -> Iterable[Tuple[bytes, float]]:
         termbytes = self.termbytes
         weight = self.weight
-        for i in xrange(len(self)):
+        for i in range(len(self)):
             yield termbytes(i), weight(i)
 
     def posting_at(self, i, docid: int=None) -> PostTuple:
@@ -343,7 +342,7 @@ class VectorReader(PostingReader):
         has_chars = self.has_chars
         has_payloads = self.has_payloads
 
-        for i in xrange(len(self)):
+        for i in range(len(self)):
             yield posting(
                 docid, termbytes=self.termbytes(i),
                 length=self.length(i) if has_lengths else None,
@@ -824,7 +823,7 @@ class BasicIO(PostingsIO):
             return "1", b""
 
         intweights = [int(w) for w in weights]
-        if all(w == wi for w, wi in zip_(weights, intweights)):
+        if all(w == wi for w, wi in zip(weights, intweights)):
             arr = min_array(intweights)
         else:
             arr = array("f", weights)
@@ -839,7 +838,7 @@ class BasicIO(PostingsIO):
         if typecode == "0":
             raise Exception("Weights were not encoded")
         elif typecode == "1":
-            return array("f", (1.0 for _ in xrange(count)))
+            return array("f", (1.0 for _ in range(count)))
 
         weights = array(typecode)
         array_frombytes(weights, src[offset: offset + weights.itemsize * count])
@@ -906,7 +905,7 @@ class BasicIO(PostingsIO):
         # the numbers
         base = 0
         cs = []
-        for i in xrange(0, len(indices), 2):
+        for i in range(0, len(indices), 2):
             start = base + indices[i]
             end = start + indices[i + 1]
             cs.append((start, end))
@@ -970,7 +969,7 @@ class BasicIO(PostingsIO):
 
         # Translate the local offsets to global offsets
         offsets = [lens_end + off for off in off_array]
-        return list(izip(offsets, len_array))
+        return list(zip(offsets, len_array))
 
     @staticmethod
     def decode_chunk_list(src: bytes, offset: int, size: int

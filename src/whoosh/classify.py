@@ -35,7 +35,7 @@ from math import log
 from typing import Sequence, Set, Tuple, Union
 
 from whoosh import idsets, postings, results
-from whoosh.compat import iteritems, text_type, xrange
+from whoosh.compat import text_type
 from whoosh.ifaces import queries, searchers
 
 
@@ -189,7 +189,7 @@ class MoreLike(object):
         total = self.total
         maxscore = 0
         scored = []
-        for word, weight in iteritems(self.words):
+        for word, weight in self.words.items():
             cf = reader.weight(fieldname, word)
             if cf:
                 score = model.score(weight, cf, total)
@@ -227,9 +227,9 @@ class MoreLike(object):
 def shingles(input, size=2):
     d = defaultdict(int)
     for shingle in (input[i:i + size]
-                    for i in xrange(len(input) - (size - 1))):
+                    for i in range(len(input) - (size - 1))):
         d[shingle] += 1
-    return iteritems(d)
+    return d.items()
 
 
 def simhash(features, hashbits=32):
@@ -241,7 +241,7 @@ def simhash(features, hashbits=32):
     vs = [0] * hashbits
     for feature, weight in features:
         h = hashfn(feature)
-        for i in xrange(hashbits):
+        for i in range(hashbits):
             if h & (1 << i):
                 vs[i] += weight
             else:
@@ -324,14 +324,14 @@ def kmeans(data, k, t=0.0001, distfun=None, maxiter=50, centers=None):
         error = 0
 
         # clear old counts and temp centroids
-        for i in xrange(k):
+        for i in range(k):
             counts[i] = 0
             c1[i] = 0
 
-        for h in xrange(n):
+        for h in range(n):
             # identify the closest cluster
             min_distance = DOUBLE_MAX
-            for i in xrange(k):
+            for i in range(k):
                 distance = (data[h] - c[i]) ** 2
                 if distance < min_distance:
                     labels[h] = i
@@ -343,7 +343,7 @@ def kmeans(data, k, t=0.0001, distfun=None, maxiter=50, centers=None):
             # update standard error
             error += min_distance
 
-        for i in xrange(k):  # update all centroids
+        for i in range(k):  # update all centroids
             c[i] = c1[i] / counts[i] if counts[i] else c1[i]
 
         niter += 1

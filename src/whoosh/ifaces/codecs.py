@@ -30,6 +30,7 @@ This module contains base classes/interfaces for "codec" objects.
 """
 
 import re
+import pickle
 from abc import abstractmethod, abstractclassmethod
 from bisect import bisect_right
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
@@ -37,9 +38,8 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 from whoosh import columns, fields, postings
 from whoosh.automata import lev
 from whoosh.automata.fsa import DFA
+from whoosh.compat import text_type
 from whoosh.ifaces import readers, storage
-from whoosh.compat import izip, unichr, xrange
-from whoosh.compat import pickle, text_type
 from whoosh.system import IS_LITTLE
 from whoosh.util import random_name
 from whoosh.util.loading import find_object
@@ -711,7 +711,7 @@ class PerDocumentReader(object):
         """
 
         is_deleted = self.is_deleted
-        return (docnum for docnum in xrange(self.doc_count_all())
+        return (docnum for docnum in range(self.doc_count_all())
                 if not is_deleted(docnum))
 
     def iter_docs(self) -> Iterable[Tuple[int, Dict]]:

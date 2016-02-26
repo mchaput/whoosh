@@ -28,7 +28,6 @@
 from typing import Callable, Iterable, Sequence
 
 from whoosh import collectors
-from whoosh.compat import xrange
 from whoosh.ifaces import matchers, queries, searchers
 from whoosh.matching import wrappers as mwrappers
 from whoosh.query import wrappers as qwrappers
@@ -153,7 +152,7 @@ class NestedParent(NestedBase):
                 docnum = m.id()
                 parentdoc = bits.before(docnum + 1)
                 nextparent = bits.after(docnum) or maxdoc
-                for i in xrange(parentdoc, nextparent):
+                for i in range(parentdoc, nextparent):
                     yield i
                 m.skip_to(nextparent)
         else:

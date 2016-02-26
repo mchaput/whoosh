@@ -45,7 +45,6 @@ import time
 from google.appengine.api import memcache
 from google.appengine.ext import db
 
-from whoosh.compat import next
 from whoosh.kv.db import Database, DBReader, DBWriter, Cursor
 from whoosh.kv.db import OverrunError, LockError
 

@@ -36,7 +36,7 @@ from typing import (
 
 from whoosh import columns, fields, idsets, postings, spelling
 from whoosh.ifaces import codecs, matchers, weights
-from whoosh.compat import xrange, text_type
+from whoosh.compat import text_type
 from whoosh.support.levenshtein import distance
 from whoosh.util import unclosed
 
@@ -381,7 +381,7 @@ class IndexReader(object):
         """
 
         is_deleted = self.is_deleted
-        return (docnum for docnum in xrange(self.doc_count_all())
+        return (docnum for docnum in range(self.doc_count_all())
                 if not is_deleted(docnum))
 
     def iter_docs(self) -> Tuple[int, Dict]:
