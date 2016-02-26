@@ -549,7 +549,7 @@ def test_no_morph():
 
 
 def test_porter():
-    from whoosh.lang.porter_x import stem
+    from whoosh.lang.porter import stem
 
     stems = (
         "caresses", "caress",
