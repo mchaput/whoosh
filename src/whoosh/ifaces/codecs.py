@@ -29,6 +29,7 @@
 This module contains base classes/interfaces for "codec" objects.
 """
 
+import re
 from abc import abstractmethod, abstractclassmethod
 from bisect import bisect_right
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
@@ -41,6 +42,7 @@ from whoosh.compat import izip, unichr, xrange
 from whoosh.compat import pickle, text_type
 from whoosh.system import IS_LITTLE
 from whoosh.util import random_name
+from whoosh.util.loading import find_object
 
 
 # Exceptions
@@ -68,8 +70,14 @@ TermTuple = Tuple[str, bytes]
 
 
 # Registry
-
 codec_registry = {}
+
+
+def register(name: str):
+    def _fn(cls):
+        register_codec(name, cls)
+        return cls
+    return _fn
 
 
 def register_codec(name: str, cls: type):
@@ -80,8 +88,13 @@ def codec_by_name(name: str) -> 'Codec':
     try:
         return codec_registry[name]
     except KeyError:
-        raise UnknownCodecError(name)
+        pass
 
+    return find_object(name)
+    # raise UnknownCodecError(name)
+
+
+# Filename
 
 # Base classes
 
@@ -223,12 +236,24 @@ class Segment(object):
 
 
 class FileSegment(Segment):
+    regex = re.compile(r"""
+        ^(?P<codec>[A-Za-z0-9]+)
+        _
+        (?P<segid>[^_]+_[a-z0-9]+)
+        _
+        (?P<name>[^.]*)
+        [.]
+        (?P<ext>[A-Za-z0-9_]+)$
+    """, re.VERBOSE | re.UNICODE)
+
     def filename_prefix(self):
         short_name = self.codec().short_name()
         return "%s_%s_" % (short_name, self.segment_id())
 
     def make_filename(self, name: str, ext: str) -> str:
-        return "%s%s%s" % (self.filename_prefix(), name, ext)
+        name = "%s%s%s" % (self.filename_prefix(), name, ext)
+        assert self.regex.match(name)
+        return name
 
     def file_names(self, store) -> Iterable[str]:
         prefix = self.filename_prefix()

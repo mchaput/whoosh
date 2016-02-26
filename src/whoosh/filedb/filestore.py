@@ -201,7 +201,10 @@ class BaseFileStorage(storage.Storage):
                 if data.get_uint_le(end) != check:
                     raise index.WhooshIndexError("TOC checksum error")
 
-                return index.Toc.from_bytes(tocbytes)
+                toc = index.Toc.from_bytes(tocbytes)
+                assert toc.generation == generation
+                toc.filename = filename
+                return toc
         except FileNotFoundError:
             raise storage.TocNotFound("Index %s generation %s not found" %
                                       (indexname, generation))

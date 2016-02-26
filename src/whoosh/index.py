@@ -129,6 +129,7 @@ class Toc(object):
         self.toc_version = toc_version
         self.release = release
         self.created = created or datetime.utcnow()
+        self.filename = None
 
     @staticmethod
     def make_filename(indexname: str, generation: int, ext="toc") -> str:
@@ -187,7 +188,7 @@ class Toc(object):
         # Read the segments
         segments = []
         pos = schema_end
-        for i in xrange(head.segment_count):
+        for _ in xrange(head.segment_count):
             namestart = pos + segment_entry.size
             namelen, seglen = segment_entry.unpack(bs[pos:namestart])
             name = bytes(bs[namestart:namestart + namelen]).decode("utf8")
@@ -213,6 +214,13 @@ class Index(object):
     def __init__(self, store: 'storage.Storage', indexname: str, toc: Toc=None):
         self.store = store
         self.indexname = indexname
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if not exc_type:
+            self.close()
 
     @property
     def toc(self):
