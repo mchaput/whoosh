@@ -162,7 +162,8 @@ def test_termindex():
         tw.start_field(fname, fields.Text())
         for tbytes in tstring.split():
             tw.start_term(tbytes)
-            tw.add_elements(docid=0, weight=float(len(tbytes)), positions=[0])
+            tw.add_elements(docid=0, length=4, weight=float(len(tbytes)),
+                            positions=[0])
             tw.finish_term()
         tw.finish_field()
     tw.close()

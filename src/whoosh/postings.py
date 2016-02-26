@@ -1,9 +1,9 @@
 import logging
+import struct
 from abc import abstractmethod
 from bisect import bisect_left
 from collections import defaultdict, namedtuple
 from operator import itemgetter
-from struct import Struct, calcsize, pack
 from typing import (Any, Callable, Iterable, List, Optional,
                     Sequence, Tuple, Union, cast)
 
@@ -13,8 +13,8 @@ from whoosh.ifaces import analysis
 from whoosh.compat import array_tobytes, array_frombytes, izip
 from whoosh.compat import text_type, xrange, zip_
 from whoosh.system import IS_LITTLE
-from whoosh.util.numlists import (min_array_code, delta_encode, delta_decode,
-                                  delta_decode_inplace)
+from whoosh.util.numlists import min_array_code, delta_encode, delta_decode
+from whoosh.util.varints import varint, decode_varint
 
 
 logger = logging.getLogger(__name__)
@@ -93,11 +93,22 @@ post_weight = itemgetter(WEIGHT)
 post_length = itemgetter(LENGTH)
 
 
-def change_docid(post, newdoc):
-    return posting(docid=newdoc, termbytes=post[TERMBYTES],
-                   length=post[LENGTH], weight=post[WEIGHT],
-                   positions=post[POSITIONS], chars=post[CHARS],
-                   payloads=post[PAYLOADS])
+def update_post(post, docid: int=None, termbytes: bytes=None, length: int=None,
+                weight: float=None, positions: PosList=None,
+                chars: CharList=None, payloads: PayList=None) -> PostTuple:
+    """
+    Returns a new tuple with the given keywords replaced.
+    """
+
+    return (
+        docid if docid is not None else post[DOCID],
+        termbytes if termbytes is not None else post[TERMBYTES],
+        length if length is not None else post[LENGTH],
+        weight if weight is not None else post[WEIGHT],
+        positions if positions is not None else post[POSITIONS],
+        chars if chars is not None else post[CHARS],
+        payloads if payloads is not None else post[PAYLOADS]
+    )
 
 
 # Helper functions
@@ -117,7 +128,7 @@ def min_array(nums: Sequence[int]) -> array:
 
 
 # Struct for encoding the length typecode and count of a list of byte chunks
-tcodes_and_len = Struct("<ccI")
+tcodes_and_len = struct.Struct("<ccI")
 
 
 # Interfaces
@@ -139,6 +150,9 @@ class PostingReader(object):
 
     def __len__(self) -> int:
         return self._count
+
+    def can_copy_raw_to(self, fmt: 'Format') -> bool:
+        return self._format.can_copy_raw_to(fmt)
 
     def supports(self, feature: str) -> bool:
         return getattr(self, "has_%s" % feature, False)
@@ -348,7 +362,7 @@ class PostingsIO(object):
         return not self == other
 
     @staticmethod
-    def _extract(posts: Sequence[RawPost], member: int):
+    def _extract(posts: Sequence[RawPost], member: int) -> Sequence:
         # Return a list of all the values of a certain member of a list of
         # posting tuples
 
@@ -487,7 +501,6 @@ class Format(object):
 
         boost *= self.boost
 
-        haslens = self.has_lengths
         hasweights = self.has_weights
         hasposes = self.has_positions
         haschars = self.has_chars
@@ -549,23 +562,98 @@ class Format(object):
         return fieldlen, posts
 
 
-class BasicIO(PostingsIO):
-    MAGIC_NUMBER = 51966
+    # @classmethod
+    # def unpack(cls, source: bytes, offset: int) -> 'BlockHeader':
+    #     v_f = cls.v_f
+    #
+    #     version, flags = v_f.unpack(source[offset:offset + v_f.size])
+    #     offset += v_f.size
+    #
+    #     # Decode flags
+    #     has_lengths = flags & (1 << 0)
+    #     has_weights = flags & (1 << 1)
+    #     has_positions = flags & (1 << 2)
+    #     has_chars = flags & (1 << 3)
+    #     has_payloads = flags & (1 << 4)
+    #     is_vector = flags & (1 << 7)
+    #
+    #     # Decode count and min/max lengths
+    #     count, offset = decode_varint(source, offset)
+    #     min_length, offset = decode_varint(source, offset)
+    #     max_length, offset = decode_varint(source, offset)
+    #
+    #     # Decode section sizes
+    #     ids_size, offset = decode_varint(source, offset)
+    #     lens_size, offset = decode_varint(source, offset)
+    #     weights_size, offset = decode_varint(source, offset)
+    #     poses_size, offset = decode_varint(source, offset)
+    #     chars_size, offset = decode_varint(source, offset)
+    #     payloads_size, offset = decode_varint(source, offset)
+    #
+    #     return cls(is_vector, has_lengths, has_weights, has_positions,
+    #                has_chars, has_payloads, count, min_length, max_length,
+    #                ids_size, lens_size, weights_size, poses_size, chars_size,
+    #                payloads_size, offset)
 
-    # Encoded post list header
-    # H - magic number
-    # H - number of items in the block
-    # H - flags
-    # xx - unused
-    # i - minimum field length of docs in the block, or 0xffffffff
-    # i - maximum field length of docs in the block, or 0
-    # i - length of IDs section
-    # i - length of lengths section
-    # i - length of weights section
-    # i - length of poses section
-    # i - length of chars section
-    # i - length of payloads section
-    header = Struct("<HHHxxiiiiiiii")
+
+class BasicIO(PostingsIO):
+    # H   - Number of postings in block
+    # 2c  - IDs and weights typecodes
+    # ii  - Min/max length
+    # iii - positions, characters, payloads data lengths
+    doc_header = struct.Struct("<H2ciiiii")
+
+    # H   - Number of terms in vector
+    # 2c  - IDs and weights typecodes
+    # iii - positions, characters, payloads data lengths
+    vector_header = struct.Struct("<i2ciii")
+
+    @classmethod
+    def pack_doc_header(cls, count: int, minlen: int, maxlen: int,
+                        ids_typecode: str, weights_typecode: str,
+                        poslen: int, charlen: int, paylen: int
+                        ) -> bytes:
+        return cls.doc_header.pack(
+            count,
+            ids_typecode.encode("ascii"), weights_typecode.encode("ascii"),
+            minlen, maxlen,
+            poslen, charlen, paylen
+        )
+
+    @classmethod
+    def unpack_doc_header(cls, src: bytes, offset: int) -> Tuple:
+        h = cls.doc_header
+        count, idc, wc, minlen, maxlen, poslen, charlen, paylen = \
+            h.unpack(src[offset:offset + h.size])
+
+        ids_typecode = str(idc.decode("ascii"))
+        weights_typecode = str(wc.decode("ascii"))
+
+        return (count, ids_typecode, weights_typecode, minlen, maxlen,
+                poslen, charlen, paylen, offset + h.size)
+
+    @classmethod
+    def pack_vector_header(cls, count: int,
+                           terms_typecode: str, weights_typecode: str,
+                           poslen: int, charlen: int, paylen: int
+                           ) -> bytes:
+        return cls.vector_header.pack(
+            count,
+            terms_typecode.encode("ascii"), weights_typecode.encode("ascii"),
+            poslen, charlen, paylen
+        )
+
+    @classmethod
+    def unpack_vector_header(cls, src: bytes, offset: int) -> Tuple:
+        h = cls.vector_header
+        count, idc, wc, poslen, charlen, paylen = \
+            h.unpack(src[offset:offset + h.size])
+
+        ids_typecode = str(idc.decode("ascii"))
+        weights_typecode = str(wc.decode("ascii"))
+
+        return (count, ids_typecode, weights_typecode, poslen, charlen, paylen,
+                offset + h.size)
 
     def can_copy_raw_to(self, io: PostingsIO) -> bool:
         return type(io) is type(self)
@@ -579,22 +667,76 @@ class BasicIO(PostingsIO):
         return BasicVectorReader(fmt, src, offset)
 
     def doclist_to_bytes(self, fmt: Format,
-                         posts: Sequence[PostTuple]) -> bytes:
+                         posts: Sequence[RawPost]) -> bytes:
         if not posts:
             raise ValueError("Empty document postings list")
 
-        flags = 0
-        id_bytes = self.encode_docids([p[DOCID] for p in posts])
-        return self._posts_to_bytes(fmt, posts, flags, id_bytes)
+        ids_code, ids_bytes = self.encode_docids([p[DOCID] for p in posts])
+        minlen, maxlen, len_bytes = self.extract_lengths(fmt, posts)
+        weights_code, weight_bytes = self.extract_weights(fmt, posts)
+        pos_bytes, char_bytes, pay_bytes = self.extract_features(fmt, posts)
+        header = self.pack_doc_header(
+            len(posts), minlen, maxlen, ids_code, weights_code,
+            len(pos_bytes), len(char_bytes), len(pay_bytes)
+        )
+        return b''.join((header, ids_bytes, len_bytes, weight_bytes,
+                         pos_bytes, char_bytes, pay_bytes))
 
     def vector_to_bytes(self, fmt: Format, posts: List[PostTuple]) -> bytes:
         if not posts:
             raise ValueError("Empty vector postings list")
 
-        flags = 1
         posts = [self.condition_post(p) for p in posts]
-        id_bytes = self.encode_terms([p[TERMBYTES] for p in posts])
-        return self._posts_to_bytes(fmt, posts, flags, id_bytes)
+        t_code, t_bytes = self.encode_terms(self._extract(posts, TERMBYTES))
+        weights_code, weight_bytes = self.extract_weights(fmt, posts)
+        pos_bytes, char_bytes, pay_bytes = self.extract_features(fmt, posts)
+        header = self.pack_vector_header(
+            len(posts), t_code, weights_code,
+            len(pos_bytes), len(char_bytes), len(pay_bytes)
+        )
+        return b''.join((header, t_bytes, weight_bytes,
+                         pos_bytes, char_bytes, pay_bytes))
+
+    def extract_lengths(self, fmt: Format, posts: Sequence[RawPost]
+                        ) -> Tuple[int, int, bytes]:
+        len_bytes = b''
+        minlen = maxlen = 1
+        if fmt.has_lengths or fmt.has_weights:
+            # Even if the format doesn't store lengths, we still need to compute
+            # the maximum and minimum lengths for scoring
+            lengths = self._extract(posts, LENGTH)
+            minlen = min(lengths)
+            maxlen = max(lengths)
+
+            if fmt.has_lengths:
+                len_bytes = self.encode_lengths(lengths)
+
+        return minlen, maxlen, len_bytes
+
+    def extract_weights(self, fmt: Format, posts: Sequence[RawPost]
+                        ) -> Tuple[str, bytes]:
+        if fmt.has_weights:
+            weights = self._extract(posts, WEIGHT)
+            return self.encode_weights(weights)
+        return "0", b''
+
+    def extract_features(self, fmt: Format, posts: Sequence[RawPost]):
+        pos_bytes = b''
+        if fmt.has_positions:
+            poslists = self._extract(posts, POSITIONS)  # type: List[bytes]
+            pos_bytes = self.encode_chunk_list(poslists)
+
+        char_bytes = b''
+        if fmt.has_chars:
+            charlists = self._extract(posts, CHARS)  # type: List[bytes]
+            char_bytes = self.encode_chunk_list(charlists)
+
+        pay_bytes = b''
+        if fmt.has_payloads:
+            paylists = self._extract(posts, PAYLOADS)  # type: List[bytes]
+            pay_bytes = self.encode_chunk_list(paylists)
+
+        return pos_bytes, char_bytes, pay_bytes
 
     # Encoding methods
 
@@ -616,63 +758,8 @@ class BasicIO(PostingsIO):
             enc_pays,
         )
 
-    def _posts_to_bytes(self, fmt: Format, posts: Sequence[RawPost],
-                        flags: int, id_bytes: bytes) -> bytes:
-        len_bytes = b''
-        if fmt.has_lengths:
-            lengths = self._extract(posts, LENGTH)  # type: List[int]
-            len_bytes = self.encode_lengths(lengths)
-            min_len = min(lengths)
-            max_len = max(lengths)
-        else:
-            # Even if the format doesn't STORE lengths, if the postings have
-            # lengths (which they should if they come from the index() method),
-            # use them to calculte the min and max length
-            min_len = 0xffffffff
-            max_len = 0
-            for p in posts:
-                plen = p[LENGTH]
-                if plen is not None:
-                    min_len = min(min_len, plen)
-                    max_len = max(max_len, plen)
-
-            # There were no lengths, just set min_len and max_len to 0
-            if min_len == 0xffffffff:
-                min_len = 0
-
-        weight_bytes = b''
-        if fmt.has_weights:
-            weights = self._extract(posts, WEIGHT)  # type: List[float]
-            weight_bytes = self.encode_weights(weights)
-
-        pos_bytes = b''
-        if fmt.has_positions:
-            poslists = self._extract(posts, POSITIONS)  # type: List[bytes]
-            pos_bytes = self.encode_chunk_list(poslists)
-
-        char_bytes = b''
-        if fmt.has_chars:
-            charlists = self._extract(posts, CHARS)  # type: List[bytes]
-            char_bytes = self.encode_chunk_list(charlists)
-
-        pay_bytes = b''
-        if fmt.has_payloads:
-            paylists = self._extract(posts, PAYLOADS)  # type: List[bytes]
-            pay_bytes = self.encode_chunk_list(paylists)
-
-        # Pack the metadata into the header struct
-        header = self.header.pack(
-            self.MAGIC_NUMBER, len(posts), flags, min_len, max_len,
-            len(id_bytes), len(len_bytes), len(weight_bytes), len(pos_bytes),
-            len(char_bytes), len(pay_bytes)
-        )
-
-        # Join the header with all the byte strings
-        return b''.join((header, id_bytes, len_bytes, weight_bytes, pos_bytes,
-                         char_bytes, pay_bytes))
-
     @staticmethod
-    def encode_docids(docids: Sequence[int]) -> bytes:
+    def encode_docids(docids: Sequence[int]) -> Tuple[str, bytes]:
         if not docids:
             raise ValueError
         if any(n < 0 for n in docids):
@@ -681,30 +768,45 @@ class BasicIO(PostingsIO):
         deltas = min_array(list(delta_encode(docids)))
         if not IS_LITTLE:
             deltas.byteswap()
-        return deltas.typecode.encode("ascii") + array_tobytes(deltas)
+        return deltas.typecode, array_tobytes(deltas)
 
     @staticmethod
-    def decode_docids(src: bytes, offset: int, size: int) -> Sequence[int]:
-        typecode = bytes(src[offset:offset + 1]).decode("ascii")
+    def decode_docids(src: bytes, offset: int, typecode: str,
+                      count: int) -> Tuple[int, Sequence[int]]:
         deltas = array(typecode)
-        array_frombytes(deltas, src[offset + 1: offset + size])
+        end = offset + deltas.itemsize * count
+        array_frombytes(deltas, src[offset: end])
         if not IS_LITTLE:
             deltas.byteswap()
-        return tuple(delta_decode(deltas))
+        return end, tuple(delta_decode(deltas))
 
     @staticmethod
-    def encode_terms(terms: Sequence[bytes]) -> bytes:
-        return BasicIO.encode_chunk_list(terms)
+    def encode_terms(terms: Sequence[bytes]) -> Tuple[str, bytes]:
+        lens = min_array([len(t) for t in terms])
+        if not IS_LITTLE:
+            lens.byteswap()
+        return lens.typecode, array_tobytes(lens) + b''.join(terms)
 
     @staticmethod
-    def decode_terms(src: bytes, offset: int, size: int) -> Sequence[bytes]:
-        return BasicIO.decode_chunk_list(src, offset, size)
+    def decode_terms(src: bytes, offset: int, typecode: str, count: int
+                     ) -> Tuple[int, Sequence[bytes]]:
+        lens = array(typecode)
+        lens_size = lens.itemsize * count
+        array_frombytes(lens, src[offset: offset + lens_size])
+        offset += lens_size
+
+        terms = []
+        for length in lens:
+            terms.append(src[offset:offset + length])
+            offset += length
+        return offset, terms
 
     @staticmethod
     def encode_lengths(lengths: Sequence[int]) -> bytes:
         if any(not isinstance(n, int) or n < 0 or n > 255 for n in lengths):
             raise ValueError("Bad byte in %r" % lengths)
-        return array_tobytes(array("B", lengths))
+        arry = array("B", lengths)
+        return array_tobytes(arry)
 
     @staticmethod
     def decode_lengths(src: bytes, offset: int, count: int) -> Sequence[int]:
@@ -714,12 +816,12 @@ class BasicIO(PostingsIO):
         return len_array
 
     @staticmethod
-    def encode_weights(weights: Sequence[float]) -> bytes:
+    def encode_weights(weights: Sequence[float]) -> Tuple[str, bytes]:
         if not weights or any(not isinstance(w, (int, float)) for w in weights):
             raise ValueError("Bad weight in %r" % weights)
 
         if all(w == 1 for w in weights):
-            return b"1"
+            return "1", b""
 
         intweights = [int(w) for w in weights]
         if all(w == wi for w, wi in zip_(weights, intweights)):
@@ -729,20 +831,30 @@ class BasicIO(PostingsIO):
         if not IS_LITTLE:
             arr.byteswap()
 
-        return arr.typecode.encode("ascii") + array_tobytes(arr)
+        return arr.typecode, array_tobytes(arr)
 
     @staticmethod
-    def decode_weights(src: bytes, offset: int, size: int, count: int
+    def decode_weights(src: bytes, offset: int, typecode: str, count: int
                        ) -> Sequence[float]:
-        typecode = str(bytes(src[offset:offset + 1]).decode("ascii"))
-        if typecode == "1":
+        if typecode == "0":
+            raise Exception("Weights were not encoded")
+        elif typecode == "1":
             return array("f", (1.0 for _ in xrange(count)))
 
-        arr = array(typecode)
-        array_frombytes(arr, src[offset + 1: offset + size])
+        weights = array(typecode)
+        array_frombytes(weights, src[offset: offset + weights.itemsize * count])
         if not IS_LITTLE:
-            arr.byteswap()
-        return arr
+            weights.byteswap()
+        return weights
+
+    @staticmethod
+    def compute_weights_size(typecode: str) -> int:
+        if typecode == "0":
+            return 0
+        if typecode == "1":
+            return 0
+        else:
+            return struct.calcsize(typecode)
 
     @staticmethod
     def encode_positions(poses: Sequence[int]) -> bytes:
@@ -831,10 +943,10 @@ class BasicIO(PostingsIO):
                                      len_array.typecode.encode("ascii"),
                                      len(chunks))
         index = [header, array_tobytes(offsets_array), array_tobytes(len_array)]
-        return b''.join(index + chunks)
+        return b"".join(index + chunks)
 
     @staticmethod
-    def decode_chunk_index(src: bytes, offset: int, size: int
+    def decode_chunk_index(src: bytes, offset: int
                            ) -> Sequence[Tuple[int, int]]:
         # Decode the header
         h_end = offset + tcodes_and_len.size
@@ -848,8 +960,6 @@ class BasicIO(PostingsIO):
         array_frombytes(off_array, src[h_end: off_end])
         if not IS_LITTLE:
             off_array.byteswap()
-        # Translate the local offsets to global offsets
-        offsets = [h_end + off for off in off_array]
 
         # Load the lengths array
         len_array = array(lens_code)
@@ -858,101 +968,115 @@ class BasicIO(PostingsIO):
         if not IS_LITTLE:
             len_array.byteswap()
 
+        # Translate the local offsets to global offsets
+        offsets = [lens_end + off for off in off_array]
         return list(izip(offsets, len_array))
 
     @staticmethod
     def decode_chunk_list(src: bytes, offset: int, size: int
                           ) -> Sequence[bytes]:
-        ix = BasicIO.decode_chunk_index(src, offset, size)
+        ix = BasicIO.decode_chunk_index(src, offset)
         return tuple(bytes(src[chunk_off:chunk_off + length])
                      for chunk_off, length in ix)
 
 
+NO_WEIGHTS = 0
+ALL_ONES = 1
+ALL_INTS = 2
+FLOAT_WEIGHTS = 4
+
+
 class BasicPostingReader(PostingReader):
-    def __init__(self, fmt: Format, src: bytes, offset: int=0):
-        super(BasicPostingReader, self).__init__(fmt, src, offset)
+    # Common superclass for Doclist and Vector readers
+    def __init__(self, fmt: Format, source: bytes, offset: int):
+        self._format = fmt
+        self._src = source
+        self._offset = offset
 
-        header_struct = BasicIO.header
+        # Dummy slots so the IDE won't complain about methods on this class
+        # accessing them
+        self._count = None  # type: int
+        self._end_offset = None  # type: int
 
-        # Unpack the header from the beginning of the byte range
-        (magic, self._count, flags, self._min_len, self._max_len,
-         self._ids_size, self._lens_size, self._weights_size,
-         self._poses_size, self._chars_size, self._pays_size,
-         ) = header_struct.unpack(src[offset: offset + header_struct.size])
-        assert magic == BasicIO.MAGIC_NUMBER
+        self._lens_offset = None  # type: int
+        self._weights_tc = None  # type: str
+        self._weights_offset = None  # type: int
+        self._weights_size = None  # type: int
 
-        # Compute the offset of each section based on their sizes
-        self._ids_offset = offset + header_struct.size
-        self._lens_offset = self._ids_offset + self._ids_size
-        self._weights_offset = self._lens_offset + self._lens_size
-        self._poses_offset = self._weights_offset + self._weights_size
+        self._poses_offset = None  # type: int
+        self._poses_size = None  # type: int
+        self._chars_offset = None  # type: int
+        self._chars_size = None  # type: int
+        self._pays_offset = None  # type: int
+        self._pays_size = None  # type: int
+
+        # Slots for demand-loaded data
+        self._weights_type = NO_WEIGHTS
+        self._weights = None
+        self._chunk_indexes = [None, None, None]
+
+    def _setup_offsets(self, offset: int):
+        wtc = self._weights_tc
+        if wtc == "0":
+            self._weights_type = NO_WEIGHTS
+        elif wtc == "1":
+            self._weights_type = ALL_ONES
+        elif wtc == "f":
+            self._weights_type = FLOAT_WEIGHTS
+        else:
+            self._weights_type = ALL_INTS
+
+        # Set up the weights offsets
+        self._weights_offset = offset
+        wts_itemsize = BasicIO.compute_weights_size(wtc)
+
+        self._weights_size = wts_itemsize * self._count
+
+        # Compute the offset of feature sections based on their sizes
+        self._poses_offset = offset + self._weights_size
         self._chars_offset = self._poses_offset + self._poses_size
         self._pays_offset = self._chars_offset + self._chars_size
         self._end_offset = self._pays_offset + self._pays_size
 
-        # Until we load a section, store None
-        self._lens = None  # type: Sequence[int]
-        self._weights = None  # type: Sequence[float]
-        self._chunk_indexes = [None, None, None]
-
     def raw_bytes(self) -> bytes:
         return self._src[self._offset: self._end_offset]
 
-    def can_copy_raw_to(self, fmt: Format):
+    def can_copy_raw_to(self, fmt: Format) -> bool:
         return self._format.can_copy_raw_to(fmt)
 
     def end_offset(self) -> int:
         return self._end_offset
 
-    def _get_lens(self) -> Sequence[int]:
-        if self._lens is None:
-            self._lens = BasicIO.decode_lengths(self._src, self._lens_offset,
-                                                self._lens_size)
-        return self._lens
-
-    def length(self, n: int):
-        if n < 0 or n >= self._count:
-            raise IndexError
-        if not self._lens_size:
-            raise UnsupportedFeature
-
-        return self._get_lens()[n]
-
-    def min_length(self):
-        return self._min_len
-
-    def max_length(self):
-        return self._max_len
-
     def _get_weights(self) -> Sequence[float]:
         if self._weights is None:
             self._weights = BasicIO.decode_weights(
-                self._src, self._weights_offset, self._weights_size, self._count
+                self._src, self._weights_offset, self._weights_tc, self._count
             )
         return self._weights
 
     def weight(self, n: int) -> float:
         if n < 0 or n >= self._count:
             raise IndexError
-        if not self._weights_size:
-            raise UnsupportedFeature
-        elif self._weights_size == 1:
-            return 1.0
 
-        return self._get_weights()[n]
+        wt = self._weights_type
+        if wt == NO_WEIGHTS or wt == ALL_ONES:
+            return 1.0
+        else:
+            return self._get_weights()[n]
 
     def total_weight(self) -> float:
-        if not self._weights_size:
-            raise UnsupportedFeature
-        return sum(self._get_weights())
+        wt = self._weights_type
+        if wt == NO_WEIGHTS or wt == ALL_ONES:
+            return self._count
+        else:
+            return sum(self._get_weights())
 
     def max_weight(self):
-        if not self._weights_size:
-            raise UnsupportedFeature
-        elif self._weights_size == 1:
+        wt = self._weights_type
+        if wt == NO_WEIGHTS or wt == ALL_ONES:
             return 1.0
-
-        return max(self._get_weights())
+        else:
+            return max(self._get_weights())
 
     def _chunk_offsets(self, n: int, offset: int, size: int,
                        ix_pos: int) -> Tuple[int, int]:
@@ -963,7 +1087,7 @@ class BasicPostingReader(PostingReader):
 
         ix = self._chunk_indexes[ix_pos]
         if ix is None:
-            ix = BasicIO.decode_chunk_index(self._src, offset, size)
+            ix = BasicIO.decode_chunk_index(self._src, offset)
             self._chunk_indexes[ix_pos] = ix
 
         return ix[n]
@@ -1002,12 +1126,34 @@ class BasicPostingReader(PostingReader):
 class BasicDocListReader(BasicPostingReader, DocListReader):
     def __init__(self, fmt: Format, src: bytes, offset: int=0):
         super(BasicDocListReader, self).__init__(fmt, src, offset)
+        self._lens = None
 
-        self._ids = BasicIO.decode_docids(self._src, self._ids_offset,
-                                          self._ids_size)
+        # Copy feature flags from format
+        self.has_lengths = fmt.has_lengths
+        self.has_weights = fmt.has_weights
+        self.has_positions = fmt.has_positions
+        self.has_chars = fmt.has_chars
+        self.has_payloads = fmt.has_payloads
+
+        # Unpack the header
+        (self._count, ids_tc, self._weights_tc, self._min_len,
+         self._max_len, self._poses_size, self._chars_size, self._pays_size,
+         h_end) = BasicIO.unpack_doc_header(src, offset)
+
+        # Read the IDs
+        offset, self._ids = BasicIO.decode_docids(src, h_end, ids_tc,
+                                                  self._count)
+
+        # Set up lengths if the format stores them
+        if fmt.has_lengths:
+            self._lens_offset = offset
+            offset += self._count
+
+        # Set up offsets/sizes for other features (also self._end_offset)
+        self._setup_offsets(offset)
 
     def __repr__(self):
-        return "<%s %r>" % (type(self).__name__, list(self.postings()))
+        return "<%s %d>" % (type(self).__name__, self._count)
 
     def id(self, n: int) -> int:
         if n < 0 or n >= self._count:
@@ -1020,6 +1166,28 @@ class BasicDocListReader(BasicPostingReader, DocListReader):
 
     def all_ids(self):
         return self._ids
+
+    def _get_lens(self) -> Sequence[int]:
+        if self._lens is None:
+            if self._lens_offset is None:
+                raise UnsupportedFeature
+            self._lens = BasicIO.decode_lengths(self._src, self._lens_offset,
+                                                self._count)
+        return self._lens
+
+    def length(self, n: int):
+        if n < 0 or n >= self._count:
+            raise IndexError
+        if not self._count:
+            raise UnsupportedFeature
+
+        return self._get_lens()[n]
+
+    def min_length(self):
+        return self._min_len
+
+    def max_length(self):
+        return self._max_len
 
     def raw_posting_at(self, n: int) -> RawPost:
         docid = self.id(n)
@@ -1041,8 +1209,17 @@ class BasicVectorReader(BasicPostingReader, VectorReader):
     def __init__(self, fmt: Format, src: bytes, offset: int=0):
         super(BasicVectorReader, self).__init__(fmt, src, offset)
 
-        self._terms = BasicIO.decode_terms(self._src, self._ids_offset,
-                                           self._ids_size)
+        # Unpack the header
+        (self._count, t_typecode, self._weights_tc,
+         self._poses_size, self._chars_size, self._pays_size,
+         h_end) = BasicIO.unpack_vector_header(src, offset)
+
+        # Read the terms
+        offset, self._terms = BasicIO.decode_terms(src, h_end, t_typecode,
+                                                   self._count)
+
+        # Set up offsets/sizes for other features (also self._end_offset)
+        self._setup_offsets(offset)
 
     def all_terms(self):
         for tbytes in self._terms:
@@ -1063,4 +1240,5 @@ class BasicVectorReader(BasicPostingReader, VectorReader):
             return i
         else:
             raise KeyError(termbytes)
+
 

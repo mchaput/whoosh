@@ -43,8 +43,6 @@ from whoosh.system import pack_int, unpack_int, pack_uint, unpack_uint
 from whoosh.system import pack_uint_le, unpack_uint_le
 from whoosh.system import pack_long, unpack_long, pack_ulong, unpack_ulong
 from whoosh.system import pack_float, unpack_float
-from whoosh.util.varints import varint, read_varint
-from whoosh.util.varints import signed_varint, decode_signed_varint
 
 
 #

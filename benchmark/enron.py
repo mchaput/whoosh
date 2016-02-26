@@ -3,7 +3,9 @@ import logging
 import os.path
 import shutil
 import tarfile
+from datetime import datetime
 from email import message_from_bytes, message_from_string
+from email.utils import parsedate_tz, mktime_tz
 from gzip import GzipFile
 
 from whoosh import analysis, fields, index
@@ -19,15 +21,20 @@ header_to_field = {"Date": "date", "From": "frm", "To": "to",
 
 
 def make_schema(storebody=False):
-    ana = analysis.StemmingAnalyzer(maxsize=40, cachesize=None)
+    body_expr = r"[A-Za-z]+|[0-9.]+"
+    ana = analysis.StemmingAnalyzer(expression=body_expr,
+                                    maxsize=15, cachesize=None)
+    addrs = (analysis.RegexTokenizer(r'[-+\[\]A-Za-z0-9.@_"]+') |
+             analysis.LowercaseFilter() |
+             analysis.ReverseTextFilter())
     schema = fields.Schema(body=fields.TEXT(analyzer=ana, stored=storebody),
                            filepos=fields.Stored,
-                           date=fields.Id(stored=True),
+                           date=fields.DateTime(stored=True),
                            frm=fields.Id(stored=True),
-                           to=fields.Keyword(stored=True, commas=True),
+                           to=fields.Keyword(analyzer=addrs, stored=True),
                            subject=fields.Text(stored=True),
-                           cc=fields.Keyword(commas=True),
-                           bcc=fields.Keyword(commas=True))
+                           cc=fields.Keyword(analyzer=addrs),
+                           bcc=fields.Keyword(analyzer=addrs))
     return schema
 
 
@@ -68,8 +75,17 @@ def get_messages(filename, headers=True):
 def build_cache(archive_filename, cache_filename):
     count = 0
     with GzipFile(cache_filename, "w") as f:
-        for msg_dict in get_messages(archive_filename):
-            dump(msg_dict, f, -1)
+        for d in get_messages(archive_filename):
+            # Convert the date to a datetime object
+            datestr = d.get("date")
+            if datestr:
+                date_tuple = parsedate_tz(datestr)
+                if date_tuple:
+                    d["date"] = datetime.fromtimestamp(mktime_tz(date_tuple))
+                else:
+                    del d["date"]
+
+            dump(d, f, -1)
             count += 1
             if not count % 1000:
                 print(count)
@@ -84,7 +100,8 @@ def read_cache(filename):
             pass
 
 
-def build_index(cache_filename, index_dir, storebody=False):
+def build_index(cache_filename, index_dir, storebody=False, maxdocs=1000000):
+    t = now()
     if os.path.exists(index_dir):
         shutil.rmtree(index_dir)
     os.makedirs(index_dir)
@@ -101,202 +118,129 @@ def build_index(cache_filename, index_dir, storebody=False):
                 print(count, now() - start)
                 start = now()
 
+            if count >= maxdocs:
+                break
+    print(now() - t)
+
+
+def dump_matcher(m, tab=''):
+    from whoosh.codec.x1 import X1Matcher
+    from whoosh.ifaces.matchers import PostReaderMatcher
+    from whoosh.matching.wrappers import MultiMatcher
+
+    count = 0
+    total = 0
+    if isinstance(m, X1Matcher):
+        while m._blocknum < m._blockcount:
+            ps = m._posts
+            count += 1
+            size = len(ps.raw_bytes())
+            total += size
+            # print(tab, size)
+            m._next_block()
+    elif isinstance(m, PostReaderMatcher):
+        ps = m._posts
+        count += 1
+        size = len(ps.raw_bytes())
+        total += size
+        # print(tab, size)
+    elif isinstance(m, MultiMatcher):
+        for lm in m._matchers:
+            cn, tt = dump_matcher(lm, tab + '  ')
+            count += cn
+            total += tt
+    else:
+        print(tab, type(m))
+    return count, total
+
+
+def read_postings(index_dir):
+    t = now()
+    count = 0
+    total = 0
+    with index.open_dir(index_dir) as ix:
+        with ix.reader() as r:
+            for term in r.all_terms():
+                # print(t)
+                m = r.matcher(term[0], term[1])
+                cn, tt = dump_matcher(m)
+                count += cn
+                total += tt
+    print("count=", count, "total=", total, "time=", now() - t)
+    # count= 519578 total= 63,565,308 time= 85.19900078298815
+    # count= 519578 total= 68,728,158 time= 84.12606762700307
+
 
 if __name__ == "__main__":
+    from whoosh.util import now
+
     logger = logging.getLogger("whoosh")
     logger.addHandler(logging.StreamHandler())
     logger.setLevel(logging.INFO)
 
-    arc = "/Users/matt/Corpus/enron_mail_082109.tar.gz"
+    arc = "/Users/matt/Corpus/enron_mail_20150507.tgz"
     cache = "/Users/matt/Corpus/enron_cache.pickle.gz"
     index_dir = "/Users/matt/Corpus/index"
 
-    build_index(cache, index_dir)
+    import random
+    from whoosh.filedb.filestore import FileStorage
+    from whoosh import columns
+    from whoosh.util import now
+
+    st = FileStorage(index_dir)
+    c1 = columns.PickleColumn(columns.CompressedBytesColumn())
+    # c2 = columns.CompressedPickleColumn(level=3, items_per_block=10)
+    times = 20000
+    objlist = []
+    for i, obj in enumerate(read_cache(cache)):
+        if i >= times:
+            break
+        objlist.append(obj)
+    assert len(objlist) == times
+    picks = list(range(times))
+    random.shuffle(picks)
+
+    def do_col(name, c):
+        f = st.create_file(name)
+        t = now()
+        cw = c.writer(f)
+        for j, obj in enumerate(objlist):
+            cw.add(j, obj)
+        cw.finish(times)
+        f.close()
+        length = st.file_length(name)
+        print(name, "write", now() - t)
+        print(length)
+
+        f = st.map_file(name)
+        t = now()
+        cr = c.reader(f, 0, length, times, True)
+        for pick in picks:
+            obj = cr[pick]
+            assert obj == objlist[pick]
+        cr.close()
+        f.close()
+        print(name, "read", now() - t)
+
+
+    do_col("c1", c1)
+    # do_col("c2", c2)
 
 
 
-# from __future__ import division
-# import os.path, tarfile
-# from email import message_from_string
-# from marshal import dump, load
-# from zlib import compress, decompress
-#
-# try:
-#     import xappy
-# except ImportError:
-#     pass
-#
-# from whoosh import analysis, fields
-# from whoosh.compat import urlretrieve, next
-# from whoosh.support.bench import Bench, Spec
-# from whoosh.util import now
-#
-#
-# # Benchmark class
-#
-# class Enron(Spec):
-#     name = "enron"
-#
-#     enron_archive_url = "http://www.cs.cmu.edu/~enron/enron_mail_082109.tar.gz"
-#     enron_archive_filename = "enron_mail_082109.tar.gz"
-#     cache_filename = "enron_cache.pickle"
-#
-#     header_to_field = {"Date": "date", "From": "frm", "To": "to",
-#                    "Subject": "subject", "Cc": "cc", "Bcc": "bcc"}
-#
-#     main_field = "body"
-#     headline_field = "subject"
-#
-#     field_order = ("subject", "date", "from", "to", "cc", "bcc", "body")
-#
-#     cachefile = None
-#
-#     # Functions for downloading and then reading the email archive and caching
-#     # the messages in an easier-to-digest format
-#
-#     def download_archive(self, archive):
-#         print("Downloading Enron email archive to %r..." % archive)
-#         t = now()
-#         urlretrieve(self.enron_archive_url, archive)
-#         print("Downloaded in ", now() - t, "seconds")
-#
-#     @staticmethod
-#     def get_texts(archive):
-#         archive = tarfile.open(archive, "r:gz")
-#         while True:
-#             entry = next(archive)
-#             archive.members = []
-#             if entry is None:
-#                 break
-#             f = archive.extractfile(entry)
-#             if f is not None:
-#                 text = f.read()
-#                 yield text
-#
-#     @staticmethod
-#     def get_messages(archive, headers=True):
-#         header_to_field = Enron.header_to_field
-#         for text in Enron.get_texts(archive):
-#             message = message_from_string(text)
-#             body = message.as_string().decode("latin_1")
-#             blank = body.find("\n\n")
-#             if blank > -1:
-#                 body = body[blank+2:]
-#             d = {"body": body}
-#             if headers:
-#                 for k in message.keys():
-#                     fn = header_to_field.get(k)
-#                     if not fn: continue
-#                     v = message.get(k).strip()
-#                     if v:
-#                         d[fn] = v.decode("latin_1")
-#             yield d
-#
-#     def cache_messages(self, archive, cache):
-#         print("Caching messages in %s..." % cache)
-#
-#         if not os.path.exists(archive):
-#             raise Exception("Archive file %r does not exist" % archive)
-#
-#         t = now()
-#         f = open(cache, "wb")
-#         c = 0
-#         for d in self.get_messages(archive):
-#             c += 1
-#             dump(d, f)
-#             if not c % 1000: print(c)
-#         f.close()
-#         print("Cached messages in ", now() - t, "seconds")
-#
-#     def setup(self):
-#         archive = os.path.abspath(os.path.join(self.options.dir, self.enron_archive_filename))
-#         cache = os.path.abspath(os.path.join(self.options.dir, self.cache_filename))
-#
-#         if not os.path.exists(archive):
-#             self.download_archive(archive)
-#         else:
-#             print("Archive is OK")
-#
-#         if not os.path.exists(cache):
-#             self.cache_messages(archive, cache)
-#         else:
-#             print("Cache is OK")
-#
-#     def documents(self):
-#         if not os.path.exists(self.cache_filename):
-#             raise Exception("Message cache does not exist, use --setup")
-#
-#         f = open(self.cache_filename, "rb")
-#         try:
-#             while True:
-#                 self.filepos = f.tell()
-#                 d = load(f)
-#                 yield d
-#         except EOFError:
-#             pass
-#         f.close()
-#
-#     def whoosh_schema(self):
-#         ana = analysis.StemmingAnalyzer(maxsize=40, cachesize=None)
-#         storebody = self.options.storebody
-#         schema = fields.Schema(body=fields.TEXT(analyzer=ana, stored=storebody),
-#                                filepos=fields.STORED,
-#                                date=fields.ID(stored=True),
-#                                frm=fields.ID(stored=True),
-#                                to=fields.IDLIST(stored=True),
-#                                subject=fields.TEXT(stored=True),
-#                                cc=fields.IDLIST,
-#                                bcc=fields.IDLIST)
-#         return schema
-#
-#     def xappy_indexer_connection(self, path):
-#         conn = xappy.IndexerConnection(path)
-#         conn.add_field_action('body', xappy.FieldActions.INDEX_FREETEXT, language='en')
-#         if self.options.storebody:
-#             conn.add_field_action('body', xappy.FieldActions.STORE_CONTENT)
-#         conn.add_field_action('date', xappy.FieldActions.INDEX_EXACT)
-#         conn.add_field_action('date', xappy.FieldActions.STORE_CONTENT)
-#         conn.add_field_action('frm', xappy.FieldActions.INDEX_EXACT)
-#         conn.add_field_action('frm', xappy.FieldActions.STORE_CONTENT)
-#         conn.add_field_action('to', xappy.FieldActions.INDEX_EXACT)
-#         conn.add_field_action('to', xappy.FieldActions.STORE_CONTENT)
-#         conn.add_field_action('subject', xappy.FieldActions.INDEX_FREETEXT, language='en')
-#         conn.add_field_action('subject', xappy.FieldActions.STORE_CONTENT)
-#         conn.add_field_action('cc', xappy.FieldActions.INDEX_EXACT)
-#         conn.add_field_action('bcc', xappy.FieldActions.INDEX_EXACT)
-#         return conn
-#
-#     def zcatalog_setup(self, cat):
-#         from zcatalog import indexes
-#         for name in ("date", "frm"):
-#             cat[name] = indexes.FieldIndex(field_name=name)
-#         for name in ("to", "subject", "cc", "bcc", "body"):
-#             cat[name] = indexes.TextIndex(field_name=name)
-#
-#     def process_document_whoosh(self, d):
-#         d["filepos"] = self.filepos
-#         if self.options.storebody:
-#             mf = self.main_field
-#             d["_stored_%s" % mf] = compress(d[mf], 9)
-#
-#     def process_result_whoosh(self, d):
-#         mf = self.main_field
-#         if mf in d:
-#             d.fields()[mf] = decompress(d[mf])
-#         else:
-#             if not self.cachefile:
-#                 self.cachefile = open(self.cache_filename, "rb")
-#             filepos = d["filepos"]
-#             self.cachefile.seek(filepos)
-#             dd = load(self.cachefile)
-#             d.fields()[mf] = dd[mf]
-#         return d
-#
-#     def process_document_xapian(self, d):
-#         d[self.main_field] = " ".join([d.get(name, "") for name
-#                                        in self.field_order])
-#
-#
-#
-# if __name__=="__main__":
-#     Bench().run(Enron)
+    # build_cache(arc, cache)
+
+    # build_index(cache, index_dir, maxdocs=50000)
+
+    # read_postings(index_dir)
+
+    # with index.open_dir(index_dir) as ix:
+    #     with ix.reader() as r:
+    #         for lr, _ in r.leaf_readers():
+    #             kv = lr._terms._kv
+    #             for ref in kv._refs:
+    #                 ref = kv._realize(ref)
+    #                 print(ref._prefixlen, ref._prefix)
+
+
+

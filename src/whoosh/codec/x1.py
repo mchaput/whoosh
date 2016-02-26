@@ -296,6 +296,7 @@ class X1Segment(codecs.FileSegment):
         self._size = 0
         self._doccount = doccount
         self._deleted = deleted
+
         self.fieldlengths = fieldlengths or {}
         self.was_little = was_little
         self.is_compound = False
@@ -361,6 +362,7 @@ class X1Segment(codecs.FileSegment):
 
 # Codec
 
+@codecs.register("whoosh.codec.x1.X1Codec")
 class X1Codec(codecs.Codec):
     # File extensions
     TERMS_EXT = ".trm"  # Term index
@@ -379,7 +381,7 @@ class X1Codec(codecs.Codec):
     # Self
 
     def name(self) -> str:
-        return 'whoosh.codec.x1.X1Codec'
+        return "whoosh.codec.x1.X1Codec"
 
     def short_name(self) -> str:
         return "x1"
@@ -700,7 +702,7 @@ class X1PerDocReader(codecs.PerDocumentReader):
 
 class X1FieldWriter(codecs.FieldWriter):
     def __init__(self, session: 'storage.Session', segment: X1Segment,
-                 regionsize: int=128, blocksize: int=1024, inlinelimit: int=1):
+                 regionsize: int=255, blocksize: int=128, inlinelimit: int=1):
         self._store = session.store
         self._segment = segment
         self._regionsize = regionsize
@@ -1007,33 +1009,25 @@ class X1TermsReader(codecs.TermsReader):
 
         return X1TermInfo.decode_doc_freq(data, 0)
 
-    def matcher_from_terminfo(self, fieldname: str, tbytes: bytes,
-                              format_: 'postings.Format', ti: 'X1TermInfo',
-                              scorer: 'weights.Scorer'=None
-                              ) -> 'matchers.Matcher':
+    def matcher_from_terminfo(self, ti: X1TermInfo, fieldname: str,
+                              tbytes: bytes, format_: 'postings.Format',
+                              scorer: 'weights.Scorer'=None) -> 'X1Matcher':
         if ti.inlinebytes:
-            return matchers.PostReaderMatcher(
+            m = matchers.PostReaderMatcher(
                 ti.posting_reader(format_), format_, fieldname, tbytes, ti,
                 scorer=scorer
             )
         else:
-            return X1Matcher(
+            m = X1Matcher(
                 self._postsdata, fieldname, tbytes, ti, format_, scorer=scorer
             )
+        return m
 
     def matcher(self, fieldname: str, tbytes: bytes, format_: 'postings.Format',
-                scorer: 'weights.Scorer'=None) -> 'matchers.Matcher':
+                scorer: 'weights.Scorer'=None) -> 'X1Matcher':
         ti = self.term_info(fieldname, tbytes)
-
-        if ti.inlinebytes:
-            return matchers.PostReaderMatcher(
-                ti.posting_reader(format_), format_, fieldname, tbytes, ti,
-                scorer=scorer
-            )
-        else:
-            return X1Matcher(
-                self._postsdata, fieldname, tbytes, ti, format_, scorer=scorer
-            )
+        return self.matcher_from_terminfo(ti, fieldname, tbytes, format_,
+                                          scorer=scorer)
 
     def close(self):
         self._kv.close()
@@ -1098,6 +1092,8 @@ class X1Matcher(matchers.LeafMatcher):
         self._format = format_
         self._scorer = scorer
 
+        # Current offset into postings file
+        self._offset = None
         # Total number of posting blocks
         self._blockcount = terminfo.blockcount
         # Current block number

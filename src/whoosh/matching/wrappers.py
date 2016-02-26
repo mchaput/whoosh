@@ -317,14 +317,14 @@ class MultiMatcher(matchers.Matcher):
     def posting(self) -> 'Optional[postings.PostTuple]':
         offset = self._offsets[self._current]
         p = self._matchers[self._current].posting()
-        return postings.change_docid(p, offset + p[postings.DOCID])
+        return postings.update_post(p, docid=offset + p[postings.DOCID])
 
     def _filter_postings(self, ps: 'Iterable[postings.PostTuple]', offset: int
                          ) -> 'Iterable[postings.PostTuple]':
-        change_docid = postings.change_docid
+        update_post = postings.update_post
         DOCID = postings.DOCID
         for p in ps:
-            yield change_docid(p, p[DOCID] + offset)
+            yield update_post(p, docid=p[DOCID] + offset)
 
     def all_postings(self) -> 'Iterable[postings.PostTuple]':
         if not self.is_active():

@@ -38,7 +38,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 from whoosh import fields, index, merging
 from whoosh.ifaces import codecs, readers, searchers, storage
 from whoosh.compat import xrange
-from whoosh.postings import PostTuple, change_docid, post_docid
+from whoosh.postings import PostTuple, post_docid, update_post
 from whoosh.postings import TERMBYTES, DOCID
 from whoosh.ifaces import queries
 from whoosh.util import now, unclosed
@@ -966,7 +966,7 @@ def _copy_perdoc(schema: 'fields.Schema', reader: 'readers.IndexReader',
                 vreader = reader.vector(docnum, fieldname)
                 if vreader.can_copy_raw_to(vector):
                     rawbytes = vreader.raw_bytes()
-                    perdoc.add_raw_vector(rawbytes)
+                    perdoc.add_raw_vector(fieldname, rawbytes)
                 else:
                     posts = tuple(vreader.postings())
                     perdoc.add_vector_postings(fieldname, fieldobj, posts)
@@ -1026,17 +1026,19 @@ def _copy_terms(schema: 'fields.Schema', reader: 'readers.IndexReader',
         if m.can_copy_raw_to(fieldobj.format):
             # logger.debug("Copying posting bytes directly")
             for rp in m.all_raw_postings():
+                docid = post_docid(rp)
+                length = reader.doc_field_length(docid, fieldname)
                 if docmap:
-                    # Make a new posting with the doc ID updated
-                    newid = docmap[post_docid(rp)]
-                    rp = change_docid(rp, newid)
+                    docid = docmap[docid]
+                rp = update_post(rp, docid=docid, length=length)
                 fwriter.add_raw_post(rp)
         else:
             for p in m.all_postings():
+                docid = post_docid(p)
+                length = reader.doc_field_length(docid, fieldname)
                 if docmap:
-                    # Make a new posting with the doc ID updated
-                    newid = docmap[post_docid(p)]
-                    p = change_docid(p, newid)
+                    docid = docmap[docid]
+                p = update_post(p, docid=docid, length=length)
                 fwriter.add_posting(p)
 
         m.close()
