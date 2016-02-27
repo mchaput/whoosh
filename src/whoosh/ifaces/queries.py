@@ -30,7 +30,6 @@ from abc import abstractmethod
 from bisect import insort
 from typing import Callable, Dict, Iterable, Optional, Sequence, Tuple, Union
 
-from whoosh import collectors
 from whoosh.compat import text_type
 from whoosh.ifaces import analysis, matchers, readers, searchers
 
@@ -111,8 +110,7 @@ class Query:
         self.boost = boost
 
     @classmethod
-    def combine_collector(cls, collector: 'collectors.Collector',
-                          args, kwargs) -> 'collectors.Collector':
+    def combine_collector(cls, collector, args, kwargs):
         return collector.with_query(cls(*args, **kwargs))
 
     def replace(self, fieldname: str, oldtext: text_type,
