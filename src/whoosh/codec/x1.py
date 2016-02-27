@@ -289,9 +289,11 @@ class X1Segment(codecs.FileSegment):
     def __init__(self, _codec: 'X1Codec', indexname: str, doccount: int=0,
                  segid: str=None, deleted: Set=None, fieldlengths: Dict=None,
                  was_little: bool=IS_LITTLE):
+        from whoosh import index
+
         self._codec = _codec
-        self.indexname = indexname
-        self.segid = segid if segid else self._random_id()
+        self._indexname = indexname
+        self._segid = segid if segid else index.make_segment_id()
 
         self._size = 0
         self._doccount = doccount
@@ -308,8 +310,13 @@ class X1Segment(codecs.FileSegment):
             self.doc_count_all()
         )
 
+    def make_filename(self, ext: str) -> str:
+        from whoosh import index
+        return index.make_segment_filename(self.index_name(),
+                                           self.segment_id(), ext)
+
     def make_col_filename(self, fieldname: str) -> str:
-        return self.make_filename(fieldname, X1Codec.COLUMN_EXT)
+        return self.make_filename("%s.col" % fieldname)
 
     def native(self) -> bool:
         return IS_LITTLE == self.was_little
@@ -365,11 +372,11 @@ class X1Segment(codecs.FileSegment):
 @codecs.register("whoosh.codec.x1.X1Codec")
 class X1Codec(codecs.Codec):
     # File extensions
-    TERMS_EXT = ".trm"  # Term index
-    POSTS_EXT = ".pst"  # Term postings
-    VPOSTS_EXT = ".vps"  # Vector postings
-    COLUMN_EXT = ".col"  # Per-document value columns
-    SEGMENT_EXT = ".seg"  # Compound segment
+    TERMS_EXT = "trm"  # Term index
+    POSTS_EXT = "pst"  # Term postings
+    VPOSTS_EXT = "vps"  # Vector postings
+    COLUMN_EXT = "col"  # Per-document value columns
+    SEGMENT_EXT = "seg"  # Compound segment
 
     def __init__(self, blocklimit: int=128, compression: int=3,
                  inlinelimit: int=1, assemble: bool=False):
@@ -418,7 +425,7 @@ class X1Codec(codecs.Codec):
         from whoosh.filedb.compound import assemble_segment
 
         store = session.store
-        filename = segment.make_filename("", X1Codec.SEGMENT_EXT)
+        filename = segment.make_filename(X1Codec.SEGMENT_EXT)
         assemble_segment(store, store, segment, filename, delete=True)
         segment.is_compound = True
         segment.compound_filename = filename
@@ -709,12 +716,12 @@ class X1FieldWriter(codecs.FieldWriter):
         self._blocksize = blocksize
         self._inlinelimit = inlinelimit
 
-        terms_filename = segment.make_filename("", X1Codec.TERMS_EXT)
+        terms_filename = segment.make_filename(X1Codec.TERMS_EXT)
         self._termsfile = self._store.create_file(terms_filename)
         self._termitems = []
         self._refs = []  # type: List[blueline.Ref]
 
-        posts_filename = segment.make_filename("", X1Codec.POSTS_EXT)
+        posts_filename = segment.make_filename(X1Codec.POSTS_EXT)
         self._postsfile = self._store.create_file(posts_filename)
         self._postsfile.write(PostFileHeader(was_little=IS_LITTLE).encode())
 
@@ -868,10 +875,10 @@ class X1TermsReader(codecs.TermsReader):
         self._store = session.store
         self._segment = segment
 
-        terms_filename = segment.make_filename("", X1Codec.TERMS_EXT)
+        terms_filename = segment.make_filename(X1Codec.TERMS_EXT)
         self._termsdata = self._store.map_file(terms_filename)
 
-        posts_filename = segment.make_filename("", X1Codec.POSTS_EXT)
+        posts_filename = segment.make_filename(X1Codec.POSTS_EXT)
         self._postsdata = self._store.map_file(posts_filename)
 
         # Read terms footer

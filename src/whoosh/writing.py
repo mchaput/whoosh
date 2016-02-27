@@ -834,7 +834,7 @@ class SegmentWriter:
         logger.info("Committing")
         merge = merge if merge is not None else self.merge
         optimize = optimize if optimize is not None else self.optimize
-        if optimize or self._changed:
+        if optimize or self._changed or self._added:
             self.flush(merge, optimize)
 
         # Wait for background tasks to complete

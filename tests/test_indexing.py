@@ -6,11 +6,24 @@ from itertools import permutations
 
 import pytest
 
-from whoosh import fields, qparser
+from whoosh import fields, index, qparser
 from whoosh.compat import text_type
 from whoosh.writing import IndexingError
-from whoosh.util.numeric import length_to_byte, byte_to_length
 from whoosh.util.testing import TempIndex, TempStorage
+
+
+def test_filenames():
+    tocname = index.make_toc_filename("foobar", 12)
+    m = index.toc_regex("foobar").match(tocname)
+    assert m
+    assert m.group("gen") == "12"
+
+    segid = index.make_segment_id()
+    segname = index.make_segment_filename("foobar", segid, "baz")
+    m = index.segment_regex("foobar").match(segname)
+    assert m
+    assert m.group("id") == segid
+    assert m.group("ext") == "baz"
 
 
 def test_creation():

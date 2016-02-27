@@ -28,6 +28,7 @@
 from __future__ import with_statement
 import errno
 import io
+import logging
 import mmap
 import os
 import sys
@@ -47,6 +48,9 @@ from whoosh.metadata import MetaData
 from whoosh.system import IS_LITTLE
 from whoosh.util import random_name
 from whoosh.util.filelock import FileLock
+
+
+logger = logging.getLogger(__name__)
 
 
 # Type aliases
@@ -134,32 +138,46 @@ class BaseFileStorage(storage.Storage):
         indexname = indexname or index.DEFAULT_INDEX_NAME
         return FileSession(self, indexname, writable)
 
+    def gc(self, toc: 'index.Toc', indexname: str):
+        segids = set(seg.segment_id() for seg in toc.segments)
+        regex = index.segment_regex(indexname)
+        for filename in self.list():
+            match = regex.match(filename)
+            if match and match.group("id") not in segids:
+                try:
+                    self.delete_file(filename)
+                except:
+                    # Ignore errors
+                    pass
+
     def save_toc(self, session: 'storage.Session', toc: 'index.Toc'):
         # This backend has no concept of a session, we just need the indexname
         indexname = session.indexname
 
+        # Clean up old segment files
+        self.gc(toc, indexname)
+
         # Write the file with a temporary name so other processes don't notice
         # it until it's done
-        real_filename = toc.make_filename(indexname, toc.generation)
-        temp_filename = toc.make_filename(indexname, toc.generation, ".tmp")
-
+        filename = index.make_toc_filename(indexname, toc.generation, ".tmp")
         tocbytes = toc.to_bytes()
         toclen = len(tocbytes)
         check = crc32(tocbytes)
         headbytes = TocHeader(was_little=IS_LITTLE, length=toclen,
                               checksum=check).encode()
 
-        with self.create_file(temp_filename) as f:
+        with self.create_file(filename) as f:
             f.write(headbytes)
             f.write(tocbytes)
             f.write_uint_le(check)
 
         # Rename the file into place
-        self.rename_file(temp_filename, real_filename, safe=True)
+        real_filename = index.make_toc_filename(indexname, toc.generation)
+        self.rename_file(filename, real_filename, safe=True)
 
     def latest_generation(self, session: 'storage.Session'):
         indexname = session.indexname
-        regex = index.Toc.toc_regex(indexname)
+        regex = index.toc_regex(indexname)
 
         mx = -2
         for filename in self:
@@ -181,7 +199,7 @@ class BaseFileStorage(storage.Storage):
         if generation is None:
             generation = self.latest_generation(session)
 
-        filename = index.Toc.make_filename(indexname, generation)
+        filename = index.make_toc_filename(indexname, generation)
         try:
             with self.map_file(filename) as data:
                 # Read the header at the beginning of the file

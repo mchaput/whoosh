@@ -97,7 +97,8 @@ class SegmentReader(readers.IndexReader):
         # (e.g. for compound segments)
         self._storage = self._codec.segment_storage(storage, segment)
         # Open a read-only session
-        self._session = self._storage.open(segment.indexname, writable=False)
+        self._session = self._storage.open(segment.index_name(),
+                                           writable=False)
 
         # Get sub-readers from codec
         self._terms = self._codec.terms_reader(self._session, segment)

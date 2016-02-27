@@ -32,12 +32,14 @@ an index.
 from __future__ import division, absolute_import
 
 import concurrent.futures
+import random
 import re
 import struct
 import sys
 from datetime import datetime
 from time import sleep
 from typing import Dict, Sequence, Tuple
+from typing.re import Pattern
 
 from whoosh import __version__
 from whoosh import fields, writing
@@ -90,6 +92,49 @@ class EmptyIndexError(WhooshIndexError):
     """
 
 
+# Filename functions
+
+# regex = re.compile(r"""
+#         ^(?P<codec>[A-Za-z0-9]+)
+#         _
+#         (?P<segid>[^_]+_[a-z0-9]+)
+#         _
+#         (?P<name>[^.]*)
+#         [.]
+#         (?P<ext>[A-Za-z0-9_]+)$
+#     """, re.VERBOSE | re.UNICODE)
+
+# These must be valid characters in CASE-INSENSTIVE filenames
+SEGMENT_IDCHARS = "0123456789abcdefghijklmnopqrstuvwxyz"
+SEGMENT_IDSIZE = 16
+
+
+def make_segment_id():
+    return "".join(random.choice(SEGMENT_IDCHARS) for _
+                   in range(SEGMENT_IDSIZE))
+
+
+def make_toc_filename(indexname: str, generation: int, ext: str="toc") -> str:
+    name = "_%s_%d.%s" % (indexname, generation, ext)
+    assert toc_regex(indexname, ext).match(name)
+    return name
+
+
+def toc_regex(indexname: str, ext: str="toc") -> Pattern:
+    return re.compile("^_%s_(?P<gen>[0-9]+)[.]%s$" % (indexname, ext))
+
+
+def make_segment_filename(indexname: str, segmentid: str, ext: str) -> str:
+    name = "%s_%s.%s" % (indexname, segmentid, ext)
+    assert segment_regex(indexname).match(name)
+    return name
+
+
+def segment_regex(indexname: str) -> Pattern:
+    return re.compile("^%s_(?P<id>[%s]{%d})[.](?P<ext>[A-Za-z0-9_.]+)$" %
+                      (indexname, SEGMENT_IDCHARS, SEGMENT_IDSIZE))
+
+
 # TOC
 
 # Length of codec name, length of segment bytes
@@ -129,18 +174,6 @@ class Toc:
         self.release = release
         self.created = created or datetime.utcnow()
         self.filename = None
-
-    @staticmethod
-    def make_filename(indexname: str, generation: int, ext="toc") -> str:
-        return "_%s_%s.%s" % (indexname, generation, ext)
-
-    @staticmethod
-    def toc_regex(indexname):
-        return re.compile("^_%s_([0-9]+).toc$" % indexname)
-
-    @staticmethod
-    def segment_regex(indexname):
-        return re.compile("(%s_[0-9a-z]+)[.][A-Za-z0-9_.]+" % indexname)
 
     def to_bytes(self) -> bytes:
         output = bytearray()

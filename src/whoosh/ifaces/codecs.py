@@ -114,9 +114,11 @@ class Segment:
     """
 
     def __init__(self, indexname: str, was_little: bool=IS_LITTLE):
-        self.indexname = indexname
+        from whoosh import index
+
+        self._indexname = indexname
         self.was_little = was_little
-        self.segid = self._random_id()
+        self._segid = index.make_segment_id()
 
     @classmethod
     def from_bytes(cls, bs: bytes) -> 'Segment':
@@ -125,18 +127,14 @@ class Segment:
     def to_bytes(self) -> bytes:
         return pickle.dumps(self)
 
-    @classmethod
-    def _random_id(cls, size: int=10) -> str:
-        return random_name(size=size)
-
     def __repr__(self):
         return "<%s %s>" % (self.__class__.__name__, self.segment_id())
 
     def index_name(self) -> str:
-        return self.indexname
+        return self._indexname
 
     def segment_id(self) -> str:
-        return "%s_%s" % (self.index_name(), self.segid)
+        return self._segid
 
     def codec_name(self) -> str:
         return self.codec().name()
@@ -236,29 +234,13 @@ class Segment:
 
 
 class FileSegment(Segment):
-    regex = re.compile(r"""
-        ^(?P<codec>[A-Za-z0-9]+)
-        _
-        (?P<segid>[^_]+_[a-z0-9]+)
-        _
-        (?P<name>[^.]*)
-        [.]
-        (?P<ext>[A-Za-z0-9_]+)$
-    """, re.VERBOSE | re.UNICODE)
-
-    def filename_prefix(self):
-        short_name = self.codec().short_name()
-        return "%s_%s_" % (short_name, self.segment_id())
-
-    def make_filename(self, name: str, ext: str) -> str:
-        name = "%s%s%s" % (self.filename_prefix(), name, ext)
-        assert self.regex.match(name)
-        return name
-
     def file_names(self, store) -> Iterable[str]:
-        prefix = self.filename_prefix()
+        from whoosh import index
+        myid = self.segment_id()
+        regex = index.segment_regex(self.index_name())
         for filename in store:
-            if filename.startswith(prefix):
+            match = regex.match(filename)
+            if match and match.group("id") == myid:
                 yield filename
 
 
@@ -868,10 +850,10 @@ class MultiPerDocumentReader(PerDocumentReader):
             total += r.doc_count()
         return total
 
-    def _document_reader(self, docnum: int) -> PerDocumentReader:
+    def _document_reader(self, docnum: int) -> int:
         return max(0, bisect_right(self._doc_offsets, docnum) - 1)
 
-    def _reader_and_docnum(self, docnum: int) -> Tuple[PerDocumentReader, int]:
+    def _reader_and_docnum(self, docnum: int) -> Tuple[int, int]:
         rnum = self._document_reader(docnum)
         offset = self._doc_offsets[rnum]
         return rnum, docnum - offset
@@ -887,12 +869,12 @@ class MultiPerDocumentReader(PerDocumentReader):
 
     def deleted_docs(self) -> Set:
         docset = set()
-        for r, offset in izip(self._readers, self._doc_offsets):
+        for r, offset in zip(self._readers, self._doc_offsets):
             docset.update((docnum + offset for docnum in r.deleted_docs()))
         return docset
 
     def all_doc_ids(self) -> Iterable[int]:
-        for r, offset in izip(self._readers, self._doc_offsets):
+        for r, offset in zip(self._readers, self._doc_offsets):
             for docnum in r.all_doc_ids():
                 yield docnum + offset
 
