@@ -84,12 +84,19 @@ _(?P<name>[A-Za-z]*)  # Field name (may be blank for general files)
 
 # Header for terms file
 
+class TermsFileHeader(MetaData):
+    magic_bytes = b"X1Th"
+    flags = "was_little"
+
+    was_little = IS_LITTLE
+
+
 class TermsFileFooter(MetaData):
-    magic_bytes = b"X1Te"
+    magic_bytes = b"X1Tf"
     flags = "was_little"
     field_order = "refs_offset refs_count names_offset names_count"
 
-    was_little = False
+    was_little = IS_LITTLE
 
     refs_offset = "q"
     refs_count = "i"
@@ -100,6 +107,8 @@ class TermsFileFooter(MetaData):
 class PostFileHeader(MetaData):
     magic_bytes = b"X1Po"
     flags = "was_little"
+
+    was_little = IS_LITTLE
 
 
 # Functions to generate fake field names for internal columns
@@ -718,6 +727,9 @@ class X1FieldWriter(codecs.FieldWriter):
 
         terms_filename = segment.make_filename(X1Codec.TERMS_EXT)
         self._termsfile = self._store.create_file(terms_filename)
+        # Write the terms header
+        self._termsfile.write(TermsFileHeader(was_little=IS_LITTLE).encode())
+
         self._termitems = []
         self._refs = []  # type: List[blueline.Ref]
 
@@ -877,9 +889,15 @@ class X1TermsReader(codecs.TermsReader):
 
         terms_filename = segment.make_filename(X1Codec.TERMS_EXT)
         self._termsdata = self._store.map_file(terms_filename)
+        # Read the terms header
+        terms_header = TermsFileHeader.decode(self._termsdata)
+        assert terms_header.version_number == 0
 
         posts_filename = segment.make_filename(X1Codec.POSTS_EXT)
         self._postsdata = self._store.map_file(posts_filename)
+        # Read the posts header
+        posts_header = PostFileHeader.decode(self._postsdata)
+        assert posts_header.version_number == 0
 
         # Read terms footer
         footer_size = TermsFileFooter.get_size()

@@ -20,9 +20,11 @@ class MetaData:
         for key in kwargs:
             if key.startswith("_"):
                 continue
-            if (key != "version_number" and
-                        key not in flagnames and
-                        key not in fieldnames):
+            if (
+                key != "version_number" and
+                key not in flagnames and
+                key not in fieldnames
+            ):
                 raise KeyError("Unknown argument %r" % key)
 
         self.__dict__.update(kwargs)
