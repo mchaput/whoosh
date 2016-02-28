@@ -138,7 +138,10 @@ class BaseFileStorage(storage.Storage):
         indexname = indexname or index.DEFAULT_INDEX_NAME
         return FileSession(self, indexname, writable)
 
-    def gc(self, toc: 'index.Toc', indexname: str):
+    def cleanup(self, session: 'storage.Session', toc: 'index.Toc'=None):
+        toc = toc or self.load_toc(session)
+
+        indexname = session.indexname
         segids = set(seg.segment_id() for seg in toc.segments)
         regex = index.segment_regex(indexname)
         for filename in self.list():
@@ -155,7 +158,7 @@ class BaseFileStorage(storage.Storage):
         indexname = session.indexname
 
         # Clean up old segment files
-        self.gc(toc, indexname)
+        self.cleanup(session, toc)
 
         # Write the file with a temporary name so other processes don't notice
         # it until it's done

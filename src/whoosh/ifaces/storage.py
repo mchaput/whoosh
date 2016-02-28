@@ -29,6 +29,8 @@ from abc import abstractmethod
 
 import furl
 
+from whoosh import index
+
 
 # Exceptions
 
@@ -197,6 +199,17 @@ class Storage:
         """
 
         raise NotImplementedError
+
+    def cleanup(self, session: Session, toc: 'index.Toc'=None):
+        """
+        Cleans up any old data in the storage.
+
+        :param session: the session object to clean up in.
+        :param toc: the TOC object to use for the current data. If this is not
+            given, the method loads the current TOC.
+        """
+
+        pass
 
     @abstractmethod
     def save_toc(self, session: Session, toc: 'index.Toc'):

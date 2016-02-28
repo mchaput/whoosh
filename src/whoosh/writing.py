@@ -300,9 +300,10 @@ class SegmentWriter:
         self._external_session = session
         self.session = session or self.store.open(indexname, writable=True)
 
-        self._original_segments = segments if segments is not None else []
-        self.segments = SegmentList(self.session, self.schema,
-                                    self._original_segments)
+        segments = segments if segments is not None else []
+        self.segments = SegmentList(self.session, self.schema, segments)
+        self._original_segments = segments
+        self._original_schema = schema.copy()
 
         if cdc is None:
             from whoosh.codec import default_codec
@@ -836,6 +837,11 @@ class SegmentWriter:
         optimize = optimize if optimize is not None else self.optimize
         if optimize or self._changed or self._added:
             self.flush(merge, optimize)
+        else:
+            logger.info("No changes to commit")
+            # Close the (empty) codec writers
+            self._perdoc.close()
+            self._terms.close()
 
         # Wait for background tasks to complete
         if self.executor:
@@ -856,6 +862,7 @@ class SegmentWriter:
         logger.info("Cancelling")
         self._perdoc.close()
         self._terms.close()
+        self.store.cleanup(self.session)
         self._close()
 
     def _close(self):
