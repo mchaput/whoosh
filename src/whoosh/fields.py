@@ -1021,7 +1021,7 @@ class KEYWORD(FieldType):
 
     def __init__(self, stored=False, lowercase=False, commas=False,
                  scorable=False, unique=False, field_boost=1.0, sortable=False,
-                 vector=None):
+                 vector=None, analyzer=None):
         """
         :param stored: Whether to store the value of the field with the
             document.
@@ -1030,8 +1030,11 @@ class KEYWORD(FieldType):
         :param scorable: Whether this field is scorable.
         """
 
-        self.analyzer = analysis.KeywordAnalyzer(lowercase=lowercase,
-                                                 commas=commas)
+        if not analyzer:
+            analyzer = analysis.KeywordAnalyzer(lowercase=lowercase,
+                                                commas=commas)
+        self.analyzer = analyzer
+
         # Store field lengths and weights along with doc ID
         self.format = formats.Frequency(field_boost=field_boost)
         self.scorable = scorable
