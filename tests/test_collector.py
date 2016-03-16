@@ -233,11 +233,11 @@ def test_filter_results_count():
                            text=fields.TEXT)
     with TempIndex(schema) as ix:
         with ix.writer() as w:
-            w.add_document(id=1, django_ct="app.model1",
+            w.add_document(id=1, django_ct=u("app.model1"),
                            text=u("alfa bravo charlie"))
-            w.add_document(id=2, django_ct="app.model1",
+            w.add_document(id=2, django_ct=u("app.model1"),
                            text=u("alfa bravo delta"))
-            w.add_document(id=3, django_ct="app.model2",
+            w.add_document(id=3, django_ct=u("app.model2"),
                            text=u("alfa charlie echo"))
 
         with ix.searcher() as s:

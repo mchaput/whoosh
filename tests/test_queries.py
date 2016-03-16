@@ -1,4 +1,4 @@
-from __future__ import with_statement, unicode_literals
+from __future__ import with_statement
 import copy
 
 import pytest
@@ -583,7 +583,7 @@ def test_andnot_reverse():
     with TempIndex(schema) as ix:
         with ix.writer() as w:
             for name in docs:
-                w.add_document(name=name)
+                w.add_document(name=u(name))
 
         with ix.searcher() as s:
             names_fw = [hit["name"] for hit in s.search(q, limit=None)]
@@ -591,7 +591,7 @@ def test_andnot_reverse():
     with TempIndex(schema) as ix:
         with ix.writer() as w:
             for name in reversed(docs):
-                w.add_document(name=name)
+                w.add_document(name=u(name))
 
         with ix.searcher() as s:
             names_rv = [hit["name"] for hit in s.search(q, limit=None)]
