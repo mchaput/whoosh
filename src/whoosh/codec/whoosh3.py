@@ -240,6 +240,7 @@ class W3PerDocWriter(base.PerDocWriterWithColumns):
         # Add row to vector lookup column
         vecfield = _vecfield(fieldname)  # Compute vector column name
         offset, length = vinfo.extent()
+        assert offset != 0
         self.add_column_value(vecfield, VECTOR_COLUMN, offset)
         self.add_column_value(vecfield + "L", VECTOR_LEN_COLUMN, length)
 
@@ -464,20 +465,25 @@ class W3PerDocReader(base.PerDocumentReader):
         # -1 for the length (backwards compatibility with old dev versions)
         lreader = self._cached_reader(vecfield + "L", VECTOR_COLUMN)
         if lreader:
-            length = [docnum]
+            length = lreader[docnum]
         else:
             length = -1
 
         return offset, length
 
     def has_vector(self, docnum, fieldname):
-        return (self.has_column(_vecfield(fieldname))
-                and self._vector_extent(docnum, fieldname))
+        if self.has_column(_vecfield(fieldname)):
+            offset, length = self._vector_extent(docnum, fieldname)
+            return offset != 0
+        return False
 
     def vector(self, docnum, fieldname, format_):
         if self._vpostfile is None:
             self._prep_vectors()
         offset, length = self._vector_extent(docnum, fieldname)
+        if not offset:
+            raise Exception("Field %r has no vector in docnum %s" %
+                            (fieldname, docnum))
         m = W3LeafMatcher(self._vpostfile, offset, length, format_,
                           byteids=True)
         return m
