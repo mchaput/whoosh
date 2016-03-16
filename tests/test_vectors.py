@@ -1,3 +1,4 @@
+# encoding: utf-8
 from __future__ import with_statement
 
 from whoosh import fields, formats
@@ -110,3 +111,27 @@ def test_write_empty_vector():
     with TempIndex(schema) as ix:
         with ix.writer() as w:
             w.add_document(text=u". . . . . . . . . . . . . . . . . . . . . . . . 1")
+
+
+def test_vpst_block_tag():
+    schema = fields.Schema(text=fields.TEXT(vector=True))
+
+    content = [
+        u"",
+        u"του δε ελεφαντος την τιγριν πολλον τι αλκιμωτερην \nΙνδοι αγουσι. ",
+        u"επεαν γαρ ομου ελθη ελεφαντι, επιπηδαν \nτε επι την κεφαλην του ελ",
+        u"ταυτας δε, αστινας και ημεις ορεομεν και \nτιγριας καλεομεν, θωας ",
+        u"επει και υπερ των μυρμηκων λεγει \nΝεαρχος μυρμηκα μεν αυτος ουκ ι",
+        u"Μεγασθενης δε ατρεκεα \nειναι υπερ των μυρμηκων τον λογον ιστορεει",
+        u"εκεινους δε  ειναι γαρ\nαλωπεκων μεζονας  προς λογον του μεγαθεος ",
+        u"αλλα Μεγασθενης\nτε ακοην απηγεεται, και εγω οτι ουδεν τουτου ατρε",
+        u"σιττακους δε Νεαρχος μεν ως δη τι\nθωμα απηγεεται οτι γινονται εν ",
+        u"εγω δε οτι αυτος τε πολλους οπωπεα και αλλους \nεπισταμενους ηδεα ",
+        u"και οφιας δε λεγει Νεαρχος \nθηρευθηναι αιολους μεν και ταχεας, με",
+    ]
+
+    with TempIndex(schema) as ix:
+        for i, string in enumerate(content):
+            with ix.writer() as w:
+                w.add_document(text=string)
+
