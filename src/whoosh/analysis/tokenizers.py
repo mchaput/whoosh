@@ -56,6 +56,7 @@ class IDTokenizer(analysis.Tokenizer):
         t = analysis.Token(positions=positions, chars=chars,
                            removestops=removestops, mode=mode,
                            **kwargs)
+        t.source = value
         t.text = value
         t.boost = 1.0
         if keeporiginal:
@@ -120,6 +121,8 @@ class RegexTokenizer(analysis.Tokenizer):
 
         t = analysis.Token(positions, chars, removestops=removestops, mode=mode,
                            **kwargs)
+        t.source = value
+
         if not tokenize:
             t.original = t.text = value
             t.boost = t.field_boost
@@ -245,6 +248,8 @@ class CharsetTokenizer(analysis.Tokenizer):
 
         t = analysis.Token(positions, chars, removestops=removestops, mode=mode,
                            **kwargs)
+        t.source = value
+
         if not tokenize:
             t.original = t.text = value
             t.boost = 1.0
@@ -335,9 +340,12 @@ class PathTokenizer(analysis.Tokenizer):
     def __init__(self, expression="[^/]+"):
         self.expr = rcompile(expression)
 
-    def __call__(self, value, positions=False, start_pos=0, **kwargs):
+    def __call__(self, value: text_type, positions: bool=False,
+                 start_pos: int=0, **kwargs):
         assert isinstance(value, text_type), "%r is not unicode" % value
         token = analysis.Token(positions, **kwargs)
+        token.source = value
+
         pos = start_pos
         for match in self.expr.finditer(value):
             token.text = value[:match.end()]

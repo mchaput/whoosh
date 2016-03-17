@@ -44,7 +44,6 @@ from typing.re import Pattern
 from whoosh import __version__
 from whoosh import fields, writing
 from whoosh.ifaces import codecs, readers, storage, searchers
-from whoosh.filedb import filestore
 from whoosh.metadata import MetaData
 from whoosh.util.times import datetime_to_long, long_to_datetime
 
@@ -550,6 +549,8 @@ def create_in(dirname: str, schema: 'fields.Schema',
     :returns: :class:`Index`
     """
 
+    from whoosh.filedb import filestore
+
     store = filestore.FileStorage(dirname)
     indexname = indexname or DEFAULT_INDEX_NAME
     return store.create_index(schema, indexname)
@@ -572,6 +573,8 @@ def open_dir(dirname: str, indexname: str=None, readonly: bool=False,
     :param schema: use this schema instead of the one saved with the index.
     """
 
+    from whoosh.filedb import filestore
+
     store = filestore.FileStorage(dirname, readonly=readonly,
                                   supports_mmap=use_mmap)
     indexname = indexname or DEFAULT_INDEX_NAME
@@ -586,6 +589,8 @@ def exists_in(dirname: str, indexname: str=None):
     :param indexname: the name of the index. If None, the default index name is
         used.
     """
+
+    from whoosh.filedb import filestore
 
     store = filestore.FileStorage(dirname)
     indexname = indexname or DEFAULT_INDEX_NAME
@@ -613,6 +618,8 @@ def version_in(dirname: str, indexname: str=None):
         used.
     :returns: ((major_ver, minor_ver, build_ver), format_ver)
     """
+
+    from whoosh.filedb import filestore
 
     store = filestore.FileStorage(dirname)
     indexname = indexname or DEFAULT_INDEX_NAME

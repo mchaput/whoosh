@@ -28,7 +28,8 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from itertools import chain
-from typing import Any, Dict, Iterable, Sequence, Set, Union
+from typing import (Any, Callable, Dict, Iterable, List, Sequence, Set, Tuple,
+                    Union)
 
 from whoosh.ifaces import analysis
 from whoosh.compat import text_type
@@ -459,4 +460,51 @@ class SubstitutionFilter(analysis.Filter):
 
         for t in tokens:
             t.text = pattern.sub(replacement, t.text)
+            yield t
+
+
+class FunctionFilter(analysis.Filter):
+    def __init__(self, fn: Callable[[analysis.Token], analysis.Token]):
+        self.fn = fn
+
+    def filter(self, tokens: Iterable[analysis.Token]
+               ) -> Iterable[analysis.Token]:
+        fn = self.fn
+        for t in tokens:
+            yield fn(t)
+
+
+class HyphenFilter(analysis.Filter):
+    def __init__(self, merge=False):
+        self.merge = merge
+
+    def set_options(self, kwargs):
+        # This filter needs characters on the tokens to work
+        kwargs["chars"] = True
+
+    def filter(self, tokens: Iterable[analysis.Token]
+               ) -> Iterable[analysis.Token]:
+        # List of (text, pos, startchar, endchar) tuples representing previous
+        # parts of a string of hyphenates
+        prev = []  # type: List[Tuple[text_type, int, int, int]]
+        for t in tokens:
+            if t.mode != "query":
+                is_hy = False
+                if t.startchar > 0 and t.source and prev:
+                    last_end = prev[-1][3]
+                    is_hy = (t.source[t.startchar - 1:t.startchar] == "-" and
+                             last_end == t.startchar - 1)
+
+                if is_hy:
+                    prev.append((t.text, t.pos, t.startchar, t.endchar))
+                    tt = t.copy()
+                    tt.endchar = t.endchar
+                    for i in range(len(prev) - 1):
+                        tt.pos = prev[i][1]
+                        tt.startchar = prev[i][2]
+                        tt.text = "".join(p[0] for p in prev[i:])
+                        yield tt
+                else:
+                    prev = [(t.text, t.pos, t.startchar, t.endchar)]
+
             yield t

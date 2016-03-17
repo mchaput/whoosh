@@ -1115,7 +1115,7 @@ def copy_reader(reader: 'readers.IndexReader', session: 'storage.Session',
 
 def batch_index(batch_filename: str, count: int, storage_url: str,
                 indexname: str, schema: 'fields.Schema', generation: int,
-                merge_id: str, doc_limit: int) -> Tuple[codecs.Segment, str]:
+                merge_id: str, doc_limit: int) -> 'Tuple[codecs.Segment, str]':
 
     logger.info("Batching indexing file %r to %s", batch_filename, storage_url)
     t = now()

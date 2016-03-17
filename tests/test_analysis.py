@@ -91,6 +91,23 @@ def test_shared_composition():
     assert [t.text for t in ana2(u"hello")] == ["HL"]
 
 
+def test_composite_order():
+    def fn1(t):
+        t.text += "1"
+        return t
+
+    def fn2(t):
+        t.text += "2"
+        return t
+
+    ana = (tokenizers.RegexTokenizer() |
+           filters.FunctionFilter(fn1) |
+           filters.FunctionFilter(fn2))
+    text = "alfa bravo charlie"
+    words = " ".join(t.text for t in ana(text))
+    assert words == "alfa12 bravo12 charlie12"
+
+
 def test_multifilter():
     f1 = filters.LowercaseFilter()
     f2 = filters.PassFilter()
@@ -587,5 +604,22 @@ def test_porter():
             wrong.append((before, target, output))
 
     assert not wrong
+
+
+def test_hyphens():
+    ana = (tokenizers.RegexTokenizer() |
+           filters.LowercaseFilter() |
+           filters.HyphenFilter())
+
+    source = "The gribble-plunk has a show-me-your-stuff attitude."
+    texts = " ".join(t.text for t in ana(source))
+    assert texts == (
+        "the gribble gribbleplunk plunk has a show showme me showmeyour meyour "
+        "your showmeyourstuff meyourstuff yourstuff stuff attitude"
+    )
+
+    texts = " ".join(t.text for t in ana(source, mode="query"))
+    assert texts == "the gribble plunk has a show me your stuff attitude"
+
 
 

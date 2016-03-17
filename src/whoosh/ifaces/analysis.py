@@ -118,7 +118,8 @@ class Token:
 
     def __init__(self, positions: bool=False, chars: bool=False,
                  payloads: bool=False, removestops: bool=True, mode: str='',
-                 no_morph: bool=False, field_boost: float=1.0, **kwargs):
+                 no_morph: bool=False, field_boost: float=1.0,
+                 source: text_type=None, **kwargs):
         """
         :param positions: Whether tokens should have the token position in the
             'pos' attribute.
@@ -130,6 +131,7 @@ class Token:
             analyzer is being called, i.e. 'index' or 'query'.
         :param no_morph: whether to skip filters that morphologically change
             tokens (e.g. stemming).
+        :param source: the original string being tokenized.
         """
 
         self.positions = positions
@@ -141,6 +143,7 @@ class Token:
         self.removestops = removestops
         self.mode = mode
         self.no_morph = no_morph
+        self.source = source
 
         self.text = u''
         self.pos = -1
@@ -221,6 +224,9 @@ class Filter(Analyzer):
     def filter(self, tokens: Iterable[Token]) -> Iterable[Token]:
         raise NotImplementedError(self.__class__)
 
+    def set_options(self, kwargs):
+        pass
+
 
 class FilterChain(Filter):
     def __init__(self, *filters: Sequence[Filter]):
@@ -277,6 +283,10 @@ class CompositeAnalyzer(Tokenizer):
 
     def __call__(self, value: text_type, no_morph: bool=False,
                  **kwargs) -> Iterable[Token]:
+        # Allow filters to change options
+        for f in self._filters:
+            f.set_options(kwargs)
+
         # Start with tokenizer
         gen = self._tokenizer(value, **kwargs)
 
