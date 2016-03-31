@@ -412,9 +412,13 @@ class OrGroup(GroupNode):
 
     @classmethod
     def factory(cls, scale=1.0):
-        def maker(nodes=None, **kwargs):
-            return cls(nodes=nodes, scale=scale, **kwargs)
-        return maker
+        class ScaledOrGroup(OrGroup):
+            def __init__(self, nodes=None, **kwargs):
+                if "scale" in kwargs:
+                    del kwargs["scale"]
+                super(ScaledOrGroup, self).__init__(nodes=nodes, scale=scale,
+                                                    **kwargs)
+        return ScaledOrGroup
 
 
 class DisMaxGroup(GroupNode):

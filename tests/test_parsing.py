@@ -2,8 +2,7 @@ import pytest
 
 from whoosh import analysis, fields, query
 from whoosh.compat import u, text_type
-from whoosh.qparser import default
-from whoosh.qparser import plugins
+from whoosh.qparser import default, plugins
 
 
 def test_whitespace():
@@ -994,3 +993,15 @@ def test_quoted_prefix():
     assert q[1] == query.Prefix("url", "http://apple.com:8080/bar")
     assert q[2] == query.Term("f", "baz")
     assert len(q) == 3
+
+
+def test_multitoken_with_factory():
+    from whoosh.qparser.syntax import OrGroup
+
+    schema = fields.Schema(title=fields.TEXT)
+
+    og = OrGroup.factory(0.9)
+    qp = default.QueryParser("title", schema, group=og)
+
+    querystring = u"get my name/address"
+    userquery = qp.parse(querystring)
