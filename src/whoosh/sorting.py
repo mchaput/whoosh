@@ -755,13 +755,13 @@ class MultiFacet(FacetType):
     For example, to sort by the value of the "tag" field, and then (for
     documents where the tag is the same) by the value of the "path" field::
 
-        facet = MultiFacet(FieldFacet("tag"), FieldFacet("path")
+        facet = MultiFacet([FieldFacet("tag"), FieldFacet("path")])
         results = searcher.search(myquery, sortedby=facet)
 
     As a shortcut, you can use strings to refer to field names, and they will
     be assumed to be field names and turned into FieldFacet objects::
 
-        facet = MultiFacet("tag", "path")
+        facet = MultiFacet(["tag", "path"])
 
     You can also use the ``add_*`` methods to add criteria to the multifacet::
 
