@@ -533,7 +533,6 @@ class CoordMatcher(WrappingMatcher):
     def __init__(self, child, scale=1.0):
         WrappingMatcher.__init__(self, child)
         self._termcount = len(list(child.term_matchers()))
-        self._maxqual = child.max_quality()
         self._scale = scale
 
     def _replacement(self, newchild):
@@ -551,8 +550,8 @@ class CoordMatcher(WrappingMatcher):
         termcount = self._termcount  # Number of terms in this tree
         scale = self._scale  # Scaling factor
 
-        sqr = ((score + ((matching - 1) / (termcount - scale) ** 2))
-               * ((termcount - 1) / termcount))
+        sqr = ((score + ((matching - 1) / (termcount - scale) ** 2)) *
+               ((termcount - 1) / termcount))
         return sqr
 
     def max_quality(self):

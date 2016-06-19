@@ -1762,5 +1762,63 @@ def test_limit_scores():
             assert limited_score == unlimited_score
 
 
+def test_function_weighting():
+    def pos_score_fn(searcher, fieldname, text, matcher):
+        spans = matcher.spans()
+        return 1.0 / (spans[0].start + 1)
+
+    pos_weighting = scoring.FunctionWeighting(pos_score_fn)
+
+    schema = fields.Schema(id=fields.STORED, text=fields.TEXT)
+
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            w.add_document(id="a", text=u"aa bb")
+            w.add_document(id="b", text=u"bb aa bb")
+            w.add_document(id="c", text=u"bb bb aa bb")
+            w.add_document(id="d", text=u"bb bb bb aa bb")
+            w.add_document(id="e", text=u"bb bb bb bb aa bb")
+            w.add_document(id="f", text=u"bb bb bb bb bb aa bb")
+
+        with ix.writer() as w:
+            w.add_document(id="g", text=u"aa bb")
+            w.add_document(id="h", text=u"bb aa bb")
+            w.add_document(id="i", text=u"bb bb aa bb")
+            w.add_document(id="j", text=u"bb bb bb aa bb")
+            w.add_document(id="k", text=u"bb bb bb bb aa bb")
+            w.add_document(id="l", text=u"bb bb bb bb bb aa bb")
+
+        with ix.writer() as w:
+            w.add_document(id="m", text=u"aa bb")
+            w.add_document(id="n", text=u"bb aa bb")
+            w.add_document(id="o", text=u"bb bb aa bb")
+            w.add_document(id="p", text=u"bb bb bb aa bb")
+            w.add_document(id="q", text=u"bb bb bb bb aa bb")
+            w.add_document(id="r", text=u"bb bb bb bb bb aa bb")
+
+        with ix.writer() as w:
+            w.add_document(id="s", text=u"aa bb")
+            w.add_document(id="t", text=u"bb aa bb")
+            w.add_document(id="u", text=u"bb bb aa bb")
+            w.add_document(id="v", text=u"bb bb bb aa bb")
+            w.add_document(id="w", text=u"bb bb bb bb aa bb")
+            w.add_document(id="x", text=u"bb bb bb bb bb aa bb")
+
+        with ix.searcher(weighting=pos_weighting) as s:
+            q = query.Term("text", "aa")
+            m = q.matcher(s, s.context())
+            assert not m.supports_block_quality()
+
+            r = s.search(q, limit=5)
+            ids = "".join(([hit["id"] for hit in r]))
+            assert ids == "agmsb"
+
+            q = query.Or([query.Term("text", "aa"), query.Term("text", "bb")],
+                         scale=2.0)
+            m = q.matcher(s, s.context())
+            assert not m.supports_block_quality()
+
+
+
 
 
