@@ -554,7 +554,7 @@ class SpanNear2(SpanQuery):
         return h
 
     def _and_query(self):
-        return q.And(self.qs)
+        return And(self.qs)
 
     def estimate_size(self, ixreader):
         return self._and_query().estimate_size(ixreader)

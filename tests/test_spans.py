@@ -5,6 +5,7 @@ from whoosh.compat import u, xrange, permutations
 from whoosh.filedb.filestore import RamStorage
 from whoosh.query import spans
 from whoosh.query import And, Or, Term, Phrase
+from whoosh.util.testing import TempIndex
 
 
 domain = ("alfa", "bravo", "bravo", "charlie", "delta", "echo")
@@ -199,7 +200,7 @@ def test_near_unordered():
         assert r == [u('alfa bravo charlie delta echo'), u('alfa charlie bravo delta echo')]
 
 
-def test_span_near2():
+def test_span_near_tree():
     ana = analysis.SimpleAnalyzer()
     schema = fields.Schema(text=fields.TEXT(analyzer=ana, stored=True))
     st = RamStorage()
@@ -215,6 +216,26 @@ def test_span_near2():
     with ix.searcher() as s:
         m = nq2.matcher(s)
         assert m.spans() == [spans.Span(1, 8)]
+
+
+def test_spannear2():
+    schema = fields.Schema(id=fields.STORED, text=fields.TEXT)
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            w.add_document(id="a", text=u"alfa echo")
+            w.add_document(id="b", text=u"alfa bravo echo")
+            w.add_document(id="c", text=u"alfa bravo charlie echo")
+            w.add_document(id="d", text=u"alfa bravo charlie delta echo")
+            w.add_document(id="e", text=u"alfa bravo charlie fox delta echo")
+            w.add_document(id="f", text=u"charlie delta echo fox golf hotel")
+
+        with ix.searcher() as s:
+            q = spans.SpanNear2([Term("text", "bravo"), Term("text", "echo")],
+                                slop=3)
+            assert q.estimate_size(s.reader()) == 4
+
+            ids = "".join(sorted(hit["id"] for hit in s.search(q)))
+            assert ids == "bcd"
 
 
 def test_span_not():
