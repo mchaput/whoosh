@@ -624,7 +624,7 @@ class Require(BinaryQuery):
     def matcher(self, searcher, context=None):
         scoredm = self.a.matcher(searcher, context)
         requiredm = self.b.matcher(searcher, searcher.boolean_context())
-        return matching.AndNotMatcher(scoredm, requiredm)
+        return matching.RequireMatcher(scoredm, requiredm)
 
 
 class AndMaybe(BinaryQuery):
