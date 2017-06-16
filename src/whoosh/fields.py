@@ -60,6 +60,10 @@ class FieldType:
         raise NotImplementedError
 
     @abstractmethod
+    def empty_column_reader(self, doccount: int) -> columns.ColumnReader:
+        raise NotImplementedError
+
+    @abstractmethod
     def to_bytes(self, value: Any) -> bytes:
         raise NotImplementedError
 

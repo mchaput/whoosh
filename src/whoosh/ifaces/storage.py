@@ -250,8 +250,7 @@ class Storage:
         raise NotImplementedError
 
     @abstractmethod
-    def load_toc(self, session: Session, generation: int=None,
-                 schema: 'fields.Schema'=None) -> 'index.Toc':
+    def load_toc(self, session: Session, generation: int=None) -> 'index.Toc':
         raise NotImplementedError
 
     @abstractmethod
@@ -307,11 +306,11 @@ class Storage:
         indexname = indexname or index.DEFAULT_INDEX_NAME
         session = self.open(indexname)
         try:
-            toc = self.load_toc(session, generation=generation, schema=schema)
+            toc = self.load_toc(session, generation=generation)
         except TocNotFound:
             raise index.EmptyIndexError
 
-        return index.Index(self, indexname, toc)
+        return index.Index(self, indexname, schema)
 
     def create_index(self, schema, indexname: str=None):
         """
@@ -351,5 +350,5 @@ class Storage:
             self.save_toc(session, toc)
 
         # Return an Index with the new TOC
-        return index.Index(self, indexname, toc)
+        return index.Index(self, indexname, schema)
 

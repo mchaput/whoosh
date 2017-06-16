@@ -231,8 +231,7 @@ class BaseFileStorage(storage.Storage):
         with self.create_file(filename) as f:
             f.write(("%06x" % session.id_counter).encode("ascii"))
 
-    def load_toc(self, session: 'storage.Session', generation: int=None,
-                 schema: 'fields.Schema'=None):
+    def load_toc(self, session: 'storage.Session', generation: int=None):
         # This backend has no concept of a session, all we need from the object
         # is the indexname
         indexname = session.indexname
@@ -263,7 +262,9 @@ class BaseFileStorage(storage.Storage):
                 toc = index.Toc.from_bytes(tocbytes)
                 assert toc.generation == generation
                 toc.filename = filename
+
                 return toc
+
         except FileNotFoundError:
             raise storage.TocNotFound("Index %s generation %s not found" %
                                       (indexname, generation))

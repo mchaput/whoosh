@@ -1375,6 +1375,8 @@ class MultiColumnReader(ColumnReader):
         self._readers = readers
         self._doc_offsets = []  # List[int]
 
+        # If we weren't passes the doc offsets of each sub-column, compute them
+        # from the column lengths
         if offsets is None:
             doccount = 0
             for r in readers:
@@ -1384,7 +1386,11 @@ class MultiColumnReader(ColumnReader):
             assert len(offsets) == len(readers)
             self._doc_offsets = offsets
 
-    def _document_reader(self, docnum: int) -> ColumnReader:
+    def __repr__(self):
+        return "<%s %r %r>" % (type(self).__name__, self._readers,
+                               self._doc_offsets)
+
+    def _document_reader(self, docnum: int) -> int:
         return max(0, bisect_right(self._doc_offsets, docnum) - 1)
 
     def _reader_and_docnum(self, docnum: int) -> Tuple[int, int]:
@@ -1424,6 +1430,9 @@ class TranslatingColumnReader(ColumnReader):
 
         self._reader = reader
         self._translate = translate
+
+    def __repr__(self):
+        return "<%s %r>" % (type(self).__name__, self._reader)
 
     def raw_column(self):
         """Returns the underlying column reader.

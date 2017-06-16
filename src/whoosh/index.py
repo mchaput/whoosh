@@ -244,9 +244,14 @@ class Index:
     Represents an indexed collection of documents.
     """
 
-    def __init__(self, store: 'storage.Storage', indexname: str, toc: Toc=None):
+    def __init__(self, store: 'storage.Storage', indexname: str,
+                 schema: 'fields.Schema'=None):
         self.store = store
         self.indexname = indexname
+
+        if schema and not isinstance(schema, fields.Schema):
+            raise TypeError("%r is not a schema")
+        self._schema = schema
 
     def __enter__(self):
         return self
@@ -262,7 +267,7 @@ class Index:
 
     @property
     def schema(self):
-        return self.toc.schema
+        return self._schema if self._schema else self.toc.schema
 
     def storage(self) -> 'storage.Storage':
         return self.store
@@ -463,6 +468,7 @@ class Index:
                multiproc: bool=False, multithreaded: bool=False,
                procs: int=None, threads: int=None,
                codec: 'codecs.Codec'=None,
+               schema: 'fields.Schema'=None,
                **kwargs
                ) -> 'writing.IndexWriter':
         """
@@ -495,6 +501,8 @@ class Index:
         if multiproc or multithreaded:
             cls = writing.MultiWriter
 
+        schema = schema or self.schema
+
         if not executor:
             if multiproc:
                 executor = futures.ProcessPoolExecutor(procs)
@@ -503,7 +511,7 @@ class Index:
 
         codec = codec or default_codec()
         return cls(codec,
-                   self.store, self.indexname, list(toc.segments), toc.schema,
+                   self.store, self.indexname, list(toc.segments), schema,
                    toc.generation + 1, executor=executor, **kwargs)
 
 

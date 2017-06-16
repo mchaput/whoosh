@@ -335,7 +335,9 @@ class SegmentReader(readers.IndexReader):
 
         column = column or fieldobj.column
         if not column:
-            raise Exception("Field %r does not store columns" % fieldname)
+            column = fieldobj.default_column()
+        print("column=", column)
+        print("has_column=", self._perdoc.has_column(fieldname))
 
         if self._perdoc.has_column(fieldname):
             creader = self._perdoc.column_reader(fieldname, column,
@@ -667,14 +669,11 @@ class MultiReader(readers.IndexReader):
                       reverse: bool=False, translate: bool=True
                       ) -> columns.MultiColumnReader:
         crs = []
-        doc_offsets = []
         for i, r in enumerate(self.readers):
-            if r.has_column(fieldname):
-                cr = r.column_reader(fieldname, column=column, reverse=reverse,
-                                     translate=translate)
-                crs.append(cr)
-                doc_offsets.append(self.doc_offsets[i])
-        return columns.MultiColumnReader(crs, doc_offsets)
+            cr = r.column_reader(fieldname, column=column, reverse=reverse,
+                                 translate=translate)
+            crs.append(cr)
+        return columns.MultiColumnReader(crs, self.doc_offsets)
 
     # Per doc methods
 

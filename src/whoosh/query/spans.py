@@ -289,12 +289,12 @@ def posting_to_spans(post: 'postings.PostTuple') -> 'List[Span]':
     poses = post[postings.POSITIONS]
     chars = post[postings.CHARS]
     pays = post[postings.PAYLOADS]
-    if not poses:
-        raise Exception("No positions")
-    if chars:
-        assert len(chars) == len(poses)
-    if pays:
-        assert len(pays) == len(poses)
+    # if not poses:
+    #     raise Exception("No positions")
+    # if chars:
+    #     assert len(chars) == len(poses)
+    # if pays:
+    #     assert len(pays) == len(poses)
 
     spans = []
     for i, pos in enumerate(poses):

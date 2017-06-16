@@ -1092,6 +1092,9 @@ class BasicPostingReader(PostingReader):
         return ix[n]
 
     def positions(self, n: int) -> Sequence[int]:
+        if not self._poses_size:
+            return ()
+
         offset, length = self._chunk_offsets(n, self._poses_offset,
                                              self._poses_size, 0)
         return BasicIO.decode_positions(self._src, offset, length)
@@ -1102,6 +1105,9 @@ class BasicPostingReader(PostingReader):
         return self._src[offset: offset + length]
 
     def chars(self, n: int) -> Sequence[Tuple[int, int]]:
+        if not self._chars_size:
+            return ()
+
         offset, length = self._chunk_offsets(n, self._chars_offset,
                                              self._chars_size, 1)
         return BasicIO.decode_chars(self._src, offset, length)
@@ -1112,6 +1118,9 @@ class BasicPostingReader(PostingReader):
         return self._src[offset: offset + length]
 
     def payloads(self, n: int) -> Sequence[bytes]:
+        if not self._pays_size:
+            return ()
+
         offset, length = self._chunk_offsets(n, self._pays_offset,
                                              self._pays_size, 2)
         return BasicIO.decode_payloads(self._src, offset, length)
