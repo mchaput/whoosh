@@ -8,8 +8,8 @@ from whoosh import analysis, highlight, fields, qparser, query
 from whoosh.util.testing import TempIndex
 
 
-_doc = u("alfa bravo charlie delta echo foxtrot golf hotel india juliet " +
-         "kilo lima")
+_doc = (u"alfa bravo charlie delta echo foxtrot golf hotel india juliet"
+        u" kilo lima")
 
 
 def test_null_fragment():
@@ -22,8 +22,8 @@ def test_null_fragment():
 
 
 def test_sentence_fragment():
-    text = u("This is the first sentence. This one doesn't have the word. " +
-             "This sentence is the second. Third sentence here.")
+    text = (u"This is the first sentence. This one doesn't have the word. "
+            u"This sentence is the second. Third sentence here.")
     terms = ("sentence",)
     sa = analysis.StandardAnalyzer(stoplist=None)
     sf = highlight.SentenceFragmenter()

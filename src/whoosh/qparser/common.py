@@ -31,12 +31,7 @@ parser modules.
 """
 
 import sys
-
-
-class QueryParserError(Exception):
-    def __init__(self, cause, msg=None):
-        super(QueryParserError, self).__init__(str(cause))
-        self.cause = cause
+from whoosh.ifaces.queries import QueryParserError
 
 
 def get_single_text(field, text, **kwargs):

@@ -38,6 +38,7 @@ __all__ = ("WrappingQuery", "Not", "ConstantScoreQuery", "WeightingQuery")
 
 class WrappingQuery(queries.Query):
     def __init__(self, child: queries.Query):
+        super(WrappingQuery, self).__init__()
         self.child = collectors.as_query(child)
 
     def __repr__(self):
@@ -54,6 +55,9 @@ class WrappingQuery(queries.Query):
 
     def _rewrap(self, child: queries.Query) -> queries.Query:
         return self.__class__(child)
+
+    def estimate_size(self, reader: 'readers.IndexReader') -> int:
+        return self.child.estimate_size(reader)
 
     def is_leaf(self) -> bool:
         return False
@@ -113,8 +117,8 @@ class Not(queries.Query):
             interface.
         """
 
+        super(Not, self).__init__(boost=boost)
         self.query = collectors.as_query(q)
-        self.boost = boost
 
     def __eq__(self, other: 'Not') -> bool:
         return (other and self.__class__ is other.__class__ and

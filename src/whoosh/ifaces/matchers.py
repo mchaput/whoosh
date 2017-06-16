@@ -190,7 +190,7 @@ class Matcher:
 
         raise NotImplementedError
 
-    def read_ahead(self, count: int) -> Iterable(Tuple[int, float]):
+    def read_ahead(self, count: int) -> Iterable[Tuple[int, float]]:
         """
         Reads the next (at most) ``count`` number of ``(docid, score)`` tuples,
         and then returns to the current position.

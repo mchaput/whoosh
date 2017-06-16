@@ -52,9 +52,9 @@ class Term(queries.Query):
     __inittypes__ = dict(fieldname=str, text=text_type, boost=float)
 
     def __init__(self, fieldname, text, boost=1.0, minquality=None):
+        super(Term, self).__init__(boost=boost)
         self.fieldname = fieldname
         self.text = text
-        self.boost = boost
         self.minquality = minquality
 
     def __eq__(self, other: queries.Query):
@@ -102,7 +102,7 @@ class Term(queries.Query):
             return
 
         text = self.text
-        if reader:
+        if reader and not isinstance(text, bytes):
             if (fieldname, text) not in reader:
                 return
             fieldobj = reader.schema[fieldname]
@@ -168,7 +168,8 @@ class MultiTerm(queries.Query):
     same field.
     """
 
-    def __init__(self, fieldname, text):
+    def __init__(self, fieldname: str, text: str, boost: float=1.0):
+        super(MultiTerm, self).__init__(boost=boost)
         self.fieldname = fieldname
         self.text = text
         self.constantscore = False
@@ -252,9 +253,7 @@ class PatternQuery(MultiTerm):
     __inittypes__ = dict(fieldname=str, text=text_type, boost=float)
 
     def __init__(self, fieldname, text, boost=1.0, constantscore=True):
-        self.fieldname = fieldname
-        self.text = text
-        self.boost = boost
+        super(PatternQuery, self).__init__(fieldname, text, boost=boost)
         self.constantscore = constantscore
 
     def __eq__(self, other):
@@ -468,9 +467,7 @@ class FuzzyTerm(ExpandingTerm):
             for similarity.
         """
 
-        self.fieldname = fieldname
-        self.text = text
-        self.boost = boost
+        super(FuzzyTerm, self).__init__(fieldname, text, boost=boost)
         self.maxdist = maxdist
         self.prefixlength = prefixlength
         self.constantscore = constantscore
@@ -523,9 +520,7 @@ class Variations(ExpandingTerm):
     """
 
     def __init__(self, fieldname, text, boost=1.0, constantscore=False):
-        self.fieldname = fieldname
-        self.text = text
-        self.boost = boost
+        super(Variations, self).__init__(fieldname, text, boost=boost)
         self.constantscore = constantscore
 
     def __repr__(self):

@@ -34,8 +34,8 @@ from whoosh.compat import text_type
 from whoosh.ifaces import analysis, matchers, readers, searchers
 
 
-__all__ = ("QueryError", "Query", "NullQuery", "ErrorQuery", "make_binary_tree",
-           "make_weighted_tree")
+__all__ = ("QueryError", "QueryParserError", "Query", "NullQuery", "ErrorQuery",
+           "make_binary_tree", "make_weighted_tree")
 
 
 # Exceptions
@@ -44,9 +44,13 @@ class QueryError(Exception):
     pass
 
 
+class QueryParserError(Exception):
+    pass
+
+
 # Interface
 
-class Query:
+class Query(object):
     """
     Base class for all queries.
     """
@@ -61,10 +65,12 @@ class Query:
         :param error: an error message attached to this query.
         :param boost: a boost factor for this query.
         """
+
         self.startchar = startchar
         self.endchar = endchar
         self.error = error
         self.boost = boost
+        self.analyzed = True
 
     def field(self) -> Optional[str]:
         """
@@ -79,9 +85,12 @@ class Query:
         Returns the text searched for by this query, or None if the query
         doesn't search for text.
         """
+
+        if not hasattr(self, "text"):
+            return None
         return getattr(self, "text")
 
-    def set_fieldname(self, fieldname):
+    def with_fieldname(self, fieldname) -> 'Query':
         """
         Sets the name of the field this query searches in. Raises TypeError if
         this query type isn't field-specific.
@@ -89,9 +98,22 @@ class Query:
         :param fieldname: the new fieldname.
         """
 
-        raise TypeError("Can't change field on a %s query" % self.__class__)
+        if hasattr(self, "fieldname"):
+            c = self.copy()
+            c.fieldname = fieldname
+            return c
+        else:
+            raise TypeError("Can't change field on a %s query" % self.__class__)
 
-    def set_text(self, text):
+    def fill_fieldname(self, fieldname) -> 'Query':
+        if self.is_leaf():
+            if hasattr(self, "fieldname") and self.field() is None:
+                return self.with_fieldname(fieldname)
+        else:
+            return self.with_children([q.fill_fieldname(fieldname)
+                                       for q in self.children()])
+
+    def with_text(self, text: str) -> 'Query':
         """
         Sets the text this query searches for. Raises TypeError if this query
         type isn't field-specific.
@@ -99,15 +121,32 @@ class Query:
         :param text: the new text.
         """
 
-        raise TypeError("Can't change text on a %s query" % self.__class__)
+        if hasattr(self, "text"):
+            c = self.copy()
+            c.text = text
+            return c
+        else:
+            raise TypeError("Can't change text on a %s query" % self.__class__)
 
-    def set_boost(self, boost):
+    def with_children(self, newkids: 'List[Query]'):
+        c = self.copy()
+        c.set_children(newkids)
+        return c
+
+    def set_boost(self, boost) -> 'Query':
         """
         Sets the boost factor of this query.
 
         :param boost: the new boost factor.
         """
+
         self.boost = boost
+        return self
+
+    def set_extent(self, startchar: int, endchar: int) -> 'Query':
+        self.startchar = startchar
+        self.endchar = endchar
+        return self
 
     @classmethod
     def combine_collector(cls, collector, args, kwargs):
@@ -163,6 +202,9 @@ class Query:
         """
 
         raise TypeError("Can't change children on a %s query" % self.__class__)
+
+    def can_merge_with(self, other: 'Query'):
+        return False
 
     def leaves(self) -> 'Iterable[Query]':
         """
@@ -297,6 +339,13 @@ class Query:
         except readers.TermNotFound:
             return iter(())
 
+    def merge_subqueries(self) -> 'Query':
+        """
+        Returns a version of this query with redundant subqueries merged into
+        it.
+        """
+        return self
+
     def normalize(self) -> 'Query':
         """
         Returns a recursively "normalized" form of this query. The
@@ -304,6 +353,8 @@ class Query:
         automatically on query trees created by the query parser, but you may
         want to call it yourself if you're writing your own parser or building
         your own queries.
+
+        (This implies merge_subqueries(), so you don't need to call both.)
 
         >>> q = And([And([Term("f", u"a"),
         ...               Term("f", u"b")]),
@@ -366,6 +417,25 @@ class NullQuery(Query):
     A query that never matches anything.
     """
 
+    def __init__(self, name: str=None):
+        super(NullQuery, self).__init__()
+        self.name = name or type(self).__name__
+
+    def __hash__(self):
+        return hash(self.__class__) ^ hash(self.name)
+
+    def __eq__(self, other):
+        return self.__class__ is other.__class__ and self.name == other.name
+
+    def __repr__(self):
+        return "<%s>" % self.name
+
+    def field(self) -> Optional[str]:
+        return None
+
+    def with_fieldname(self, fieldname: str) -> 'NullQuery':
+        return self
+
     def estimate_size(self, reader: 'readers.IndexReader') -> int:
         return 0
 
@@ -380,9 +450,16 @@ class NullQuery(Query):
 
 class ErrorQuery(NullQuery):
     def __init__(self, error, subq=None):
+        super(ErrorQuery, self).__init__()
         self.error = error
         self.q = subq
         self.fieldname = None
+        if subq:
+            self.set_extent(subq.startchar, subq.endchar)
+
+
+class IgnoreQuery(NullQuery):
+    pass
 
 
 # Utility functions
@@ -495,3 +572,5 @@ class Highest:
 
 Lowest = Lowest()
 Highest = Highest()
+
+

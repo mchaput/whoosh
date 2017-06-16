@@ -286,7 +286,7 @@ class Results:
         You must have set the search to record terms, otherwise the result will
         be None.
 
-        >>> q = myparser.parse("alfa OR bravo OR charlie")
+        >>> q = myparser._parse("alfa OR bravo OR charlie")
         >>> results = searcher.search(q, terms=True)
         >>> results.terms()
         set([("content", "alfa"), ("content", "charlie")])
@@ -492,7 +492,7 @@ class Hit:
         compare this set to the terms from the original query to find terms
         which didn't occur in this document.
 
-        >>> q = myparser.parse("alfa OR bravo OR charlie")
+        >>> q = myparser._parse("alfa OR bravo OR charlie")
         >>> results = searcher.search(q, terms=True)
         >>> for hit in results:
         ...   print(hit["title"])

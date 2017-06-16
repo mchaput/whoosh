@@ -39,8 +39,17 @@ import sys
 import time
 
 
+def encode_key(key):
+    return ("%16x" % key).encode("ascii")
+
+
+def decode_key(keybytes):
+    return int(keybytes.decode("ascii"), 16)
+
+
 def try_for(fn, timeout=5.0, delay=0.1):
-    """Calls ``fn`` every ``delay`` seconds until it returns True or
+    """
+    Calls ``fn`` every ``delay`` seconds until it returns True or
     ``timeout`` seconds elapse. Returns True if the lock was acquired, or False
     if the timeout was reached.
 
@@ -59,8 +68,11 @@ def try_for(fn, timeout=5.0, delay=0.1):
 
 
 class LockBase:
-    """Base class for file locks.
     """
+    Base class for file locks.
+    """
+
+    supports_key = True
 
     def __init__(self, filename):
         self.fd = None
@@ -81,6 +93,11 @@ class LockBase:
     def __exit__(self, *args):
         self.release()
 
+    def read_key(self):
+        os.lseek(self.fd, 0, 0)
+        keybytes = os.read(self.fd, 16)
+        return decode_key(keybytes)
+
     def acquire(self, blocking=False):
         """Acquire the lock. Returns True if the lock was acquired.
 
@@ -95,13 +112,14 @@ class LockBase:
 
 
 class FcntlLock(LockBase):
-    """File lock based on UNIX-only fcntl module.
+    """
+    File lock based on UNIX-only fcntl module.
     """
 
-    def acquire(self, blocking=False):
+    def acquire(self, blocking=False, key=0):
         import fcntl  # @UnresolvedImport
 
-        flags = os.O_CREAT | os.O_WRONLY
+        flags = os.O_CREAT | os.O_RDWR
         self.fd = os.open(self.filename, flags)
 
         mode = fcntl.LOCK_EX
@@ -111,6 +129,7 @@ class FcntlLock(LockBase):
         try:
             fcntl.flock(self.fd, mode)
             self.locked = True
+            os.write(self.fd, encode_key(key))
             return True
         except IOError:
             e = sys.exc_info()[1]
@@ -134,10 +153,10 @@ class MsvcrtLock(LockBase):
     """File lock based on Windows-only msvcrt module.
     """
 
-    def acquire(self, blocking=False):
+    def acquire(self, blocking=False, key=0):
         import msvcrt  # @UnresolvedImport
 
-        flags = os.O_CREAT | os.O_WRONLY
+        flags = os.O_CREAT | os.O_RDWR
         mode = msvcrt.LK_NBLCK
         if blocking:
             mode = msvcrt.LK_LOCK
@@ -145,6 +164,7 @@ class MsvcrtLock(LockBase):
         self.fd = os.open(self.filename, flags)
         try:
             msvcrt.locking(self.fd, mode, 1)
+            os.write(self.fd, encode_key(key))
             return True
         except IOError:
             e = sys.exc_info()[1]

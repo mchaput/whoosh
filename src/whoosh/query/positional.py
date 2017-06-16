@@ -50,7 +50,7 @@ class Sequence(compound.CompoundQuery):
     joint = " NEAR "
     intersect_merge = True
 
-    def __init__(self, subqueries, slop=1, ordered=True, boost=1.0):
+    def __init__(self, subqueries, slop=0, ordered=True, boost=1.0):
         """
         :param subqueries: a list of :class:`whoosh.query.Query` objects to
             match in sequence.
@@ -63,7 +63,7 @@ class Sequence(compound.CompoundQuery):
             this query.
         """
 
-        compound.CompoundQuery.__init__(self, subqueries, boost=boost)
+        super(Sequence, self).__init__(subqueries, boost=boost)
         self.slop = slop
         self.ordered = ordered
 
@@ -137,7 +137,8 @@ class Ordered(Sequence):
 @collectors.register("phrase")
 class Phrase(queries.Query):
     """
-    Matches documents containing a given phrase."""
+    Matches documents containing a given phrase.
+    """
 
     def __init__(self, fieldname: str, words: List[text_type], slop: int=0,
                  boost: float=1.0, char_ranges: List[Tuple[int, int]]=None):
@@ -153,11 +154,13 @@ class Phrase(queries.Query):
             corresponding to the words in the phrase
         """
 
+        super(Phrase, self).__init__()
         self.fieldname = fieldname
         self.words = words
         self.slop = slop
         self.boost = boost
         self.char_ranges = char_ranges
+        self.phrase_text = None  # type: str
 
     def __eq__(self, other):
         return (other and self.__class__ is other.__class__
@@ -197,14 +200,6 @@ class Phrase(queries.Query):
     def has_terms(self):
         return True
 
-    def replace(self, fieldname: str, oldtext: text_type,
-                newtext: text_type) -> 'Phrase':
-        q = self.copy()
-        for i, text in enumerate(q.words):
-            if text == oldtext:
-                q.words[i] = newtext
-        return q
-
     def _terms(self, reader: 'readers.IndexReader'=None,
                phrases: bool=True) -> Iterable[Tuple[str, text_type]]:
         fieldname = self.field()
@@ -235,6 +230,11 @@ class Phrase(queries.Query):
             yield analysis.Token(fieldname=fieldname, text=word,
                                  boost=boost * self.boost, startchar=startchar,
                                  endchar=endchar, chars=True)
+
+    def with_fieldname(self, fieldname: str) -> 'Phrase':
+        c = self.copy()
+        c.fieldname = fieldname
+        return c
 
     def normalize(self) -> queries.Query:
         if not self.words:

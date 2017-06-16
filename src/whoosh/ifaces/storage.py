@@ -92,9 +92,11 @@ class Lock:
 
 
 class Session:
-    def __init__(self, store: 'Storage', indexname: str, writable: bool):
+    def __init__(self, store: 'Storage', indexname: str, writable: bool,
+                 id_counter: int):
         self.store = store
         self.indexname = indexname
+        self.id_counter = id_counter
         self._writable = writable
 
     def __repr__(self):
@@ -110,6 +112,20 @@ class Session:
 
     def is_writable(self) -> bool:
         return self._writable
+
+    def next_id(self) -> int:
+        counter = self.id_counter
+        self.id_counter += 1
+        return counter
+
+    def read_key(self) -> int:
+        """
+        If the corresponding Storage object support recursive locks for writing,
+        this returns the key value stored with the lock. Otherwise it raises an
+        exception.
+        """
+
+        raise Exception("This session does not support recursive locking")
 
     def close(self):
         pass
@@ -132,6 +148,9 @@ class Storage:
 
     def as_url(self) -> str:
         raise Exception("%s does not support construction of URL" % self)
+
+    def supports_multiproc_writing(self) -> bool:
+        return False
 
     def create(self):
         """
@@ -185,6 +204,21 @@ class Storage:
 
         indexname = indexname or index.DEFAULT_INDEX_NAME
         return Session(self, indexname, writable)
+
+    def recursive_write_open(self, key: int, indexname: str=None) -> Session:
+        """
+        This is only implemented for Storage schemes that can allow
+        "sub-writers" in other threads/processes to write to the index while
+        it's locked (for example, FileStorage).
+
+        :param key: when the index lock is acquired, it writes a random key
+            integer to the lock and remembers it. The code checks that the key
+            you pass here matches that key, as a very simple double-check that
+            the code isn't writing somewhere it shouldn't.
+        :param indexname: the name of the index to open.
+        """
+
+        raise Exception("This storage does not allow recursive opening")
 
     @abstractmethod
     def temp_storage(self, name: str=None) -> 'Storage':

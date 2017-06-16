@@ -369,8 +369,8 @@ def test_matcher():
 
     with TempStorage() as st:
         cdc = x1.X1Codec()
-        seg = x1.X1Segment(cdc, "test")
         sesh = st.open("test", writable=True)
+        seg = cdc.new_segment(sesh)
         fw = x1.X1FieldWriter(sesh, seg, blocksize=128)
         fw.start_field("a", field)
         for tbytes in sorted(lookup):

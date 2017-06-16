@@ -25,11 +25,9 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from whoosh.ifaces import matchers, queries
+from whoosh import sorting
+from whoosh.ifaces import matchers, queries, readers, searchers
 from whoosh.matching import wrappers
-
-
-__all__ = ("ColumnQuery", "ColumnMatcher")
 
 
 class ColumnQuery(queries.Query):
@@ -51,13 +49,15 @@ class ColumnQuery(queries.Query):
             the document values are compared to it (using ``==``).
         """
 
+        super(ColumnQuery, self).__init__()
         self.fieldname = fieldname
         self.condition = condition
 
     def is_leaf(self):
         return True
 
-    def matcher(self, searcher, context=None):
+    def matcher(self, searcher: 'searchers.Searcher',
+                context: 'searchers.SearchContext') -> matchers.Matcher:
         fieldname = self.fieldname
         condition = self.condition
         if callable(condition):
@@ -76,46 +76,107 @@ class ColumnQuery(queries.Query):
         return ColumnMatcher(creader, comp)
 
 
-class ColumnMatcher(wrappers.ConstantScoreMatcher):
-    def __init__(self, creader, condition):
-        self.creader = creader
-        self.condition = condition
-        self._i = 0
-        self._find_next()
+class ColumnAggregateComparison(queries.Query):
+    def __init__(self, fieldname: str, aggregrate_fn, comparison_fn):
+        import operator
 
-    def _find_next(self):
-        condition = self.condition
-        creader = self.creader
+        self.fieldname = fieldname
+        self.aggregate_fn = aggregrate_fn
 
-        while self._i < len(creader) and not condition(creader[self._i]):
-            self._i += 1
+        if isinstance(comparison_fn, str):
+            if comparison_fn == "==": comparison_fn = operator.eq
+            if comparison_fn == "!=": comparison_fn = operator.ne
+            if comparison_fn == "<": comparison_fn = operator.lt
+            if comparison_fn == ">": comparison_fn = operator.gt
+            if comparison_fn == "<=": comparison_fn = operator.le
+            if comparison_fn == ">=": comparison_fn = operator.ge
+        self.comparison_fn = comparison_fn
 
-    def is_active(self):
-        return self._i < len(self.creader)
+    def is_leaf(self):
+        return True
 
-    def next(self):
-        if not self.is_active():
-            raise matchers.ReadTooFar
-        self._i += 1
-        self._find_next()
+    def _stream_values(self, context: 'searchers.SearchContext'):
+        from whoosh.query import Every
 
-    def reset(self):
-        self._i = 0
-        self._find_next()
+        top_searcher = context.top_searcher
+        facet = sorting.FieldFacet(self.fieldname)
+        catter = facet.categorizer(top_searcher)
+        for searcher, offset in top_searcher.leaf_searchers():
+            catter.set_searcher(searcher, offset)
+            m = Every().matcher(searcher, context.to_boolean())
+            while m.is_active():
+                yield catter.key_for(m, m.id())
+                m.next()
+            m.close()
 
-    def id(self):
-        return self._i
+    def matcher(self, searcher: 'searchers.Searcher',
+                context: 'searchers.SearchContext') -> matchers.Matcher:
+        reader = searcher.reader()
+        if not reader.has_column(self.fieldname):
+            return matchers.NullMatcher()
 
-    def all_ids(self):
-        condition = self.condition
-        for docnum, v in enumerate(self.creader):
-            if condition(v):
-                yield docnum
+        cache_key = "%s_%s" % (type(self).__name__, id(self))
+        if cache_key in context.query_local_data:
+            value = context.query_local_data[cache_key]
+        else:
+            value = self.aggregate_fn(self._stream_values(context))
+            context.query_local_data[cache_key] = value
 
-    def supports(self, astype):
-        return False
+        creader = reader.column_reader(self.fieldname)
+        comparison_fn = self.comparison_fn
+        return ColumnMatcher(creader, lambda x: comparison_fn(x, value))
 
-    def skip_to_quality(self, minquality):
-        if self._score <= minquality:
-            self._i = len(self.creader)
-            return True
+
+# class ColumnMatcher(matchers.Matcher):
+#     def __init__(self, creader, condition):
+#         super(ColumnMatcher, self).__init__()
+#         self.creader = creader
+#         self.condition = condition
+#         self._score = 1.0
+#
+#         self._i = 0
+#         self._find_next()
+#
+#     def _find_next(self):
+#         condition = self.condition
+#         creader = self.creader
+#
+#         while self._i < len(creader):
+#             key =
+#             if condition(x):
+#                 break
+#             self._i += 1
+#
+#     def is_active(self):
+#         return self._i < len(self.creader)
+#
+#     def next(self):
+#         if not self.is_active():
+#             raise matchers.ReadTooFar
+#         self._i += 1
+#         self._find_next()
+#
+#     def reset(self):
+#         self._i = 0
+#         self._find_next()
+#
+#     def id(self):
+#         return self._i
+#
+#     def all_ids(self):
+#         condition = self.condition
+#         for docnum, v in enumerate(self.creader):
+#             if condition(v):
+#                 yield docnum
+#
+#     def supports(self, astype):
+#         return False
+#
+#     def skip_to_quality(self, minquality):
+#         if self._score <= minquality:
+#             self._i = len(self.creader)
+#             return True
+
+
+
+

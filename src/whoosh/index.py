@@ -31,11 +31,11 @@ an index.
 
 from __future__ import division, absolute_import
 
-import concurrent.futures
 import random
 import re
 import struct
 import sys
+from concurrent import futures
 from datetime import datetime
 from time import sleep
 from typing import Dict, Sequence, Tuple
@@ -123,15 +123,15 @@ def toc_regex(indexname: str, ext: str="toc") -> Pattern:
     return re.compile("^_%s_(?P<gen>[0-9]+)[.]%s$" % (indexname, ext))
 
 
-def make_segment_filename(indexname: str, segmentid: str, ext: str) -> str:
-    name = "%s_%s.%s" % (indexname, segmentid, ext)
+def make_segment_filename(indexname: str, segid: str, ext: str) -> str:
+    name = "%s_%s.%s" % (indexname, segid, ext)
     assert segment_regex(indexname).match(name)
     return name
 
 
 def segment_regex(indexname: str) -> Pattern:
-    return re.compile("^%s_(?P<id>[%s]{%d})[.](?P<ext>[A-Za-z0-9_.]+)$" %
-                      (indexname, SEGMENT_IDCHARS, SEGMENT_IDSIZE))
+    return re.compile("^%s_(?P<id>\d+)[.](?P<ext>[A-Za-z0-9_.]+)$" %
+                      (indexname,))
 
 
 # TOC
@@ -224,15 +224,17 @@ class Toc:
             namelen, seglen = segment_entry.unpack(bs[pos:namestart])
             name = bytes(bs[namestart:namestart + namelen]).decode("utf8")
 
-            c = codecs.codec_by_name(name)
+            c = codecs.codec_by_name(name)()
             segstart = namestart + namelen
             segment = c.segment_from_bytes(bs[segstart:segstart + seglen])
             segments.append(segment)
 
             pos = segstart + seglen
 
-        return cls(schema, segments, head.generation, head.toc_version, release,
-                   created)
+        return cls(
+            schema=schema, segments=segments, generation=head.generation,
+            toc_version=head.toc_version, release=release, created=created,
+        )
 
 
 # Index class
@@ -456,10 +458,13 @@ class Index:
                     raise e
                 sleep(0.05)
 
-    def writer(self, executor=None,
+    def writer(self,
+               executor: futures.Executor=None,
                multiproc: bool=False, multithreaded: bool=False,
-               procs=None, threads=None,
-               **kwargs) -> 'writing.SegmentWriter':
+               procs: int=None, threads: int=None,
+               codec: 'codecs.Codec'=None,
+               **kwargs
+               ) -> 'writing.IndexWriter':
         """
         Returns an writer object for this index.
 
@@ -478,23 +483,28 @@ class Index:
             thread pool executor's default (the number of CPUs times 5).
         :param kwargs: keyword arguments are passed to the writer's constructor.
             See :class:`whoosh.writing.SegmentWriter` for the options available.
+        :param codec: use this codec to write into storage. If you don't pass
+            a codec the writer simply uses the default.
         """
+
+        from whoosh.codec import default_codec
 
         toc = self.toc
 
-        cls = writing.SegmentWriter
+        cls = writing.IndexWriter
         if multiproc or multithreaded:
             cls = writing.MultiWriter
 
         if not executor:
             if multiproc:
-                executor = concurrent.futures.ProcessPoolExecutor(procs)
+                executor = futures.ProcessPoolExecutor(procs)
             elif multithreaded:
-                executor = concurrent.futures.ThreadPoolExecutor(threads)
+                executor = futures.ThreadPoolExecutor(threads)
 
-        return cls(self.storage(), self.indexname, toc.schema,
-                   toc.generation + 1, toc.segments, executor=executor,
-                   **kwargs)
+        codec = codec or default_codec()
+        return cls(codec,
+                   self.store, self.indexname, list(toc.segments), toc.schema,
+                   toc.generation + 1, executor=executor, **kwargs)
 
 
 # Codec-based index implementation

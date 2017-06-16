@@ -227,6 +227,7 @@ class DFA(FSA):
         self.transitions = {}
         self.defaults = {}
         self.final_states = set()
+
         self.outlabels = {}
 
     def dump(self, stream=sys.stdout):
@@ -237,6 +238,16 @@ class DFA(FSA):
             for label in sorted(xs):
                 dest = xs[label]
                 end = "||" if self.is_final(dest) else ""
+                print("    -> %s -> %s %s" % (label, dest, end))
+
+    def __eq__(self, other):
+        return (
+            type(self) is type(other) and
+            self.initial == other.initial and
+            self.transitions == other.transitions and
+            self.defaults == other.defaults and
+            self.final_states == other.final_states
+        )
 
     def start(self):
         return self.initial
@@ -707,7 +718,6 @@ def add_suffix(dfa, nodes, last, downto, seen):
         # Add the node's transitions to the DFA
         for label, dest in node.arcs.items():
             dfa.add_transition(this, label, dest)
-
 
 
 

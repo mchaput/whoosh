@@ -1,7 +1,7 @@
 from __future__ import with_statement
 import os, threading, time
 
-from whoosh.util.filelock import try_for
+from whoosh.util.filelock import try_for, decode_key
 from whoosh.util.numeric import length_to_byte, byte_to_length
 from whoosh.util.testing import TempStorage
 
@@ -88,6 +88,19 @@ def test_threaded_filelock():
         # If the other thread got the lock, it should have appended True to the
         # "results" list.
         assert result == [True]
+
+
+def test_filelock_key():
+    key = 458205
+    with TempStorage("filelockkey") as st:
+        lock1 = st.lock("testlock")
+        assert lock1.acquire(key=key)
+        assert lock1.read_key() == key
+
+        lock2 = st.lock("testlock")
+        assert not lock2.acquire(key=5555)
+
+        assert lock1.read_key() == key
 
 
 def test_length_byte():

@@ -50,7 +50,7 @@ def print_debug(level, msg, *args):
         print(("  " * (level - 1)) + (msg % args))
 
 
-# Parser element objects
+# Parser expr objects
 
 class Props:
     """A dumb little object that just puts copies a dictionary into attibutes
@@ -69,7 +69,8 @@ class Props:
 
 
 class ParserBase:
-    """Base class for date parser elements.
+    """
+    Base class for date parser exprs.
     """
 
     def to_parser(self, e):
@@ -79,7 +80,7 @@ class ParserBase:
             return e
 
     def parse(self, text, dt, pos=0, debug=-9999):
-        raise NotImplementedError
+        raise NotImplementedError(self.__class__.__name__)
 
     def date_from(self, text, dt=None, pos=0, debug=-9999):
         if dt is None:
@@ -90,41 +91,42 @@ class ParserBase:
 
 
 class MultiBase(ParserBase):
-    """Base class for date parser elements such as Sequence and Bag that
-    have sub-elements.
+    """
+    Base class for date parser exprs such as Sequence and Bag that
+    have sub-exprs.
     """
 
-    def __init__(self, elements, name=None):
+    def __init__(self, exprs, name=None):
         """
-        :param elements: the sub-elements to match.
-        :param name: a name for this element (for debugging purposes only).
+        :param exprs: the sub-exprs to match.
+        :param name: a name for this expr (for debugging purposes only).
         """
 
-        self.elements = [self.to_parser(e) for e in elements]
+        self.exprs = [self.to_parser(e) for e in exprs]
         self.name = name
 
     def __repr__(self):
         return "%s<%s>%r" % (self.__class__.__name__, self.name or '',
-                             self.elements)
+                             self.exprs)
 
 
 class Sequence(MultiBase):
-    """Merges the dates parsed by a sequence of sub-elements.
+    """Merges the dates parsed by a sequence of sub-exprs.
     """
 
-    def __init__(self, elements, sep="(\\s+|\\s*,\\s*)", name=None,
+    def __init__(self, exprs, sep="(\\s+|\\s*,\\s*)", name=None,
                  progressive=False):
         """
-        :param elements: the sequence of sub-elements to parse.
-        :param sep: a separator regular expression to match between elements,
+        :param exprs: the sequence of sub-exprs to parse.
+        :param sep: a separator regular expression to match between exprs,
             or None to not have separators.
-        :param name: a name for this element (for debugging purposes only).
-        :param progressive: if True, elements after the first do not need to
-            match. That is, for elements (a, b, c) and progressive=True, the
+        :param name: a name for this expr (for debugging purposes only).
+        :param progressive: if True, exprs after the first do not need to
+            match. That is, for exprs (a, b, c) and progressive=True, the
             sequence matches like ``a[b[c]]``.
         """
 
-        super(Sequence, self).__init__(elements, name)
+        super(Sequence, self).__init__(exprs, name)
         self.sep_pattern = sep
         if sep:
             self.sep_expr = rcompile(sep, re.IGNORECASE)
@@ -140,7 +142,7 @@ class Sequence(MultiBase):
 
         print_debug(debug, "Seq %s sep=%r text=%r", self.name,
                     self.sep_pattern, text[pos:])
-        for e in self.elements:
+        for e in self.exprs:
             print_debug(debug, "Seq %s text=%r", self.name, text[pos:])
             if self.sep_expr and not first:
                 print_debug(debug, "Seq %s looking for sep", self.name)
@@ -186,26 +188,26 @@ class Sequence(MultiBase):
 
 
 class Combo(Sequence):
-    """Parses a sequence of elements in order and combines the dates parsed
-    by the sub-elements somehow. The default behavior is to accept two dates
-    from the sub-elements and turn them into a range.
+    """Parses a sequence of exprs in order and combines the dates parsed
+    by the sub-exprs somehow. The default behavior is to accept two dates
+    from the sub-exprs and turn them into a range.
     """
 
-    def __init__(self, elements, fn=None, sep="(\\s+|\\s*,\\s*)", min=2, max=2,
+    def __init__(self, exprs, fn=None, sep="(\\s+|\\s*,\\s*)", min=2, max=2,
                  name=None):
         """
-        :param elements: the sequence of sub-elements to parse.
+        :param exprs: the sequence of sub-exprs to parse.
         :param fn: a function to run on all dates found. It should return a
             datetime, adatetime, or timespan object. If this argument is None,
             the default behavior accepts two dates and returns a timespan.
-        :param sep: a separator regular expression to match between elements,
+        :param sep: a separator regular expression to match between exprs,
             or None to not have separators.
-        :param min: the minimum number of dates required from the sub-elements.
-        :param max: the maximum number of dates allowed from the sub-elements.
-        :param name: a name for this element (for debugging purposes only).
+        :param min: the minimum number of dates required from the sub-exprs.
+        :param max: the maximum number of dates allowed from the sub-exprs.
+        :param name: a name for this expr (for debugging purposes only).
         """
 
-        super(Combo, self).__init__(elements, sep=sep, name=name)
+        super(Combo, self).__init__(exprs, sep=sep, name=name)
         self.fn = fn
         self.min = min
         self.max = max
@@ -216,7 +218,7 @@ class Combo(Sequence):
 
         print_debug(debug, "Combo %s sep=%r text=%r", self.name,
                     self.sep_pattern, text[pos:])
-        for e in self.elements:
+        for e in self.exprs:
             if self.sep_expr and not first:
                 print_debug(debug, "Combo %s looking for sep at %r",
                             self.name, text[pos:])
@@ -262,12 +264,12 @@ class Combo(Sequence):
 
 
 class Choice(MultiBase):
-    """Returns the date from the first of its sub-elements that matches.
+    """Returns the date from the first of its sub-exprs that matches.
     """
 
     def parse(self, text, dt, pos=0, debug=-9999):
         print_debug(debug, "Choice %s text=%r", self.name, text[pos:])
-        for e in self.elements:
+        for e in self.exprs:
             print_debug(debug, "Choice %s trying=%r", self.name, e)
 
             try:
@@ -282,28 +284,28 @@ class Choice(MultiBase):
 
 
 class Bag(MultiBase):
-    """Parses its sub-elements in any order and merges the dates.
+    """Parses its sub-exprs in any order and merges the dates.
     """
 
-    def __init__(self, elements, sep="(\\s+|\\s*,\\s*)", onceper=True,
+    def __init__(self, exprs, sep="(\\s+|\\s*,\\s*)", onceper=True,
                  requireall=False, allof=None, anyof=None, name=None):
         """
-        :param elements: the sub-elements to parse.
-        :param sep: a separator regular expression to match between elements,
+        :param exprs: the sub-exprs to parse.
+        :param sep: a separator regular expression to match between exprs,
             or None to not have separators.
-        :param onceper: only allow each element to match once.
-        :param requireall: if True, the sub-elements can match in any order,
+        :param onceper: only allow each expr to match once.
+        :param requireall: if True, the sub-exprs can match in any order,
             but they must all match.
-        :param allof: a list of indexes into the list of elements. When this
-            argument is not None, this element matches only if all the
-            indicated sub-elements match.
-        :param allof: a list of indexes into the list of elements. When this
-            argument is not None, this element matches only if any of the
-            indicated sub-elements match.
-        :param name: a name for this element (for debugging purposes only).
+        :param allof: a list of indexes into the list of exprs. When this
+            argument is not None, this expr matches only if all the
+            indicated sub-exprs match.
+        :param allof: a list of indexes into the list of exprs. When this
+            argument is not None, this expr matches only if any of the
+            indicated sub-exprs match.
+        :param name: a name for this expr (for debugging purposes only).
         """
 
-        super(Bag, self).__init__(elements, name)
+        super(Bag, self).__init__(exprs, name)
         self.sep_expr = rcompile(sep, re.IGNORECASE)
         self.onceper = onceper
         self.requireall = requireall
@@ -313,7 +315,7 @@ class Bag(MultiBase):
     def parse(self, text, dt, pos=0, debug=-9999):
         first = True
         d = adatetime()
-        seen = [False] * len(self.elements)
+        seen = [False] * len(self.exprs)
 
         while True:
             newpos = pos
@@ -327,7 +329,7 @@ class Bag(MultiBase):
                     print_debug(debug, "Bag %s didn't find sep", self.name)
                     break
 
-            for i, e in enumerate(self.elements):
+            for i, e in enumerate(self.exprs):
                 print_debug(debug, "Bag %s trying=%r", self.name, e)
 
                 try:
@@ -364,18 +366,18 @@ class Bag(MultiBase):
 
 
 class Optional(ParserBase):
-    """Wraps a sub-element to indicate that the sub-element is optional.
+    """Wraps a sub-expr to indicate that the sub-expr is optional.
     """
 
-    def __init__(self, element):
-        self.element = self.to_parser(element)
+    def __init__(self, expr):
+        self.expr = self.to_parser(expr)
 
     def __repr__(self):
-        return "%s(%r)" % (self.__class__.__name__, self.element)
+        return "%s(%r)" % (self.__class__.__name__, self.expr)
 
     def parse(self, text, dt, pos=0, debug=-9999):
         try:
-            d, pos = self.element.parse(text, dt, pos, debug + 1)
+            d, pos = self.expr.parse(text, dt, pos, debug + 1)
         except TimeError:
             d, pos = None, None
 
@@ -386,19 +388,19 @@ class Optional(ParserBase):
 
 
 class ToEnd(ParserBase):
-    """Wraps a sub-element and requires that the end of the sub-element's match
+    """Wraps a sub-expr and requires that the end of the sub-expr's match
     be the end of the text.
     """
 
-    def __init__(self, element):
-        self.element = element
+    def __init__(self, expr):
+        self.expr = expr
 
     def __repr__(self):
-        return "%s(%r)" % (self.__class__.__name__, self.element)
+        return "%s(%r)" % (self.__class__.__name__, self.expr)
 
     def parse(self, text, dt, pos=0, debug=-9999):
         try:
-            d, pos = self.element.parse(text, dt, pos, debug + 1)
+            d, pos = self.expr.parse(text, dt, pos, debug + 1)
         except TimeError:
             d, pos = None, None
 
@@ -728,7 +730,7 @@ class DateParserPlugin(plugins.Plugin):
     """Adds more powerful parsing of DATETIME fields.
 
     >>> parser.add_plugin(DateParserPlugin())
-    >>> parser.parse(u"date:'last tuesday'")
+    >>> parser._parse(u"date:'last tuesday'")
     """
 
     def __init__(self, basedate=None, dateparser=None, callback=None,

@@ -560,7 +560,7 @@ def test_email_field():
                "example.com"]
     addresses = []
     for i in range(5000):
-        addresses.append("%04d@%s" % (i, domains[i % len(domains)]))
+        addresses.append("%06d@%s" % (i, domains[i % len(domains)]))
 
     addrs = (analysis.RegexTokenizer(r'[-+\[\]A-Za-z0-9.@_"]+') |
              analysis.LowercaseFilter() |
@@ -572,8 +572,8 @@ def test_email_field():
             for address in addresses:
                 w.add_document(email=address)
 
-        for name in ix.store.list():
-            print(name, ix.store.file_length(name))
+        # for name in ix.store.list():
+        #     print(name, ix.store.file_length(name))
 
 
 

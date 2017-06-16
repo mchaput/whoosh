@@ -141,3 +141,5 @@ def unclosed(method):
             raise ValueError("Operation on a closed object")
         return method(self, *args, **kwargs)
     return unclosed_wrapper
+
+

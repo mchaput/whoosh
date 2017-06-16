@@ -363,3 +363,91 @@ def test_nested_skip():
             r3 = s.search(complex_query)
             assert r3.scored_length() == 1
             assert [hit["id"] for hit in r3] == ["chapter_3"]
+
+
+def test_relation():
+    from whoosh import analysis
+    from whoosh.query.joins import RelationQuery
+    from whoosh.reading import MultiReader
+
+    sa = analysis.SimpleAnalyzer()
+    schema = fields.Schema(
+        id=fields.Numeric(unique=True, stored=True, column=True, signed=False),
+        name=fields.Text(stored=True, analyzer=sa),
+        artist=fields.Text(stored=True, analyzer=sa),
+        type=fields.Id(stored=True),
+        parent=fields.Numeric(stored=True, column=True, signed=False),
+        sales=fields.Numeric(column=True),
+    )
+
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            w.add_document(id=2, type="album", name="Back in Black",
+                           artist="AC/DC", sales=50)
+
+            w.add_document(id=11, type="song", name="Billie Jean", parent=1)
+            w.add_document(id=12, type="song", name="Thriller", parent=1)
+            w.add_document(id=13, type="song", name="Beat It", parent=1)
+
+        with ix.writer() as w:
+            w.add_document(id=3, type="album", name="Blood Sugar Sex Magik",
+                           artist="Red Hot Chili Peppers", sales=13)
+
+            w.add_document(id=21, type="song", name="Hells Bells", parent=2)
+            w.add_document(id=22, type="song", name="Shoot to Thrill",
+                           parent=2)
+            w.add_document(id=23, type="song", name="Back in Black",
+                           parent=2)
+
+        with ix.writer() as w:
+            w.add_document(id=1, type="album", name="Thriller",
+                           artist="Michael Jackson", sales=65)
+
+            w.add_document(id=31, type="song", name="Suck My Kiss",
+                           parent=3)
+            w.add_document(id=32, type="song", name="Give it Away",
+                           parent=3)
+            w.add_document(id=33, type="song", name="Under the Bridge",
+                           parent=3)
+
+        with ix.searcher() as s:
+            assert isinstance(s.reader(), MultiReader)
+
+            def ids(q):
+                return " ".join(sorted(str(hit["id"]) for hit in s.search(q)))
+
+            # Songs on albums with more than 40m in sales
+            q = RelationQuery("id", query.And([
+                query.Term("type", "album"),
+                query.NumericRange("sales", 40, None)
+            ]), "parent", query.Term("type", "song"))
+            assert ids(q) == "11 12 13 21 22 23"
+
+            # Songs with "black" in the title on albums by AC/DC
+            q = RelationQuery("id", query.And([
+                query.Term("type", "album"),
+                query.Term("artist", "ac"),
+            ]), "parent", query.Term("name", "black"))
+            assert ids(q) == "23"
+
+            # Albums containing songs with "it" in the title
+            assert ids(query.Term("name", "it")) == "13 32"
+            q = RelationQuery("parent", query.And([
+                query.Term("type", "song"),
+                query.Term("name", "it"),
+            ]), "id", query.Term("type", "album"))
+            assert ids(q) == "1 3"
+
+            # Songs with sibling songs with "bridge" in the title
+            # relation 1: song -> album
+            q1 = RelationQuery("parent", query.And([query.Term("type", "song"),
+                                                query.Term("name", "bridge")]),
+                               "id", query.Term("type", "album"))
+            assert ids(q1) == "3"
+            # relation 2: album(s) from q1 -> songs
+            q2 = RelationQuery("id", q1,
+                               "parent", query.Term("type", "song"))
+            assert ids(q2) == "31 32 33"
+
+
+

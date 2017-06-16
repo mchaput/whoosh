@@ -47,7 +47,7 @@ class IDAnalyzer(analysis.CompositeAnalyzer):
     def __init__(self, lowercase: bool=False):
         super(IDAnalyzer, self).__init__(tokenizers.IDTokenizer())
         if lowercase:
-            self.add(filters.LowercaseFilter)
+            self.add(filters.LowercaseFilter())
 
 
 class KeywordAnalyzer(analysis.CompositeAnalyzer):

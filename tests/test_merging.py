@@ -166,11 +166,12 @@ def _fake_merge(m: merging.Merge, newid: str,
 
 
 def _make_list(st):
+    from whoosh.writing import segmentlist
     schema = fields.Schema(text=fields.Text)
-    sl = writing.SegmentList(st, schema, [])
-    # Replace the SegmentList's make_reader method so it returns our
-    # FakeReader
-    sl.make_reader = lambda seg: FakeReader(seg)
+    sesh = st.open()
+    sl = segmentlist.SegmentList(sesh, schema, [])
+    # Patch the SegmentList's reader() method so it returns our FakeReader
+    sl.reader = lambda seg: FakeReader(seg)
 
     initial = [
         FakeSegment("1", 1000, patterns={"a": [1, 2, 3], "b": [10, 20, 30]}),
@@ -184,20 +185,20 @@ def _make_list(st):
     ]
 
     for seg in initial:
-        sl.add(seg)
+        sl.add_segment(seg)
 
     return initial, sl
 
 
 def _check_merge(initial, sl, newseg):
     assert len(sl.segments) == 5
-    assert sl.has_segment(newseg)
+    assert newseg in sl.segments
     assert len(sl.merging_ids()) == 0
     for i, seg in enumerate(initial):
         if i < 4:
-            assert not sl.has_segment(seg)
+            assert not (seg in sl.segments)
         else:
-            assert sl.has_segment(seg)
+            assert seg in sl.segments
 
             for pat in seg.patterns.values():
                 for docnum in pat:

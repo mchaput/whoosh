@@ -119,7 +119,7 @@ def natural_key(s):
 
 # Regular expression functions
 
-def rcompile(pattern, flags=0, verbose=False):
+def rcompile(pattern, flags=0, unicode=True, ignore_case=False, verbose=False):
     """A wrapper for re.compile that checks whether "pattern" is a regex object
     or a string to be compiled, and automatically adds the re.UNICODE flag.
     """
@@ -127,6 +127,10 @@ def rcompile(pattern, flags=0, verbose=False):
     if not isinstance(pattern, string_type):
         # If it's not a string, assume it's already a compiled pattern
         return pattern
+    if unicode:
+        flags |= re.UNICODE
     if verbose:
         flags |= re.VERBOSE
-    return re.compile(pattern, re.UNICODE | flags)
+    if ignore_case:
+        flags |= re.IGNORECASE
+    return re.compile(pattern, flags)

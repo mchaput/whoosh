@@ -41,6 +41,8 @@ class FieldType:
 
         if not column and sortable:
             column = self.default_column()
+        if column and not isinstance(column, columns.Column):
+            column = self.default_column()
         self.column = column
 
     def __eq__(self, other: 'FieldType'):
@@ -433,7 +435,8 @@ class Numeric(TokenizedField):
     def __init__(self, numtype: Union[type, str]="int", bits: int=32,
                  signed: bool=True, stored: bool=False, unique: bool=False,
                  decimal_places: int=0, shift_step: int=4,
-                 column: columns.Column=None, sortable=False, default: float=0,
+                 column: Union[columns.Column, bool]=None,
+                 sortable=False, default: float=0,
                  indexed: bool=True, analyzer: 'analysis.Analyzer'=None,
                  field_boost: float=1.0):
         if numtype == "int":
@@ -552,6 +555,8 @@ class Numeric(TokenizedField):
     def prepare_number(self, x: Union[str, float, bytes]) -> int:
         if x == b"" or x is None:
             return x
+        if isinstance(x, bytes):
+            raise ValueError("Why are you trying to prepare bytes?")
 
         dc = self.decimal_places
         if dc and isinstance(x, (string_type, Decimal)):
@@ -599,13 +604,12 @@ class Numeric(TokenizedField):
 
     def parse_query(self, fieldname, qstring, boost=1.0):
         from whoosh import query
-        from whoosh.qparser.common import QueryParserError
 
         if qstring == "*":
             return query.Every(fieldname, boost=boost)
 
         if not self.is_valid(qstring):
-            raise QueryParserError("%r is not a valid number" % qstring)
+            raise query.QueryParserError("%r is not a valid number" % qstring)
 
         token = self.to_bytes(qstring)
         return query.Term(fieldname, token, boost=boost)
@@ -613,17 +617,18 @@ class Numeric(TokenizedField):
     def parse_range(self, fieldname, start, end, startexcl, endexcl,
                     boost=1.0):
         from whoosh import query
-        from whoosh.qparser.common import QueryParserError
 
         if start is not None:
             if not self.is_valid(start):
-                raise QueryParserError("Range start %r is not a valid number"
-                                       % start)
+                raise query.QueryParserError(
+                    "Range start %r is not a valid number" % start
+                )
             start = self.prepare_number(start)
         if end is not None:
             if not self.is_valid(end):
-                raise QueryParserError("Range end %r is not a valid number"
-                                       % end)
+                raise query.QueryParserError(
+                    "Range end %r is not a valid number" % end
+                )
             end = self.prepare_number(end)
         return query.NumericRange(fieldname, start, end, startexcl, endexcl,
                                   boost=boost)
@@ -742,7 +747,7 @@ class Schema:
     field name, field number, and field object itself.
     """
 
-    def __init__(self, **fields: Dict[str, FieldType]):
+    def __init__(self, **fields):
         """
          All keyword arguments to the constructor are treated as fieldname =
         fieldtype pairs. The fieldtype can be an instantiated FieldType object,
@@ -756,7 +761,7 @@ class Schema:
                        tags = KEYWORD(stored = True))
         """
 
-        self._fields = {}
+        self._fields = {}  # type: Dict[str, FieldType]
         self._subfields = {}
         self._dyn_fields = {}
 

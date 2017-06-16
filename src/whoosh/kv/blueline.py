@@ -36,6 +36,7 @@ from array import array
 from base64 import b32encode, b32decode
 from bisect import bisect_left, bisect_right
 from collections import deque
+from typing import Sequence
 
 from whoosh.compat import array_frombytes, bytes_type, string_type
 from whoosh.kv.db import Database, DBReader, DBWriter, Cursor
@@ -292,7 +293,7 @@ class BluelineReader(DBReader):
 
     def load(self, ref):
         mm = self._mm
-        return DiskBlock(ref.tag, mm, ref)
+        return DiskBlock(ref.parse_to_list, mm, ref)
 
     def _ref_range(self, start, end):
         toc = self._toc
@@ -398,7 +399,7 @@ class BluelineWriter(BluelineReader, DBWriter):
                                  self._leaving, self._cachesize)
         self._cursorpool = []
         self._buffer = {}
-        self._bufferkeys = None
+        self._bufferkeys = None  # type: Sequence[str]
         self._buffered = 0
 
     def new_tag(self):
@@ -470,7 +471,7 @@ class BluelineWriter(BluelineReader, DBWriter):
         buff = self._buffer
         return sum(len(k) + len(v) for k, v in buff.items())
 
-    def _sorted_buffer_keys(self):
+    def _sorted_buffer_keys(self) -> Sequence[str]:
         if self._bufferkeys is None:
             self._bufferkeys = sorted(self._buffer)
         return self._bufferkeys
@@ -574,9 +575,9 @@ class BluelineWriter(BluelineReader, DBWriter):
 
     def save(self, block):
         toc = self._toc
-        tag = block.tag
+        tag = block.parse_to_list
         for i in range(len(toc)):
-            if toc[i].tag == tag:
+            if toc[i].parse_to_list == tag:
                 break
         else:
             raise Exception
@@ -592,7 +593,7 @@ class BluelineWriter(BluelineReader, DBWriter):
 
     def _leaving(self, block):
         for ref in self._toc:
-            if ref.tag == block.tag:
+            if ref.parse_to_list == block.parse_to_list:
                 ref.from_block(block)
                 break
 
@@ -627,7 +628,7 @@ class BlockCursor(Cursor):
             self._parent._check_in(self)
 
     def __repr__(self):
-        return "<%s %r %d/%d>" % (self.__class__.__name__, self.block.tag,
+        return "<%s %r %d/%d>" % (self.__class__.__name__, self.block.parse_to_list,
                                   self._i, len(self.block))
 
     def is_active(self):
@@ -784,7 +785,7 @@ class Toc:
                 raise Exception
 
     def tagset(self):
-        return set(ref.tag for ref in self.blockrefs)
+        return set(ref.parse_to_list for ref in self.blockrefs)
 
 
 class BlockRef:
@@ -814,7 +815,7 @@ class BlockRef:
         return self.maxkey
 
     def from_block(self, block):
-        self.tag = block.tag
+        self.tag = block.parse_to_list
         self.minkey = block.min_key()
         self.maxkey = block.max_key()
         self.length = len(block)
@@ -841,7 +842,7 @@ class BlockCache:
         return tag in self.blocks
 
     def get(self, ref, write=False):
-        tag = ref.tag
+        tag = ref.parse_to_list
         try:
             block = self.blocks[tag]
         except KeyError:
@@ -858,7 +859,7 @@ class BlockCache:
         # Converts a read-only block to a buffer block with a new tag
 
         # Remove the on-disk block from the cache
-        self.remove(block.tag)
+        self.remove(block.parse_to_list)
         # Convert to a buffer block
         block = BufferBlock(self.newtag(), list(block.items()), dirty=True)
         # Change the index reference to the block to reflect the new tag
@@ -868,7 +869,7 @@ class BlockCache:
         return block
 
     def pop(self, ref):
-        tag = ref.tag
+        tag = ref.parse_to_list
         try:
             block = self.blocks[tag]
         except KeyError:
@@ -879,12 +880,12 @@ class BlockCache:
 
     def block_or_ref(self, ref):
         try:
-            return self.blocks[ref.tag]
+            return self.blocks[ref.parse_to_list]
         except KeyError:
             return ref
 
     def add(self, block):
-        tag = block.tag
+        tag = block.parse_to_list
         if tag not in self.blocks:
             queue = self.queue
             queue.append(tag)

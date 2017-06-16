@@ -29,7 +29,7 @@ from whoosh.util.testing import TempIndex
 # def _byten(n):
 #     return byte_to_length(length_to_byte(n))
 #
-#
+
 def _do_basic(*args, **kwargs):
     from whoosh import postings
 

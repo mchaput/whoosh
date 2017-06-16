@@ -26,20 +26,47 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import division
-from typing import Iterable
+from typing import Iterable, Tuple
 
 from whoosh import collectors, searching
+from whoosh.compat import text_type
 from whoosh.ifaces import matchers, queries, readers, searchers
 from whoosh.query import terms, compound, wrappers
 from whoosh.util.times import datetime_to_long
 
 
-__all__ = ("TermRange", "NumericRange", "DateRange", "Every")
+__all__ = ("Range", "TermRange", "NumericRange", "DateRange", "Every")
 
 
 @collectors.register("range")
-class RangeMixin:
-    # Contains methods shared by TermRange and NumericRange
+class Range(terms.MultiTerm):
+    def __init__(self, fieldname, start, end, startexcl=False, endexcl=False,
+                 boost=1.0, constantscore=True):
+        """
+        :param fieldname: The name of the field to search.
+        :param start: Match terms equal to or greater than this value.
+        :param end: Match terms equal to or less than this value.
+        :param startexcl: If True, the range start is exclusive. If False, the
+            range start is inclusive.
+        :param endexcl: If True, the range end is exclusive. If False, the
+            range end is inclusive.
+        :param boost: Boost factor that should be applied to the raw score of
+            results matched by this query.
+        :param constantscore: If True, the compiled query returns a constant
+            score (the value of the ``boost`` keyword argument) instead of
+            actually scoring the matched terms. This gives a nice speed boost
+            and won't affect the results in most cases since ranges
+            will almost always be used as a filter.
+        """
+
+        super(Range, self).__init__(fieldname, None)
+        self.fieldname = fieldname
+        self.start = start
+        self.end = end
+        self.startexcl = startexcl
+        self.endexcl = endexcl
+        self.boost = boost
+        self.constantscore = constantscore
 
     def __repr__(self):
         return ('%s(%r, %r, %r, %s, %s, boost=%s, constantscore=%s)'
@@ -58,13 +85,18 @@ class RangeMixin:
     __str__ = __unicode__
 
     def __eq__(self, other):
-        return (other and self.__class__ is other.__class__
-                and self.fieldname == other.fieldname
-                and self.start == other.start and self.end == other.end
-                and self.startexcl == other.startexcl
-                and self.endexcl == other.endexcl
-                and self.boost == other.boost
-                and self.constantscore == other.constantscore)
+        return (
+            other and type(self) is type(other) and
+            self.fieldname == other.fieldname and
+            self.start == other.start and self.end == other.end and
+            self.startexcl == other.startexcl and
+            self.endexcl == other.endexcl and
+            self.boost == other.boost and
+            self.constantscore == other.constantscore
+        )
+
+    def __ne__(self, other):
+        return not self == other
 
     def __hash__(self):
         return (hash(self.fieldname) ^ hash(self.start) ^ hash(self.startexcl) ^
@@ -90,6 +122,10 @@ class RangeMixin:
     def is_range(self):
         return True
 
+    def terms(self, reader: 'readers.IndexReader'=None, phrases: bool=True
+              ) -> Iterable[Tuple[str, text_type]]:
+        return self.simplify(reader).terms(reader, phrases)
+
     def _comparable_start(self):
         if self.start is None:
             return queries.Lowest, 0
@@ -105,9 +141,9 @@ class RangeMixin:
             return self.end, second
 
     def overlaps(self, other):
-        if not isinstance(other, TermRange):
+        if not isinstance(other, self.__class__):
             return False
-        if self.fieldname != other.fieldname:
+        if self.field() != other.field():
             return False
 
         start1 = self._comparable_start()
@@ -115,10 +151,13 @@ class RangeMixin:
         end1 = self._comparable_end()
         end2 = other._comparable_end()
 
-        return ((start1 >= start2 and start1 <= end2)
-                or (end1 >= start2 and end1 <= end2)
-                or (start2 >= start1 and start2 <= end1)
-                or (end2 >= start1 and end2 <= end1))
+        return ((start2 <= start1 <= end2) or
+                (start2 <= end1 <= end2) or
+                (start1 <= start2 <= end1) or
+                (start1 <= end2 <= end1))
+
+    def can_merge_with(self, other):
+        return self.overlaps(other)
 
     def merge(self, other, intersect=True):
         assert self.fieldname == other.fieldname
@@ -153,9 +192,34 @@ class RangeMixin:
                               endexcl, boost=boost,
                               constantscore=constantscore)
 
+    def matcher(self, searcher, context=None):
+        # The default implementation looks at the field type and picks the
+        # appropriate subclass to generate the matcher
+        from whoosh import fields
+
+        fieldname = self.field()
+        schema = searcher.schema
+        if not fieldname in schema:
+            return matchers.NullMatcher()
+        field = schema[fieldname]
+
+        if isinstance(self.start, bytes) or isinstance(self.end, bytes):
+            q = TermRange(fieldname, self.start, self.end, self.startexcl,
+                          self.endexcl, self.boost, self.constantscore)
+        elif isinstance(field, fields.DateTime):
+            q = DateRange(fieldname, self.start, self.end, self.startexcl,
+                          self.endexcl, self.boost, self.constantscore)
+        elif isinstance(field, fields.Numeric):
+            q = NumericRange(fieldname, self.start, self.end, self.startexcl,
+                             self.endexcl, self.boost, self.constantscore)
+        else:
+            q = TermRange(fieldname, self.start, self.end, self.startexcl,
+                          self.endexcl, self.boost, self.constantscore)
+        return q.matcher(searcher, context)
+
 
 @collectors.register("term_range")
-class TermRange(RangeMixin, terms.MultiTerm):
+class TermRange(Range):
     """Matches documents containing any terms in a given range.
 
     >>> # Match documents where the indexed "id" field is greater than or equal
@@ -163,37 +227,41 @@ class TermRange(RangeMixin, terms.MultiTerm):
     >>> TermRange("id", u"apple", u"pear")
     """
 
-    def __init__(self, fieldname, start, end, startexcl=False, endexcl=False,
-                 boost=1.0, constantscore=True):
-        """
-        :param fieldname: The name of the field to search.
-        :param start: Match terms equal to or greater than this.
-        :param end: Match terms equal to or less than this.
-        :param startexcl: If True, the range start is exclusive. If False, the
-            range start is inclusive.
-        :param endexcl: If True, the range end is exclusive. If False, the
-            range end is inclusive.
-        :param boost: Boost factor that should be applied to the raw score of
-            results matched by this query.
-        """
+    def __eq__(self, other):
+        return (
+            type(other) is TermRange and
+            self.field() == other.field() and
+            self.start == other.start and
+            self.end == other.end and
+            self.startexcl == other.startexcl and
+            self.endexcl == other.endexcl and
+            self.boost == other.boost and
+            self.constantscore == other.constantscore
+        )
 
-        self.fieldname = fieldname
-        self.start = start
-        self.end = end
-        self.startexcl = startexcl
-        self.endexcl = endexcl
-        self.boost = boost
-        self.constantscore = constantscore
+    def __hash__(self):
+        return (
+            hash(type(self)) ^
+            hash(self.field()) ^
+            hash(self.start) ^
+            hash(self.end) ^
+            hash(self.startexcl) ^
+            hash(self.endexcl) ^
+            hash(self.boost) ^
+            hash(self.constantscore)
+        )
 
     def normalize(self):
         from whoosh.query import Every
 
         if self.start in ('', None) and self.end in (u'\uffff', None):
             return Every(self.fieldname, boost=self.boost)
-        elif self.start == self.end:
+
+        if self.start == self.end:
             if self.startexcl or self.endexcl:
                 return queries.NullQuery()
-            return terms.Term(self.fieldname, self.start, boost=self.boost)
+            else:
+                return terms.Term(self.fieldname, self.start, boost=self.boost)
         else:
             return TermRange(self.fieldname, self.start, self.end,
                              self.startexcl, self.endexcl,
@@ -242,9 +310,13 @@ class TermRange(RangeMixin, terms.MultiTerm):
                 break
             yield termbytes
 
+    def matcher(self, searcher, context=None):
+        return terms.MultiTerm.matcher(self, searcher, context)
 
-class NumericRange(RangeMixin, queries.Query):
-    """A range query for NUMERIC fields. Takes advantage of tiered indexing
+
+class NumericRange(Range):
+    """
+    A range query for NUMERIC fields. Takes advantage of tiered indexing
     to speed up large ranges by matching at a high resolution at the edges of
     the range and a low resolution in the middle.
 
@@ -252,40 +324,11 @@ class NumericRange(RangeMixin, queries.Query):
     >>> nr = NumericRange("number", 10, 5925)
     """
 
-    def __init__(self, fieldname, start, end, startexcl=False, endexcl=False,
-                 boost=1.0, constantscore=True):
-        """
-        :param fieldname: The name of the field to search.
-        :param start: Match terms equal to or greater than this number. This
-            should be a number type, not a string.
-        :param end: Match terms equal to or less than this number. This should
-            be a number type, not a string.
-        :param startexcl: If True, the range start is exclusive. If False, the
-            range start is inclusive.
-        :param endexcl: If True, the range end is exclusive. If False, the
-            range end is inclusive.
-        :param boost: Boost factor that should be applied to the raw score of
-            results matched by this query.
-        :param constantscore: If True, the compiled query returns a constant
-            score (the value of the ``boost`` keyword argument) instead of
-            actually scoring the matched terms. This gives a nice speed boost
-            and won't affect the results in most cases since numeric ranges
-            will almost always be used as a filter.
-        """
-
-        self.fieldname = fieldname
-        self.start = start
-        self.end = end
-        self.startexcl = startexcl
-        self.endexcl = endexcl
-        self.boost = boost
-        self.constantscore = constantscore
-
     def estimate_size(self, ixreader):
-        return self._compile_query(ixreader).estimate_size(ixreader)
+        return self.simplify(ixreader).estimate_size(ixreader)
 
     def estimate_min_size(self, ixreader):
-        return self._compile_query(ixreader).estimate_min_size(ixreader)
+        return self.simplify(ixreader).estimate_min_size(ixreader)
 
     def docs(self, searcher: 'searchers.Searcher',
              deleting: bool=False) -> Iterable[int]:
@@ -295,6 +338,9 @@ class NumericRange(RangeMixin, queries.Query):
     def simplify(self, ixreader: 'readers.IndexReader') -> queries.Query:
         from whoosh.fields import Numeric
         from whoosh.util.numeric import split_ranges, to_sortable
+
+        if isinstance(self.start, bytes) or isinstance(self.end, bytes):
+            raise ValueError("NumericRange should not contain bytes")
 
         field = ixreader.schema[self.fieldname]
         if not isinstance(field, Numeric):
@@ -345,7 +391,7 @@ class NumericRange(RangeMixin, queries.Query):
         elif subqueries:
             q = compound.Or(subqueries, boost=self.boost)
         else:
-            return queries.NullQuery
+            return queries.NullQuery()
 
         if self.constantscore:
             q = wrappers.ConstantScoreQuery(q, self.boost)
@@ -382,11 +428,13 @@ class DateRange(NumericRange):
                                         constantscore=constantscore)
 
     def __repr__(self):
-        return '%s(%r, %r, %r, %s, %s, boost=%s)' % (self.__class__.__name__,
-                                           self.fieldname,
-                                           self.startdate, self.enddate,
-                                           self.startexcl, self.endexcl,
-                                           self.boost)
+        return '%s(%r, %r, %r, %s, %s, boost=%s)' % (
+            self.__class__.__name__,
+            self.fieldname,
+            self.startdate, self.enddate,
+            self.startexcl, self.endexcl,
+            self.boost
+        )
 
 
 @collectors.register("all")
@@ -405,6 +453,9 @@ class Every(queries.Query):
         super(Every, self).__init__(startchar=startchar, endchar=endchar,
                                     error=error, boost=boost)
         self.fieldname = fieldname
+
+    def __repr__(self):
+        return "<%s %r>" % (type(self).__name__, self.fieldname)
 
     def __eq__(self, other: 'Every') -> bool:
         if type(self) == type(other):

@@ -31,6 +31,7 @@ import io
 import logging
 import mmap
 import os
+import random
 import sys
 import tempfile
 from abc import abstractmethod
@@ -72,18 +73,30 @@ class TocHeader(MetaData):
     checksum = "I"
 
 
+def make_lock_name(indexname: str):
+    return indexname + "_LOCK"
+
+
 # Session class
 
 class FileSession(storage.Session):
     def __init__(self, store: 'BaseFileStorage', indexname: str,
-                 writable: bool):
-        super(FileSession, self).__init__(store, indexname, writable)
+                 writable: bool, id_counter: int):
+        super(FileSession, self).__init__(store, indexname, writable,
+                                          id_counter)
         if writable:
-            self._lock = store.lock(indexname + "_LOCK")
-            if not self._lock.acquire():
+            self._lock = store.lock(make_lock_name(indexname))
+            if getattr(self._lock, "supports_key", False):
+                locked = self._lock.acquire(key=random.randint(1, 2**63))
+            else:
+                locked = self._lock.acquire()
+            if not locked:
                 raise Exception("Could not lock writable session")
         else:
             self._lock = None
+
+    def read_key(self) -> int:
+        return self._lock.read_key()
 
     def close(self):
         if self._lock:
@@ -136,7 +149,8 @@ class BaseFileStorage(storage.Storage):
 
     def open(self, indexname: str=None, writable: bool=False) -> FileSession:
         indexname = indexname or index.DEFAULT_INDEX_NAME
-        return FileSession(self, indexname, writable)
+        id_counter = self._read_id_counter(indexname)
+        return FileSession(self, indexname, writable, id_counter)
 
     def cleanup(self, session: 'storage.Session', toc: 'index.Toc'=None):
         toc = toc or self.load_toc(session)
@@ -160,8 +174,11 @@ class BaseFileStorage(storage.Storage):
         # Clean up old segment files
         self.cleanup(session, toc)
 
-        # Write the file with a temporary name so other processes don't notice
-        # it until it's done
+        # Write the segment ID counter
+        self._write_id_counter(session)
+
+        # Write the TOC file with a temporary name so other processes don't
+        # notice it until it's done
         filename = index.make_toc_filename(indexname, toc.generation, ".tmp")
         tocbytes = toc.to_bytes()
         toclen = len(tocbytes)
@@ -192,6 +209,27 @@ class BaseFileStorage(storage.Storage):
             raise storage.TocNotFound(indexname)
 
         return mx
+
+    @staticmethod
+    def _id_counter_filename(indexname: str) -> str:
+        assert isinstance(indexname, str)
+        return "%s_counter.txt" % indexname
+
+    def _read_id_counter(self, indexname: str) -> int:
+        filename = self._id_counter_filename(indexname)
+        if self.file_exists(filename):
+            with self.open_file(filename) as f:
+                f.seek(0)
+                num = int(f.read(), 16) + 1
+        else:
+            num = 0
+
+        return num
+
+    def _write_id_counter(self, session: 'storage.Session'):
+        filename = self._id_counter_filename(session.indexname)
+        with self.create_file(filename) as f:
+            f.write(("%06x" % session.id_counter).encode("ascii"))
 
     def load_toc(self, session: 'storage.Session', generation: int=None,
                  schema: 'fields.Schema'=None):
@@ -360,6 +398,9 @@ class OverlayStorage(BaseFileStorage):
         self.a = a
         self.b = b
 
+    def supports_multiproc_writing(self) -> bool:
+        return self.b.supports_multiproc_writing()
+
     def create_index(self, *args, **kwargs):
         self.b.create_index(*args, **kwargs)
 
@@ -449,6 +490,18 @@ class FileStorage(BaseFileStorage):
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.folder)
 
+    def recursive_write_open(self, key: int, indexname: str=None
+                             ) -> FileSession:
+        indexname = indexname or index.DEFAULT_INDEX_NAME
+        lock = self.lock(make_lock_name(indexname))
+        disk_key = lock.read_key()
+        if disk_key != key:
+            raise Exception("Recursive open attempt has wrong key; %d != %d" %
+                            (disk_key, key))
+
+        id_counter = self._read_id_counter(indexname)
+        return FileSession(self, indexname, True, id_counter)
+
     @classmethod
     def from_url(cls, url: str) -> 'FileStorage':
         url = furl.furl(url)
@@ -462,6 +515,9 @@ class FileStorage(BaseFileStorage):
     def as_url(self) -> str:
         args = {"mmap": self.supports_mmap, "readonly": self.readonly}
         return furl.furl().set(scheme="file", path=self.folder, args=args).url
+
+    def supports_multiproc_writing(self):
+        return True
 
     def create(self):
         """
@@ -566,10 +622,10 @@ class FileStorage(BaseFileStorage):
         f = open(self._fpath(name), "rb")
         dataobj = None
 
-        # Can we use mmap?
+        # Can/should we use mmap?
         use_mmap = (
             mmap and self.supports_mmap and hasattr(f, "fileno") and
-            filesize < sys.maxsize
+            4096 <= filesize < sys.maxsize
         )
         # Check if this file is real. In some versions of Python, non-real
         # files don't have a fileno method, but in others it exists but raises
@@ -602,6 +658,7 @@ class FileStorage(BaseFileStorage):
         if dataobj is None:
             # mmap isn't available, so fake it with the FileMap
             dataobj = datafile.FileData(f, name, offset=offset, length=length)
+
         return dataobj
 
     def clean(self, ignore: bool=False):

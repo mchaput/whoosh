@@ -203,6 +203,19 @@ class Segment:
 
         raise NotImplementedError
 
+    # Override-able default implementation
+
+    def should_rewrite(self) -> bool:
+        """
+        Returns True if this segment has enough cruft (as defined arbitrarily
+        by the implementation) that it would improve efficiency (by some
+        implementation-specific measure) to rewrite it.
+        """
+
+        return False
+
+    # Derived methods
+
     def doc_count(self) -> int:
         """
         Returns the number of (undeleted) documents in this segment.
@@ -221,16 +234,6 @@ class Segment:
         """
 
         return self.deleted_count() > 0
-
-    @staticmethod
-    def should_rewrite() -> bool:
-        """
-        Returns True if this segment has enough cruft (as defined arbitrarily
-        by the implementation) that it would improve efficiency (by some
-        implementation-specific measure) to rewrite it.
-        """
-
-        return False
 
 
 class FileSegment(Segment):
@@ -309,8 +312,8 @@ class Codec:
                         ) -> 'storage.Storage':
         return store
 
-    @abstractclassmethod
-    def segment_from_bytes(cls, bs) -> Segment:
+    @abstractmethod
+    def segment_from_bytes(self, bs: bytes) -> Segment:
         raise NotImplementedError
 
 
@@ -348,9 +351,8 @@ class WrappingCodec(Codec):
                         ) -> 'storage.Storage':
         return self._child.segment_storage(store, segment)
 
-    @abstractclassmethod
-    def segment_from_bytes(cls, bs: bytes) -> Codec:
-        raise NotImplementedError
+    def segment_from_bytes(self, bs: bytes) -> Codec:
+        raise self._child.segment_from_bytes(bs)
 
 
 # Writer classes

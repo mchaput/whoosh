@@ -402,7 +402,7 @@ class SpanFirst(qwrappers.WrappingQuery):
             query must match at the first position.
         """
 
-        self.child = child
+        super(SpanFirst, self).__init__(child)
         self.limit = limit
         self.boost = boost
 
@@ -473,6 +473,7 @@ class SpanNear(SpanQuery):
         :pram mindist: the minimum distance allowed between the queries.
         """
 
+        super(SpanNear, self).__init__()
         self.qs = qs
         self.slop = slop
         self.ordered = ordered
@@ -494,6 +495,9 @@ class SpanNear(SpanQuery):
         for q in self.qs:
             h ^= hash(q)
         return h
+
+    def estimate_size(self, reader: 'readers.IndexReader') -> int:
+        return min(q.estimate_size(reader) for q in self.qs)
 
     def is_leaf(self):
         return False
@@ -589,6 +593,7 @@ class SpanOr(SpanQuery):
 
         from whoosh.query.compound import Or
 
+        super(SpanOr, self).__init__()
         self.q = Or(subqs)
         self.subqs = subqs
 
@@ -685,6 +690,7 @@ class SpanNot(SpanBiQuery):
 
         from whoosh.query.compound import AndMaybe
 
+        super(SpanNot, self).__init__()
         self.q = AndMaybe(a, b)
         self.a = a
         self.b = b
@@ -739,6 +745,7 @@ class SpanContains(SpanBiQuery):
 
         from whoosh.query.compound import And
 
+        super(SpanContains, self).__init__()
         self.q = And([a, b])
         self.a = a
         self.b = b
@@ -787,6 +794,7 @@ class SpanBefore(SpanBiQuery):
 
         from whoosh.query.compound import And
 
+        super(SpanBefore, self).__init__()
         self.a = a
         self.b = b
         self.q = And([a, b])
@@ -804,7 +812,8 @@ class SpanBefore(SpanBiQuery):
 
 
 class SpanCondition(SpanBiQuery):
-    """Matches documents that satisfy both subqueries, but only uses the spans
+    """
+    Matches documents that satisfy both subqueries, but only uses the spans
     from the first subquery.
 
     This is useful when you want to place conditions on matches but not have
@@ -820,6 +829,7 @@ class SpanCondition(SpanBiQuery):
     def __init__(self, a, b):
         from whoosh.query.compound import And
 
+        super(SpanCondition, self).__init__()
         self.a = a
         self.b = b
         self.q = And([a, b])

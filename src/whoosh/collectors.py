@@ -4,6 +4,7 @@ from collections import defaultdict, namedtuple
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from whoosh import results, sorting
+from whoosh.compat import text_type
 from whoosh.ifaces import matchers, queries, searchers, weights
 from whoosh.util import now
 
@@ -96,7 +97,7 @@ class Collector:
 
                 return _combiner
 
-        raise AttributeError(name)
+        raise AttributeError("No attribute %s on %r" % (name, self))
 
     def rewrap(self, child):
         raise Exception("%s can't rewrap" % self.__class__.__name__)
@@ -119,10 +120,16 @@ class Collector:
 
         return self.with_query(Every())
 
-    def get(self, **kwargs) -> 'Collector':
-        searcher = self.searcher()
-        q = searcher.keywords_to_query(kwargs)
-        return self.with_query(q)
+    # def get(self, **kwargs) -> 'Collector':
+    #     searcher = self.searcher()
+    #     q = searcher.keywords_to_query(kwargs)
+    #     return self.with_query(q)
+    #
+    # def select(self, qstring: text_type=None, **kwargs):
+    #     searcher = self.searcher()
+    #     q = searcher.keywords_to_query(kwargs)
+    #     if qstring:
+    #         sq = self.searcher.parse()
 
     # Getters and setters
 
@@ -486,7 +493,7 @@ class SortingCollector(WrappingCollector):
     collector_priority = 500
 
     def __init__(self, child: Collector,
-                 *criteria: Sequence[sorting.FacetType]):
+                 *criteria: 'Sequence[sorting.FacetType]'):
         super(SortingCollector, self).__init__(child)
         self._facet = sorting.FacetType.from_sortedby(criteria)
         self._catter = None  # type: sorting.Categorizer

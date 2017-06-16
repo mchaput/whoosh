@@ -60,6 +60,7 @@ class SearchContext:
     def __init__(self, weighting: 'weights.WeightingModel'=None,
                  top_searcher: 'Searcher'=None,
                  top_query: 'queries.Query'=None,
+                 offset: int=0,
                  limit: int=0,
                  optimize: bool=True,
                  include: FilterType=None,
@@ -70,16 +71,6 @@ class SearchContext:
         :param top_query: a reference to the top-level query object.
         :param limit: the number of results requested by the user.
         :param optimize: whether to use block quality optimizations.
-        :param minscore: the minimum score a document must have to get into the
-            results.
-        :param offset: an offset to add to document numbers.
-        :param matcher: the current matcher.
-        :param conditioners: a list of functions to run to set up the search
-            context.
-        :param data: a dictionary of collector-generated values to copy over to
-            the results.
-        :param docset: a set containing the document numbers of all matches, or
-            None if the IDs weren't recorded.
         :param include: a doc ID set or query representing documents that are
             allowed in the search results.
         :param exclude: a doc ID set or query representing documents not allowed
@@ -89,10 +80,12 @@ class SearchContext:
         self.weighting = weighting
         self.top_searcher = top_searcher
         self.top_query = top_query
+        self.offset = offset
         self.limit = limit
         self.optimize = optimize
         self.include = include
         self.exclude = exclude
+        self.query_local_data = {}
 
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.__dict__)
@@ -110,6 +103,11 @@ class SearchContext:
 
     def set(self, **kwargs):
         ctx = copy.copy(self)
+        ctx.query_local_data = self.query_local_data.copy()
+
+        if "query_local_data" in kwargs:
+            ctx.query_local_data.update(kwargs.pop("query_local_data", None))
+
         ctx.__dict__.update(kwargs)
         return ctx
 
@@ -274,7 +272,7 @@ class Searcher:
     # Derived and helper methods
 
     def context(self, weighting: 'weights.WeightingModel'=None,
-                top_query: 'queries.Query'=None, limit: int=0):
+                top_query: 'queries.Query'=None, limit: int=0, offset: int=0):
         """
         Returns a ``SearchContext`` object
 
@@ -285,8 +283,8 @@ class Searcher:
         """
 
         weighting = weighting or self.weighting
-        return SearchContext(weighting=weighting,
-                             top_query=top_query, limit=limit)
+        return SearchContext(weighting=weighting, top_query=top_query,
+                             offset=offset, limit=limit)
 
     def boolean_context(self) -> SearchContext:
         """

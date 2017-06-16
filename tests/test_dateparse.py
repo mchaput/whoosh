@@ -271,7 +271,7 @@ def test_all():
 
 def test_final_dates(p=english):
     assert_unamb(p.date_from("5:10pm", basedate),
-                      year=2010, month=9, day=20, hour=17, minute=10)
+                 year=2010, month=9, day=20, hour=17, minute=10)
 
     assert p.date_from("may 32 2005", basedate) is None
     assert p.date_from("2005 may 32", basedate) is None

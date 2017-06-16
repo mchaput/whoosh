@@ -181,6 +181,9 @@ class Analyzer:
     def __ne__(self, other: 'Analyzer'):
         return not self == other
 
+    def is_token_start(self, s: str, at: int) -> bool:
+        raise NotImplementedError
+
     @abstractmethod
     def __call__(self, value: text_type, **kwargs):
         raise NotImplementedError
@@ -210,6 +213,9 @@ class Tokenizer(Analyzer):
         else:
             raise CompositionError("Cannot compose %r and %r" % (self, other))
 
+    def is_token_start(self, s: str, at: int) -> bool:
+        raise NotImplementedError
+
 
 class Filter(Analyzer):
     def __call__(self, value: text_type, **kwargs):
@@ -229,8 +235,8 @@ class Filter(Analyzer):
 
 
 class FilterChain(Filter):
-    def __init__(self, *filters: Sequence[Filter]):
-        self._filters = filters
+    def __init__(self, *filters):
+        self._filters = filters  # type: Tuple[Filter]
 
     def __or__(self, other: 'Filter') -> 'CompositeAnalyzer':
         if not isinstance(other, Filter):
@@ -248,7 +254,7 @@ class FilterChain(Filter):
 
 
 class CompositeAnalyzer(Tokenizer):
-    def __init__(self, tokenizer: Tokenizer, *filters: Sequence[Filter]):
+    def __init__(self, tokenizer: Tokenizer, *filters):
         self._tokenizer = tokenizer
         self._filters = []  # type: List[Filter]
         self.extend(filters)
@@ -280,6 +286,9 @@ class CompositeAnalyzer(Tokenizer):
 
     def __len__(self):
         return len(self._filters) + 1
+
+    def is_token_start(self, s: str, at: int) -> bool:
+        return self._tokenizer.is_token_start(s, at)
 
     def __call__(self, value: text_type, no_morph: bool=False,
                  **kwargs) -> Iterable[Token]:

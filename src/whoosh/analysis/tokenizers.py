@@ -29,7 +29,6 @@ from typing import Iterable
 
 from whoosh.ifaces import analysis
 from whoosh.analysis import filters
-from whoosh.compat import text_type
 from whoosh.util.text import rcompile
 
 
@@ -47,12 +46,15 @@ class IDTokenizer(analysis.Tokenizer):
     ["/a/b 123 alpha"]
     """
 
-    def __call__(self, value: text_type,
+    def is_token_start(self, s: str, at: int) -> bool:
+        return True
+
+    def __call__(self, value: str,
                  positions: bool=False, chars: bool=False,
                  keeporiginal: int=False, removestops: bool=True,
                  start_pos: int=0, start_char: int=0,
                  mode: str='', **kwargs) -> Iterable[analysis.Token]:
-        assert isinstance(value, text_type), "%r is not unicode" % value
+        assert isinstance(value, str), "%r is not unicode" % value
         t = analysis.Token(positions=positions, chars=chars,
                            removestops=removestops, mode=mode,
                            **kwargs)
@@ -67,7 +69,7 @@ class IDTokenizer(analysis.Tokenizer):
             t.startchar = start_char
             t.endchar = start_char + len(value)
         yield t
-
+    
 
 class RegexTokenizer(analysis.Tokenizer):
     """
@@ -98,7 +100,10 @@ class RegexTokenizer(analysis.Tokenizer):
             self.gaps == other.gaps
         )
 
-    def __call__(self, value: text_type,
+    def is_token_start(self, s: str, at: int) -> bool:
+        return bool(self.expression.match(s, at))
+
+    def __call__(self, value: str,
                  positions: bool=False, chars: bool=False, keeporiginal=False,
                  removestops: bool=True, tokenize: bool=True,
                  start_pos: int=0, start_char: int=0,
@@ -117,7 +122,7 @@ class RegexTokenizer(analysis.Tokenizer):
         :param tokenize: if True, the text should be tokenized.
         """
 
-        assert isinstance(value, text_type), "%s is not unicode" % repr(value)
+        assert isinstance(value, str), "%s is not unicode" % repr(value)
 
         t = analysis.Token(positions, chars, removestops=removestops, mode=mode,
                            **kwargs)
@@ -226,7 +231,10 @@ class CharsetTokenizer(analysis.Tokenizer):
                 and self.__class__ is other.__class__
                 and self.charmap == other.charmap)
 
-    def __call__(self, value: text_type,
+    def is_token_start(self, s: str, at: int) -> bool:
+        return bool(self.charmap[ord(s[at])])
+
+    def __call__(self, value: str,
                  positions: bool=False, chars: bool=False,
                  keeporiginal: bool=False, removestops: bool=True,
                  start_pos: int=0, start_char: int=0, tokenize: bool=True,
@@ -244,7 +252,7 @@ class CharsetTokenizer(analysis.Tokenizer):
         :param tokenize: if True, the text should be tokenized.
         """
 
-        assert isinstance(value, text_type), "%r is not unicode" % value
+        assert isinstance(value, str), "%r is not unicode" % value
 
         t = analysis.Token(positions, chars, removestops=removestops, mode=mode,
                            **kwargs)
@@ -340,9 +348,12 @@ class PathTokenizer(analysis.Tokenizer):
     def __init__(self, expression="[^/]+"):
         self.expr = rcompile(expression)
 
-    def __call__(self, value: text_type, positions: bool=False,
+    def is_token_start(self, s: str, at: int):
+        return s.startswith("/", at)
+
+    def __call__(self, value: str, positions: bool=False,
                  start_pos: int=0, **kwargs):
-        assert isinstance(value, text_type), "%r is not unicode" % value
+        assert isinstance(value, str), "%r is not unicode" % value
         token = analysis.Token(positions, **kwargs)
         token.source = value
 

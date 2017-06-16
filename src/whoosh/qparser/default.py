@@ -30,7 +30,7 @@ import sys
 from whoosh import query
 from whoosh.compat import text_type
 from whoosh.qparser import syntax
-from whoosh.qparser.common import print_debug, QueryParserError
+from whoosh.qparser.common import print_debug
 
 
 # Query parser object
@@ -195,8 +195,7 @@ class QueryParser:
             elif spec == "or":
                 qclass = query.Or
             else:
-                raise QueryParserError("Unknown multitoken_query value %r"
-                                       % spec)
+                raise ValueError("Unknown multitoken_query value %r" % spec)
             return qclass([termclass(fieldname, t, boost=boost)
                            for t in texts])
 

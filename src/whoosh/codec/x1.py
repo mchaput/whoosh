@@ -295,14 +295,12 @@ class X1TermInfo(readers.TermInfo):
 # Segment implementation
 
 class X1Segment(codecs.FileSegment):
-    def __init__(self, _codec: 'X1Codec', indexname: str, doccount: int=0,
-                 segid: str=None, deleted: Set=None, fieldlengths: Dict=None,
+    def __init__(self, _codec: 'X1Codec', indexname: str, segid: str,
+                 doccount: int=0, deleted: Set=None, fieldlengths: Dict=None,
                  was_little: bool=IS_LITTLE):
-        from whoosh import index
-
         self._codec = _codec
         self._indexname = indexname
-        self._segid = segid if segid else index.make_segment_id()
+        self._segid = segid
 
         self._size = 0
         self._doccount = doccount
@@ -428,7 +426,8 @@ class X1Codec(codecs.Codec):
     # Segments
 
     def new_segment(self, session: 'storage.Session') -> X1Segment:
-        return X1Segment(self, session.indexname)
+        segid = "%06d" % session.next_id()
+        return X1Segment(self, session.indexname, segid)
 
     def finish_segment(self, session: 'storage.Session', segment: X1Segment):
         from whoosh.filedb.compound import assemble_segment
@@ -448,8 +447,7 @@ class X1Codec(codecs.Codec):
 
         return store
 
-    @classmethod
-    def segment_from_bytes(cls, bs) -> X1Segment:
+    def segment_from_bytes(self, bs:bytes) -> X1Segment:
         return X1Segment.from_bytes(bs)
 
 

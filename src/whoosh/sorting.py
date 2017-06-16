@@ -473,7 +473,7 @@ class QueryFacet(FacetType):
             self._docoffset = None
 
         def set_searcher(self, segment_searcher: 'searchers.Searcher',
-                     docoffset: int):
+                         docoffset: int):
             self._docsets = {}
             for qname, q in self.querydict.items():
                 docset = set(q.docs(segment_searcher))
@@ -488,7 +488,7 @@ class QueryFacet(FacetType):
             return self.other
 
         def keys_for(self, matcher: 'matchers.Matcher', segment_docnum: int
-                 ) -> Iterable[text_type]:
+                     ) -> Iterable[text_type]:
             found = False
             for qname in self._docsets:
                 if segment_docnum in self._docsets[qname]:

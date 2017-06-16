@@ -62,6 +62,9 @@ class NgramTokenizer(analysis.Tokenizer):
         self.min = minsize
         self.max = maxsize or minsize
 
+    def is_token_start(self, s: str, at: int):
+        return True
+
     def __call__(self, value, positions: bool=False, chars: bool=False,
                  keeporiginal: bool=False, removestops: bool=True,
                  start_pos: int=0, start_char: int=0, mode: str='',

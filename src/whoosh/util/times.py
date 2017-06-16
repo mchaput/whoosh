@@ -73,6 +73,7 @@ def datetime_to_long(dt: datetime) -> int:
     :param dt: the datetime object to convert to an integer.
     """
 
+    assert isinstance(dt, datetime)
     return timedelta_to_usecs(dt.replace(tzinfo=None) - dt.min)
 
 
@@ -159,8 +160,8 @@ class adatetime:
 
     def copy(self):
         return adatetime(year=self.year, month=self.month, day=self.day,
-                     hour=self.hour, minute=self.minute, second=self.second,
-                     microsecond=self.microsecond)
+                         hour=self.hour, minute=self.minute, second=self.second,
+                         microsecond=self.microsecond)
 
     def replace(self, **kwargs):
         """Returns a copy of this object with the attributes given as keyword

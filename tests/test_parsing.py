@@ -1055,3 +1055,14 @@ def test_quoted_prefix():
     assert q[1] == query.Prefix("url", "http://apple.com:8080/bar")
     assert q[2] == query.Term("f", "baz")
     assert len(q) == 3
+
+
+# def test_ngram_symbols():
+#     tokenizer = analysis.RegexTokenizer(expression="(@|\w)+")
+#     field = fields.NGRAMWORDS(tokenizer=tokenizer, at="start")
+#     schema = fields.Schema(grams=field)
+#
+#     print([t.text for t in field.tokenize(u"this @that other")])
+#     assert False
+
+

@@ -18,11 +18,10 @@ def test_filenames():
     assert m
     assert m.group("gen") == "12"
 
-    segid = index.make_segment_id()
-    segname = index.make_segment_filename("foobar", segid, "baz")
+    segname = index.make_segment_filename("foobar", "1001", "baz")
     m = index.segment_regex("foobar").match(segname)
     assert m
-    assert m.group("id") == segid
+    assert m.group("id") == "1001"
     assert m.group("ext") == "baz"
 
 
@@ -82,7 +81,9 @@ def test_version_in():
 
 def test_simple_indexing():
     from whoosh.query.terms import Term
+    from whoosh.util import now
 
+    t = now()
     schema = fields.Schema(text=fields.TEXT, id=fields.STORED)
     domain = (u"alfa", u"bravo", u"charlie", u"delta", u"echo",
               u"foxtrot", u"golf", u"hotel", u"india", u"juliet",

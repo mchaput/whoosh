@@ -350,6 +350,7 @@ def test_minimize_dfa():
     good.add_final_state(1)
 
     dfa.minimize()
+    # dfa.dump()
     assert dfa == good
 
 

@@ -130,7 +130,7 @@ class PrefixPlugin(TaggingPlugin):
     >>> qp = qparser.QueryParser("content", myschema)
     >>> qp.remove_plugin_class(qparser.WildcardPlugin)
     >>> qp.add_plugin(qparser.PrefixPlugin())
-    >>> q = qp.parse("pre*")
+    >>> q = qp._parse("pre*")
     """
 
     class PrefixNode(syntax.TextNode):
@@ -204,7 +204,7 @@ class RegexPlugin(TaggingPlugin):
 
     >>> qp = qparser.QueryParser("content", myschema)
     >>> qp.add_plugin(qparser.RegexPlugin())
-    >>> q = qp.parse('foo title:r"bar+"')
+    >>> q = qp._parse('foo title:r"bar+"')
     """
 
     class RegexNode(syntax.TextNode):
@@ -221,7 +221,7 @@ class BoostPlugin(TaggingPlugin):
     """Adds the ability to boost clauses of the query using the circumflex.
 
     >>> qp = qparser.QueryParser("content", myschema)
-    >>> q = qp.parse("hello there^2")
+    >>> q = qp._parse("hello there^2")
     """
 
     expr = "\\^(?P<boost>[0-9]*(\\.[0-9]+)?)($|(?=[ \t\r\n)]))"
@@ -455,7 +455,7 @@ class FuzzyTermPlugin(TaggingPlugin):
 
     >>> qp = qparser.QueryParser("content", myschema)
     >>> qp.add_plugin(qparser.FuzzyTermPlugin())
-    >>> q = qp.parse("Stephen~2 Colbert")
+    >>> q = qp._parse("Stephen~2 Colbert")
 
     For example, the following query creates a :class:`whoosh.query.FuzzyTerm`
     query with a maximum edit distance of 1::
@@ -1142,7 +1142,7 @@ class MultifieldPlugin(Plugin):
 
     >>> qp = qparser.QueryParser(None, myschema)
     >>> qp.add_plugin(qparser.MultifieldPlugin(["a", "b"])
-    >>> qp.parse("alfa c:bravo")
+    >>> qp._parse("alfa c:bravo")
     And([Or([Term("a", "alfa"), Term("b", "alfa")]), Term("c", "bravo")])
 
     This plugin is the basis for the ``MultifieldParser``.
@@ -1194,7 +1194,7 @@ class FieldAliasPlugin(Plugin):
 
     >>> # Allow users to use 'body' or 'text' to refer to the 'content' field
     >>> parser.add_plugin(FieldAliasPlugin({"content": ["body", "text"]}))
-    >>> parser.parse("text:hello")
+    >>> parser._parse("text:hello")
     Term("content", "hello")
     """
 

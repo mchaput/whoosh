@@ -110,13 +110,16 @@ class CompoundQuery(queries.Query):
 
         return collector.with_query(cls(qs, **kwargs))
 
+    def is_leaf(self):
+        return False
+
     def children(self):
         return self.subqueries
 
     def set_children(self, children: 'Sequence[queries.Query]'):
         for c in children:
             if not isinstance(c, queries.Query):
-                raise queries.QueryError("%r is not a query")
+                raise queries.QueryError("%r is not a query" % c)
         self.subqueries = children
 
     def field(self):
@@ -129,19 +132,36 @@ class CompoundQuery(queries.Query):
         est = sum(q.estimate_size(ixreader) for q in self.subqueries)
         return min(est, ixreader.doc_count())
 
+    def can_merge_with(self, other: 'queries.Query'):
+        return self.__class__ is other.__class__
+
+    def merge_subqueries(self) -> 'queries.Query':
+        if not self.analyzed:
+            return self
+
+        newq = self.copy()
+        subqs = []
+        for s in self.subqueries:
+            if self.can_merge_with(s):
+                for ss in s.children():
+                    ss.set_boost(ss.boost * s.boost)
+                    subqs.append(ss)
+            else:
+                subqs.append(s)
+
+        # if len(subqs) == 1:
+        #     return subqs[0]
+        # else:
+        newq.set_children(subqs)
+        return newq
+
     def normalize(self) -> 'queries.Query':
         from whoosh.query.ranges import Every
 
-        # Normalize subqueries and merge nested instances of this class
-        subqueries = []
-        for s in self.subqueries:
-            s = s.normalize()
-            if isinstance(s, self.__class__):
-                for ss in s:
-                    ss.set_boost(ss.boost * s.boost)
-                    subqueries.append(ss)
-            else:
-                subqueries.append(s)
+        # Normalize children
+        self.set_children([s.normalize() for s in self.children()])
+        subqueries = [q for q in self.merge_subqueries().children()
+                      if not isinstance(q, queries.IgnoreQuery)]
 
         # If every subquery is Null, this query is Null
         if all(isinstance(q, queries.NullQuery) for q in subqueries):
@@ -173,7 +193,7 @@ class CompoundQuery(queries.Query):
                 q = subqueries[i] = q.normalize()
 
             if isinstance(q, Every):
-                everyfields.add(q.fieldname)
+                everyfields.add(q.field())
             i += 1
 
         # Eliminate duplicate queries
@@ -198,7 +218,9 @@ class CompoundQuery(queries.Query):
             sub.set_boost(sub_boost * self.boost)
             return sub
 
-        return self.__class__(subqs, boost=self.boost)
+        newq = self.copy()
+        newq.set_children(subqs)
+        return newq
 
     def simplify(self, ixreader: 'readers.IndexReader'):
         subs = [s.simplify(ixreader) for s in self.subqueries]
@@ -369,7 +391,7 @@ class DisjunctionMax(CompoundQuery):
     """
 
     def __init__(self, subqueries, boost=1.0, tiebreak=0.0):
-        CompoundQuery.__init__(self, subqueries, boost=boost)
+        super(DisjunctionMax, self).__init__(subqueries, boost=boost)
         self.tiebreak = tiebreak
 
     def __unicode__(self):
@@ -412,9 +434,9 @@ class BinaryQuery(CompoundQuery):
     boost = 1.0
 
     def __init__(self, a, b):
+        super(BinaryQuery, self).__init__((a, b))
         self.a = a
         self.b = b
-        self.subqueries = (a, b)
 
     def __eq__(self, other):
         return (other and self.__class__ is other.__class__
@@ -427,6 +449,7 @@ class BinaryQuery(CompoundQuery):
         assert len(children) == 2
         self.a = children[0]
         self.b = children[1]
+        self.subqueries = [self.a, self.b]
 
     @classmethod
     def combine_collector(cls, collector: 'collectors.Collector',
@@ -469,9 +492,6 @@ class AndNot(BinaryQuery):
     """
 
     joint = " ANDNOT "
-
-    def with_boost(self, boost):
-        return self.__class__(self.a.with_boost(boost), self.b)
 
     def normalize(self):
         a = self.a.normalize()
@@ -536,6 +556,8 @@ class Require(BinaryQuery):
     def normalize(self):
         a = self.a.normalize()
         b = self.b.normalize()
+        if isinstance(b, queries.IgnoreQuery):
+            return a
         if isinstance(a, queries.NullQuery) or isinstance(b, queries.NullQuery):
             return queries.NullQuery()
         return self.__class__(a, b)

@@ -7,6 +7,7 @@ from whoosh import fields, qparser, query
 from whoosh.qparser import QueryParser
 from whoosh.query import And
 from whoosh.query import AndMaybe
+from whoosh.query import AndNot
 from whoosh.query import ConstantScoreQuery
 from whoosh.query import DateRange
 from whoosh.query import DisjunctionMax
@@ -308,6 +309,14 @@ def test_query_copy_hash():
        SpanContains(Term("a", u"b"), Term("a", u"d")))
     # do(SpanBefore)
     # do(SpanCondition)
+
+
+def test_andnot_hash():
+    q1 = Term("foo", "bar")
+    q2 = Term("baz", "quux")
+    q = AndNot(q1, q2)
+    assert q.__hash__
+    hash(q)
 
 
 def test_highlight_daterange():

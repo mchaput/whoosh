@@ -25,6 +25,8 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+import sys
+
 from whoosh.query.compound import *
 from whoosh.query.nested import *
 from whoosh.query.positional import *
@@ -34,3 +36,28 @@ from whoosh.query.spans import *
 from whoosh.query.terms import *
 from whoosh.query.wrappers import *
 from whoosh.ifaces.queries import *
+
+
+def _short_string(q: Query) -> str:
+    assert isinstance(q, Query), repr(q)
+    s = repr(q) if q.is_leaf() else type(q).__name__
+    if not q.analyzed:
+        s += "*"
+    return s
+
+
+def dump(q: 'Query', stream=sys.stdout, tab=0):
+    s = _short_string(q)
+    print("    " * tab, s, file=stream)
+    for subq in q.children():
+        dump(subq, stream, tab + 1)
+
+
+def diff(a: 'Query', b: 'Query', stream=sys.stdout, tab=0):
+    s_a = _short_string(a)
+    s_b = _short_string(b)
+    rel = "==" if a == b else "!="
+    print("    " * tab, s_a, rel, s_b, file=stream)
+    for aa, bb in zip(a.children(), b.children()):
+        diff(aa, bb, stream, tab + 1)
+

@@ -252,8 +252,6 @@ def test_cancel_delete():
 
 
 def test_delete_nonexistant():
-    from whoosh.writing import IndexingError
-
     schema = fields.Schema(id=fields.ID(stored=True))
     # Single segment
     with TempIndex(schema, "deletenon1") as ix:

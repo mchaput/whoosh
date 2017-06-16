@@ -121,8 +121,8 @@ class NestedParent(NestedBase):
             sub-documents.
         """
 
+        super(NestedParent, self).__init__(collectors.as_query(subq))
         self.parents = parents
-        self.child = collectors.as_query(subq)
         self.per_parent_limit = per_parent_limit
         self.score_fn = score_fn
 
@@ -290,8 +290,8 @@ class NestedChildren(NestedBase):
     """
 
     def __init__(self, parents, subq, boost=1.0):
+        super(NestedChildren, self).__init__(collectors.as_query(subq))
         self.parents = parents
-        self.child = collectors.as_query(subq)
         self.boost = boost
 
     def matcher(self, searcher, context=None):
