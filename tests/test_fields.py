@@ -545,12 +545,12 @@ def test_missing_field():
 
 def test_token_boost():
     from whoosh.analysis import RegexTokenizer, DoubleMetaphoneFilter
-    from whoosh import postings
+    from whoosh.postings import ptuples
 
     ana = RegexTokenizer() | DoubleMetaphoneFilter()
     field = fields.Text(analyzer=ana, phrase=False)
     length, posts = field.index(u"spruce view")
-    assert [p[postings.TERMBYTES] for p in posts] == [b"F", b"FF", b"SPRS"]
+    assert [p[ptuples.TERMBYTES] for p in posts] == [b"F", b"FF", b"SPRS"]
 
 
 def test_email_field():

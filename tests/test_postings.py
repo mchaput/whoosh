@@ -3,9 +3,10 @@ import random
 import pytest
 
 from whoosh import analysis
-from whoosh import postings as p
+from whoosh.postings import ptuples as pt
 from whoosh.compat import text_type
-from whoosh.postings import BasicIO as bio
+from whoosh.postings import basic, postform, postio, postings
+from whoosh.postings.basic import BasicIO as bio
 from whoosh.util.testing import TempStorage
 
 
@@ -143,36 +144,36 @@ def test_encode_payloads():
 
 def test_roundtrip_docs():
     posts = [
-        p.posting(1, b'', 5, 2.5, [1, 2, 3], [(5, 10), (15, 20)], [b"a"]),
-        p.posting(7, b'', 4, 1.5, [4], [(7, 12), (13, 22)], [b"b", b"c"]),
-        p.posting(20, b'', 3, 4.5, [7, 8, 9], [(2, 3), (8, 9)], [b"d", b"e"]),
-        p.posting(50, b'', 2, 3.5, [10, 11, 12, 13], [(1, 4)], [b"f"]),
-        p.posting(80, b'', 1, 3, [13, 14], [(5, 10)], [b"g", b"h", b"i"]),
+        pt.posting(1, b'', 5, 2.5, [1, 2, 3], [(5, 10), (15, 20)], [b"a"]),
+        pt.posting(7, b'', 4, 1.5, [4], [(7, 12), (13, 22)], [b"b", b"c"]),
+        pt.posting(20, b'', 3, 4.5, [7, 8, 9], [(2, 3), (8, 9)], [b"d", b"e"]),
+        pt.posting(50, b'', 2, 3.5, [10, 11, 12, 13], [(1, 4)], [b"f"]),
+        pt.posting(80, b'', 1, 3, [13, 14], [(5, 10)], [b"g", b"h", b"i"]),
     ]
 
-    bf = p.Format(True, True, True, True, True)
+    bf = postform.Format(True, True, True, True, True)
     raw_posts = [bf.condition_post(x) for x in posts]
 
     bs = bf.doclist_to_bytes(raw_posts)
 
     br = bf.doclist_reader(bs)
     for i in range(len(posts)):
-        assert br.id(i) == posts[i][p.DOCID]
-        assert br.length(i) == posts[i][p.LENGTH]
-        assert br.weight(i) == posts[i][p.WEIGHT]
-        assert list(br.positions(i)) == posts[i][p.POSITIONS]
-        assert list(br.chars(i)) == posts[i][p.CHARS]
-        assert list(br.payloads(i)) == posts[i][p.PAYLOADS]
+        assert br.id(i) == posts[i][pt.DOCID]
+        assert br.length(i) == posts[i][pt.LENGTH]
+        assert br.weight(i) == posts[i][pt.WEIGHT]
+        assert list(br.positions(i)) == posts[i][pt.POSITIONS]
+        assert list(br.chars(i)) == posts[i][pt.CHARS]
+        assert list(br.payloads(i)) == posts[i][pt.PAYLOADS]
 
 
 def test_payloads():
     posts = [
-        p.posting(docid=1, length=3, payloads=[b'foo']),
-        p.posting(docid=2, length=2, payloads=[b'bar', b'baz']),
-        p.posting(docid=3, length=1, payloads=[b'a' * 1000, b'b' * 10000]),
+        pt.posting(docid=1, length=3, payloads=[b'foo']),
+        pt.posting(docid=2, length=2, payloads=[b'bar', b'baz']),
+        pt.posting(docid=3, length=1, payloads=[b'a' * 1000, b'b' * 10000]),
     ]
 
-    bf = p.Format(False, False, False, False, True)
+    bf = postform.Format(False, False, False, False, True)
     raw_posts = [bf.condition_post(p) for p in posts]
     bs = bf.doclist_to_bytes(raw_posts)
 
@@ -183,8 +184,8 @@ def test_payloads():
 
 
 def test_lengths():
-    fmt = p.Format(has_weights=True, has_lengths=True, has_positions=True,
-                   has_chars=True)
+    fmt = postform.Format(has_weights=True, has_lengths=True,
+                          has_positions=True, has_chars=True)
     ba = bytearray()
     for _ in range(3):
         ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
@@ -194,15 +195,15 @@ def test_lengths():
             w = random.randint(1, 1000) / 2
             ps = [10, 20, 30, 40]
             cs = [(10, 11), (12, 13), (14, 15), (16, 17)]
-            post = p.posting(docid=i, length=ln, weight=w, positions=ps,
-                             chars=cs)
+            post = pt.posting(docid=i, length=ln, weight=w, positions=ps,
+                              chars=cs)
             rawpost = fmt.condition_post(post)
             posts.append(rawpost)
 
         offset = len(ba)
         ba += fmt.doclist_to_bytes(posts)
         br = fmt.doclist_reader(ba, offset)
-        assert br.length(0) == posts[0][p.LENGTH]
+        assert br.length(0) == posts[0][pt.LENGTH]
 
 
 def test_combos():
@@ -212,8 +213,9 @@ def test_combos():
             for has_positions in (True, False):
                 for has_chars in (True, False):
                     for has_payloads in (True, False):
-                        fmt = p.Format(has_lengths, has_weights, has_positions,
-                                       has_chars, has_payloads)
+                        fmt = postform.Format(has_lengths, has_weights,
+                                              has_positions, has_chars,
+                                              has_payloads)
                         fmts.append(fmt)
 
     bs = bytearray()
@@ -239,8 +241,8 @@ def test_combos():
 
             pys = [random.choice((b'a', b'b', b'c')) for _ in range(ln)]
 
-            posts.append(p.posting(docid=i, length=ln, weight=w, positions=ps,
-                                   chars=cs, payloads=pys))
+            posts.append(pt.posting(docid=i, length=ln, weight=w, positions=ps,
+                                    chars=cs, payloads=pys))
 
         origs.append((fmt, len(bs), ids, posts))
         raw_posts = [fmt.condition_post(x) for x in posts]
@@ -251,25 +253,25 @@ def test_combos():
         for n, i in enumerate(ids):
             assert br.id(n) == i
             if fmt.has_lengths:
-                assert br.length(n) == posts[n][p.LENGTH]
+                assert br.length(n) == posts[n][pt.LENGTH]
             if fmt.has_weights:
-                assert br.weight(n) == posts[n][p.WEIGHT]
+                assert br.weight(n) == posts[n][pt.WEIGHT]
             if fmt.has_positions:
-                assert list(br.positions(n)) == posts[n][p.POSITIONS]
+                assert list(br.positions(n)) == posts[n][pt.POSITIONS]
             if fmt.has_chars:
-                assert list(br.chars(n)) == posts[n][p.CHARS]
+                assert list(br.chars(n)) == posts[n][pt.CHARS]
             if fmt.has_payloads:
-                assert list(br.payloads(n)) == posts[n][p.PAYLOADS]
+                assert list(br.payloads(n)) == posts[n][pt.PAYLOADS]
 
 
 def test_min_max():
-    fmt = p.Format(has_lengths=True, has_weights=True)
+    fmt = postform.Format(has_lengths=True, has_weights=True)
     posts = [
-        p.posting(docid=1, length=5, weight=6.5),
-        p.posting(docid=3, length=2, weight=12.0),
-        p.posting(docid=10, length=9, weight=1.5),
-        p.posting(docid=13, length=7, weight=2.5),
-        p.posting(docid=26, length=6, weight=3.0),
+        pt.posting(docid=1, length=5, weight=6.5),
+        pt.posting(docid=3, length=2, weight=12.0),
+        pt.posting(docid=10, length=9, weight=1.5),
+        pt.posting(docid=13, length=7, weight=2.5),
+        pt.posting(docid=26, length=6, weight=3.0),
     ]
     bs = fmt.doclist_to_bytes(posts)
 
@@ -282,31 +284,31 @@ def test_min_max():
 
 
 def test_roundtrip_vector():
-    fmt = p.Format(True, True, True, True, True)
+    fmt = postform.Format(True, True, True, True, True)
     posts = [
-        p.posting(termbytes=b'abc', length=2, weight=2.0, positions=[1, 2],
-                  chars=[(0, 1), (2, 3)], payloads=[b'N', b'V']),
-        p.posting(termbytes=b'd', length=1, weight=2.5, positions=[2],
-                  chars=[(7, 9)], payloads=[b'Q']),
-        p.posting(termbytes=b'ef', length=2, weight=1.5, positions=[6, 7],
-                  chars=[(0, 1), (1, 4)], payloads=[b'X', b'Y']),
-        p.posting(termbytes=b'ghi', length=1, weight=1.0, positions=[3],
-                  chars=[(4, 6)], payloads=[b'R']),
+        pt.posting(termbytes=b'abc', length=2, weight=2.0, positions=[1, 2],
+                   chars=[(0, 1), (2, 3)], payloads=[b'N', b'V']),
+        pt.posting(termbytes=b'd', length=1, weight=2.5, positions=[2],
+                   chars=[(7, 9)], payloads=[b'Q']),
+        pt.posting(termbytes=b'ef', length=2, weight=1.5, positions=[6, 7],
+                   chars=[(0, 1), (1, 4)], payloads=[b'X', b'Y']),
+        pt.posting(termbytes=b'ghi', length=1, weight=1.0, positions=[3],
+                   chars=[(4, 6)], payloads=[b'R']),
     ]
     bs = fmt.vector_to_bytes(posts)
 
     br = fmt.vector_reader(bs)
     for i, post in enumerate(posts):
         # assert br.length(i) == post[p.LENGTH]
-        assert br.weight(i) == post[p.WEIGHT]
-        assert list(br.positions(i)) == post[p.POSITIONS]
-        assert list(br.chars(i)) == post[p.CHARS]
-        assert list(br.payloads(i)) == post[p.PAYLOADS]
+        assert br.weight(i) == post[pt.WEIGHT]
+        assert list(br.positions(i)) == post[pt.POSITIONS]
+        assert list(br.chars(i)) == post[pt.CHARS]
+        assert list(br.payloads(i)) == post[pt.PAYLOADS]
 
 
 #
 
-def _check_index(content: text_type, fmt: p.Format,
+def _check_index(content: text_type, fmt: postform.Format,
                  ana: analysis.Analyzer=None):
     ana = ana or analysis.StandardAnalyzer()
     length, postiter = fmt.index(ana, lambda x: x.encode("utf8"), content)
@@ -315,48 +317,49 @@ def _check_index(content: text_type, fmt: p.Format,
 
 def test_existence_postings():
     content = u"alfa bravo charlie"
-    form = p.Format()
+    form = postform.Format()
     target = [
-        p.posting(termbytes=b"alfa", length=3),
-        p.posting(termbytes=b"bravo", length=3),
-        p.posting(termbytes=b"charlie", length=3),
+        pt.posting(termbytes=b"alfa", length=3),
+        pt.posting(termbytes=b"bravo", length=3),
+        pt.posting(termbytes=b"charlie", length=3),
     ]
     assert _check_index(content, form) == target
 
 
 def test_frequency_postings():
     content = u"alfa bravo charlie bravo alfa alfa"
-    form = p.Format(has_lengths=True, has_weights=True)
+    form = postform.Format(has_lengths=True, has_weights=True)
     target = [
-        p.posting(termbytes=b"alfa", weight=3, length=6),
-        p.posting(termbytes=b"bravo", weight=2, length=6),
-        p.posting(termbytes=b"charlie", weight=1, length=6)
+        pt.posting(termbytes=b"alfa", weight=3, length=6),
+        pt.posting(termbytes=b"bravo", weight=2, length=6),
+        pt.posting(termbytes=b"charlie", weight=1, length=6)
     ]
     assert _check_index(content, form) == target
 
 
 def test_position_postings():
     content = u"alfa bravo charlie bravo alfa alfa"
-    form = p.Format(has_lengths=True, has_weights=True, has_positions=True)
+    form = postform.Format(has_lengths=True, has_weights=True,
+                           has_positions=True)
     target = [
-        p.posting(termbytes=b"alfa", weight=3, length=6, positions=[0, 4, 5]),
-        p.posting(termbytes=b"bravo", weight=2, length=6, positions=[1, 3]),
-        p.posting(termbytes=b"charlie", weight=1, length=6, positions=[2])
+        pt.posting(termbytes=b"alfa", weight=3, length=6, positions=[0, 4, 5]),
+        pt.posting(termbytes=b"bravo", weight=2, length=6, positions=[1, 3]),
+        pt.posting(termbytes=b"charlie", weight=1, length=6, positions=[2])
     ]
     assert _check_index(content, form) == target
 
 
 def test_character_postings():
     content = u"alfa bravo charlie bravo alfa alfa"
-    form = p.Format(has_lengths=True, has_weights=True, has_positions=True,
-                    has_chars=True)
+    form = postform.Format(has_lengths=True, has_weights=True,
+                           has_positions=True, has_chars=True)
     target = [
-        p.posting(termbytes=b"alfa", weight=3, length=6, positions=[0, 4, 5],
-                  chars=[(0, 4), (25, 29), (30, 34)]),
-        p.posting(termbytes=b"bravo", weight=2, length=6, positions=[1, 3],
-                  chars=[(5, 10), (19, 24)]),
-        p.posting(termbytes=b"charlie", weight=1, length=6, positions=[2],
-                  chars=[(11, 18)])
+        pt.posting(termbytes=b"alfa", weight=3, length=6, positions=[0, 4, 5],
+                   chars=[(0, 4), (25, 29), (30, 34)]),
+        pt.posting(termbytes=b"bravo", weight=2, length=6, positions=[1, 3],
+                   chars=[(5, 10), (19, 24)]),
+        pt.posting(termbytes=b"charlie", weight=1, length=6, positions=[2],
+                   chars=[(11, 18)])
     ]
     assert _check_index(content, form) == target
 
@@ -369,33 +372,34 @@ def test_payload_postings():
             yield token
 
     content = u"alfa bravo charlie bravo alfa alfa"
-    form = p.Format(has_lengths=True, has_weights=True, has_positions=True,
-                    has_chars=True, has_payloads=True)
+    form = postform.Format(has_lengths=True, has_weights=True,
+                           has_positions=True, has_chars=True,
+                           has_payloads=True)
     target = [
-        p.posting(termbytes=b"alfa", weight=3, length=6, positions=[0, 4, 5],
-                  chars=[(0, 4), (25, 29), (30, 34)],
-                  payloads=[b" b", b" a", b""]),
-        p.posting(termbytes=b"bravo", weight=2, length=6, positions=[1, 3],
-                  chars=[(5, 10), (19, 24)],
-                  payloads=[b" c", b" a"]),
-        p.posting(termbytes=b"charlie", weight=1, length=6, positions=[2],
-                  chars=[(11, 18)], payloads=[b" b"])
+        pt.posting(termbytes=b"alfa", weight=3, length=6, positions=[0, 4, 5],
+                   chars=[(0, 4), (25, 29), (30, 34)],
+                   payloads=[b" b", b" a", b""]),
+        pt.posting(termbytes=b"bravo", weight=2, length=6, positions=[1, 3],
+                   chars=[(5, 10), (19, 24)],
+                   payloads=[b" c", b" a"]),
+        pt.posting(termbytes=b"charlie", weight=1, length=6, positions=[2],
+                   chars=[(11, 18)], payloads=[b" b"])
     ]
     assert _check_index(content, form, ana) == target
 
 
 def test_from_disk():
-    fmt = p.Format(has_lengths=True, has_weights=True, has_positions=True,
-                   has_chars=True, has_payloads=True)
+    fmt = postform.Format(has_lengths=True, has_weights=True,
+                          has_positions=True, has_chars=True, has_payloads=True)
     target = [
-        p.posting(docid=1, weight=3, length=6, positions=[0, 4, 5],
-                  chars=[(0, 4), (25, 29), (30, 34)],
-                  payloads=[b" b", b" a", b""]),
-        p.posting(docid=2, weight=2, length=6, positions=[1, 3],
-                  chars=[(5, 10), (19, 24)],
-                  payloads=[b" c", b" a"]),
-        p.posting(docid=3, weight=1, length=6, positions=[2],
-                  chars=[(11, 18)], payloads=[b" b"])
+        pt.posting(docid=1, weight=3, length=6, positions=[0, 4, 5],
+                   chars=[(0, 4), (25, 29), (30, 34)],
+                   payloads=[b" b", b" a", b""]),
+        pt.posting(docid=2, weight=2, length=6, positions=[1, 3],
+                   chars=[(5, 10), (19, 24)],
+                   payloads=[b" c", b" a"]),
+        pt.posting(docid=3, weight=1, length=6, positions=[2],
+                   chars=[(11, 18)], payloads=[b" b"])
     ]
 
     with TempStorage() as st:
@@ -408,23 +412,23 @@ def test_from_disk():
         with st.map_file("test") as mm:
             r = fmt.doclist_reader(mm)
             for i, post in enumerate(r.postings()):
-                assert post[p.DOCID] == target[i][p.DOCID]
-                assert post[p.LENGTH] == target[i][p.LENGTH]
-                assert post[p.WEIGHT] == target[i][p.WEIGHT]
-                assert list(post[p.POSITIONS]) == target[i][p.POSITIONS]
-                assert list(post[p.CHARS]) == target[i][p.CHARS]
-                assert list(post[p.PAYLOADS]) == target[i][p.PAYLOADS]
+                assert post[pt.DOCID] == target[i][pt.DOCID]
+                assert post[pt.LENGTH] == target[i][pt.LENGTH]
+                assert post[pt.WEIGHT] == target[i][pt.WEIGHT]
+                assert list(post[pt.POSITIONS]) == target[i][pt.POSITIONS]
+                assert list(post[pt.CHARS]) == target[i][pt.CHARS]
+                assert list(post[pt.PAYLOADS]) == target[i][pt.PAYLOADS]
 
 
 def test_minmax_length():
     # Make a format that DOESN'T store lengths
-    fmt = p.Format(has_lengths=False, has_weights=True)
+    fmt = postform.Format(has_lengths=False, has_weights=True)
 
     # Make posts that DO have lengths
     posts = [
-        p.posting(docid=1, weight=1.0, length=4),
-        p.posting(docid=2, weight=3.0, length=6),
-        p.posting(docid=3, weight=1.5, length=2),
+        pt.posting(docid=1, weight=1.0, length=4),
+        pt.posting(docid=2, weight=3.0, length=6),
+        pt.posting(docid=3, weight=1.5, length=2),
     ]
 
     with TempStorage() as st:
@@ -436,7 +440,7 @@ def test_minmax_length():
 
             # The lengths were not stored
             assert not r.has_lengths
-            with pytest.raises(p.UnsupportedFeature):
+            with pytest.raises(postings.UnsupportedFeature):
                 r.length(0)
 
             # But the min and max were recorded
@@ -445,11 +449,11 @@ def test_minmax_length():
 
 
 def test_formats_equal():
-    empty = p.Format(False, False, False, False, False)
+    empty = postform.Format(False, False, False, False, False)
 
     def do(*flags):
-        fmt1 = p.Format(*flags)
-        fmt2 = p.Format(*flags)
+        fmt1 = postform.Format(*flags)
+        fmt2 = postform.Format(*flags)
         assert fmt1 == fmt2
         if flags != (False, False, False, False, False):
             assert fmt1 != empty
@@ -462,13 +466,13 @@ def test_formats_equal():
                         do(has_lengths, has_weights, has_poses, has_chars,
                            has_pays)
 
-    fmt1 = p.Format(has_weights=True, has_positions=True,
-                    io=p.BasicIO())
-    fmt2 = p.Format(has_weights=True, has_positions=True,
-                    io=p.BasicIO())
+    fmt1 = postform.Format(has_weights=True, has_positions=True,
+                           io=basic.BasicIO())
+    fmt2 = postform.Format(has_weights=True, has_positions=True,
+                           io=basic.BasicIO())
     assert fmt1 == fmt2
 
-    class FakePostingsIO(p.PostingsIO):
+    class FakePostingsIO(postings.PostingsIO):
         def __init__(self, label):
             super(FakePostingsIO, self).__init__()
             self.label = label

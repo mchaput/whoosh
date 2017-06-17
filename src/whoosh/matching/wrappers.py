@@ -30,8 +30,9 @@ from typing import (
     Any, Callable, Iterable, Optional, Sequence, Set, Tuple, Union,
 )
 
-from whoosh import idsets, postings
+from whoosh import idsets
 from whoosh.ifaces import matchers, weights
+from whoosh.postings import postform, ptuples
 
 
 __all__ = ("WrappingMatcher", "ConstantScoreMatcher", "MultiMatcher",
@@ -81,7 +82,7 @@ class WrappingMatcher(matchers.Matcher):
         return self.child.id()
 
     def next(self) -> bool:
-        self.child.next()
+        return self.child.next()
 
     def skip_to(self, docid: int) -> bool:
         return self.child.skip_to(docid)
@@ -121,19 +122,19 @@ class WrappingMatcher(matchers.Matcher):
     def term(self) -> Optional[Tuple[str, bytes]]:
         return self.child.term()
 
-    def posting(self) -> 'Optional[postings.PostTuple]':
+    def posting(self) -> 'Optional[ptuples.PostTuple]':
         return self.child.posting()
 
-    def can_copy_raw_to(self, fmt: 'postings.Format'):
+    def can_copy_raw_to(self, fmt: 'postform.Format'):
         return self.child.can_copy_raw_to(fmt)
 
-    def raw_posting(self) -> 'postings.RawPost':
+    def raw_posting(self) -> 'ptuples.RawPost':
         return self.child.raw_posting()
 
-    # def all_postings(self) -> Iterable[postings.PostTuple]:
+    # def all_postings(self) -> Iterable[tuples.PostTuple]:
     #     return self.child.all_postings()
 
-    # def all_raw_postings(self) -> 'Iterable[postings.RawPost]':
+    # def all_raw_postings(self) -> 'Iterable[tuples.RawPost]':
     #     return self.child.all_raw_postings()
 
     def has_weights(self) -> bool:
@@ -220,8 +221,8 @@ class DocOffsetMatcher(WrappingMatcher):
 
     def posting(self):
         post = self.child.posting()
-        docid = postings.post_docid(post)
-        return postings.change_docid(post, docid + self._doc_offset)
+        docid = ptuples.post_docid(post)
+        return ptuples.change_docid(post, docid + self._doc_offset)
 
 
 class MultiMatcher(matchers.Matcher):
@@ -260,7 +261,7 @@ class MultiMatcher(matchers.Matcher):
 
     # Override interface
 
-    def can_copy_raw_to(self, fmt: 'postings.Format') -> bool:
+    def can_copy_raw_to(self, fmt: 'postform.Format') -> bool:
         return all(m.can_copy_raw_to(fmt) for m in self._matchers)
 
     def is_active(self) -> bool:
@@ -314,19 +315,19 @@ class MultiMatcher(matchers.Matcher):
         return self._scorer.score(current)
 
     @matchers.check_active
-    def posting(self) -> 'Optional[postings.PostTuple]':
+    def posting(self) -> 'Optional[ptuples.PostTuple]':
         offset = self._offsets[self._current]
         p = self._matchers[self._current].posting()
-        return postings.update_post(p, docid=offset + p[postings.DOCID])
+        return ptuples.update_post(p, docid=offset + p[ptuples.DOCID])
 
-    def _filter_postings(self, ps: 'Iterable[postings.PostTuple]', offset: int
-                         ) -> 'Iterable[postings.PostTuple]':
-        update_post = postings.update_post
-        DOCID = postings.DOCID
+    def _filter_postings(self, ps: 'Iterable[ptuples.PostTuple]', offset: int
+                         ) -> 'Iterable[ptuples.PostTuple]':
+        update_post = ptuples.update_post
+        DOCID = ptuples.DOCID
         for p in ps:
             yield update_post(p, docid=p[DOCID] + offset)
 
-    def all_postings(self) -> 'Iterable[postings.PostTuple]':
+    def all_postings(self) -> 'Iterable[ptuples.PostTuple]':
         if not self.is_active():
             return
 
@@ -335,7 +336,7 @@ class MultiMatcher(matchers.Matcher):
             for p in self._filter_postings(m.all_postings(), offsets[i]):
                 yield p
 
-    def all_raw_postings(self) -> 'Iterable[postings.RawPost]':
+    def all_raw_postings(self) -> 'Iterable[ptuples.RawPost]':
         if not self.is_active():
             return
 
@@ -506,19 +507,19 @@ class FilterMatcher(WrappingMatcher):
         else:
             return (id for id in self.child.all_ids() if id in ids)
 
-    def _filter_postings(self, ps: 'Iterable[postings.PostTuple]'):
+    def _filter_postings(self, ps: 'Iterable[ptuples.PostTuple]'):
         ids = self._ids
-        DOCID = postings.DOCID
+        DOCID = ptuples.DOCID
 
         if self._exclude:
             return (p for p in ps if p[DOCID] not in ids)
         else:
             return (p for p in ps if p[DOCID] in ids)
 
-    def all_postings(self) -> 'Iterable[postings.PostTuple]':
+    def all_postings(self) -> 'Iterable[ptuples.PostTuple]':
         return self._filter_postings(self.child.all_postings())
 
-    def all_raw_postings(self) -> 'Iterable[postings.RawPost]':
+    def all_raw_postings(self) -> 'Iterable[ptuples.RawPost]':
         return self._filter_postings(self.child.all_raw_postings())
 
 

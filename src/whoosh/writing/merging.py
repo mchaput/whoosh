@@ -34,7 +34,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union
 
 from whoosh import fields
 from whoosh.ifaces import codecs, readers, storage
-from whoosh.postings import PostTuple, post_docid, update_post
+from whoosh.postings.ptuples import post_docid, update_post
 from whoosh.util import now, random_name
 
 

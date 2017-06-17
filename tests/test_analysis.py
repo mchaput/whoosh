@@ -402,7 +402,7 @@ def test_name_field():
 
 
 def test_start_pos():
-    from whoosh import postings
+    from whoosh.postings import postings
 
     ana = tokenizers.RegexTokenizer(r"\S+") | filters.LowercaseFilter()
     kw = {"positions": True}

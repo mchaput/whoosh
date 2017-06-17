@@ -34,9 +34,10 @@ from typing import (
     Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union,
 )
 
-from whoosh import columns, fields, idsets, postings, spelling
+from whoosh import columns, fields, idsets, spelling
 from whoosh.ifaces import codecs, matchers, weights
 from whoosh.compat import text_type
+from whoosh.postings import postings
 from whoosh.support.levenshtein import distance
 from whoosh.util import unclosed
 

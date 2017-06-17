@@ -34,9 +34,10 @@ from collections import defaultdict
 from math import log
 from typing import Sequence, Set, Tuple, Union
 
-from whoosh import idsets, postings, results
+from whoosh import idsets, results
 from whoosh.compat import text_type
 from whoosh.ifaces import queries, searchers
+from whoosh.postings import ptuples
 
 
 # Expansion models
@@ -158,7 +159,7 @@ class MoreLike:
 
         length, posts = fieldobj.index(text)
         for p in posts:
-            add_word(from_bytes(p[postings.TERMBYTES]), p[postings.WEIGHT])
+            add_word(from_bytes(p[ptuples.TERMBYTES]), p[ptuples.WEIGHT])
 
     def add_docid(self, docid: int):
         reader = self.searcher.reader()

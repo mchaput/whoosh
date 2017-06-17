@@ -3,17 +3,17 @@ from itertools import permutations
 
 import pytest
 
-from whoosh import postings
 from whoosh import fields
 from whoosh.codec import x1
+from whoosh.postings import basic, postform, ptuples
 from whoosh.ifaces import codecs, readers
 from whoosh.util.testing import TempStorage
 
 
 def test_terminfo():
-    fmt = postings.Format(has_weights=True, has_positions=True)
+    fmt = postform.Format(has_weights=True, has_positions=True)
 
-    single = postings.posting(docid=100, length=1, weight=2.5,
+    single = postform.posting(docid=100, length=1, weight=2.5,
                               positions=[1, 9, 30])
     posts = [fmt.condition_post(single)]
 
@@ -65,16 +65,16 @@ def test_terminfo():
             assert ti.inlinebytes
 
             inline_post = ti.posting_reader(fmt).posting_at(0)
-            assert inline_post == postings.posting(
+            assert inline_post == ptuples.posting(
                 docid=100, weight=2.5, positions=(1, 9, 30)
             )
 
 
 def test_list_stats():
     posts = [
-        postings.posting(docid=75, length=7, weight=1.0),
-        postings.posting(docid=85, length=5, weight=3.0),
-        postings.posting(docid=95, length=12, weight=1.5),
+        ptuples.posting(docid=75, length=7, weight=1.0),
+        ptuples.posting(docid=85, length=5, weight=3.0),
+        ptuples.posting(docid=95, length=12, weight=1.5),
     ]
     ti = x1.X1TermInfo(weight=3.0, df=3, minlength=7, maxlength=10,
                        maxweight=1.5, minid=12, maxid=70)
@@ -88,9 +88,9 @@ def test_list_stats():
     assert ti.max_id() == 95
 
     posts = [
-        postings.posting(75),
-        postings.posting(85),
-        postings.posting(95),
+        ptuples.posting(75),
+        ptuples.posting(85),
+        ptuples.posting(95),
     ]
     ti = x1.X1TermInfo(weight=3.0, df=3, minlength=7, maxlength=10,
                        maxweight=1.5, minid=12, maxid=70)
@@ -105,12 +105,12 @@ def test_list_stats():
 
 
 def test_reader_stats():
-    fmt = postings.Format(has_lengths=True, has_weights=True)
+    fmt = postform.Format(has_lengths=True, has_weights=True)
 
     posts = [
-        postings.posting(docid=75, length=7, weight=1.0),
-        postings.posting(docid=85, length=5, weight=3.0),
-        postings.posting(docid=95, length=12, weight=1.5),
+        ptuples.posting(docid=75, length=7, weight=1.0),
+        ptuples.posting(docid=85, length=5, weight=3.0),
+        ptuples.posting(docid=95, length=12, weight=1.5),
     ]
     r = fmt.doclist_reader(fmt.doclist_to_bytes(posts))
     ti = x1.X1TermInfo(weight=3.0, df=3, minlength=7, maxlength=10,
@@ -125,9 +125,9 @@ def test_reader_stats():
     assert ti.max_id() == 95
 
     posts = [
-        postings.posting(75, length=7, weight=1.0),
-        postings.posting(85, length=9, weight=1.0),
-        postings.posting(95, length=10, weight=1.0),
+        ptuples.posting(75, length=7, weight=1.0),
+        ptuples.posting(85, length=9, weight=1.0),
+        ptuples.posting(95, length=10, weight=1.0),
     ]
     r = fmt.doclist_reader(fmt.doclist_to_bytes(posts))
     ti = x1.X1TermInfo(weight=3.0, df=3, minlength=7, maxlength=10,
@@ -155,9 +155,9 @@ def test_perdoc():
         pdw.start_doc(0)
         pdw.add_field("a", field, u"alfa bravo charlie", 3)
         pdw.add_vector_postings("a", field, [
-            postings.posting(termbytes=b"alfa", weight=1.5, length=1),
-            postings.posting(termbytes=b"bravo", weight=1.0, length=1),
-            postings.posting(termbytes=b"charlie", weight=3.0, length=1),
+            ptuples.posting(termbytes=b"alfa", weight=1.5, length=1),
+            ptuples.posting(termbytes=b"bravo", weight=1.0, length=1),
+            ptuples.posting(termbytes=b"charlie", weight=3.0, length=1),
         ])
         pdw.add_column_value("a", field.column, b"abc def ghi")
         pdw.finish_doc()
@@ -184,7 +184,7 @@ def test_perdoc():
         assert pdr.has_vector(0, "a")
         assert not pdr.has_vector(1, "a")
         vr = pdr.vector(0, "a", field.vector)
-        assert isinstance(vr, postings.BasicVectorReader)
+        assert isinstance(vr, basic.BasicVectorReader)
         assert vr.termbytes(0) == b"alfa"
         assert vr.weight(0) == 1.5
         assert vr.termbytes(2) == b"charlie"
@@ -216,7 +216,7 @@ def test_terms():
         for j, term in enumerate(terms):
             termposts[term] = posts = []
             for k in range((i + j) // 2 + 1):
-                posts.append(postings.posting(
+                posts.append(ptuples.posting(
                     docid=j + k, length=5, weight=i + k * 1.5,
                 ))
 
@@ -256,13 +256,13 @@ def test_terms():
 
             for term in terms:
                 posts = all_posts[fname][term]
-                w = sum(p[postings.WEIGHT] for p in posts)
+                w = sum(p[ptuples.WEIGHT] for p in posts)
                 ti = tr.term_info(fname, term)
                 assert ti.weight() == w
-                assert ti.max_weight() == max(p[postings.WEIGHT] for p in posts)
+                assert ti.max_weight() == max(p[ptuples.WEIGHT] for p in posts)
                 assert ti.doc_frequency() == len(posts)
-                assert ti.min_id() == posts[0][postings.DOCID]
-                assert ti.max_id() == posts[-1][postings.DOCID]
+                assert ti.min_id() == posts[0][ptuples.DOCID]
+                assert ti.max_id() == posts[-1][ptuples.DOCID]
 
                 assert tr.weight(fname, term) == w
                 assert tr.doc_frequency(fname, term) == len(posts)
@@ -280,11 +280,11 @@ def test_terms():
         assert [t for t, _ in items] == all_terms
         for (fname, term), ti in items:
             posts = all_posts[fname][term]
-            assert ti.weight() == sum(p[postings.WEIGHT] for p in posts)
-            assert ti.max_weight() == max(p[postings.WEIGHT] for p in posts)
+            assert ti.weight() == sum(p[ptuples.WEIGHT] for p in posts)
+            assert ti.max_weight() == max(p[ptuples.WEIGHT] for p in posts)
             assert ti.doc_frequency() == len(posts)
-            assert ti.min_id() == posts[0][postings.DOCID]
-            assert ti.max_id() == posts[-1][postings.DOCID]
+            assert ti.min_id() == posts[0][ptuples.DOCID]
+            assert ti.max_id() == posts[-1][ptuples.DOCID]
 
         tr.close()
         sesh.close()
@@ -305,7 +305,7 @@ def test_cursor():
         for i, term in enumerate(terms):
             fw.start_term(term)
             fw.add_posting_list([
-                postings.posting(docid=i, length=1, weight=1.0)
+                ptuples.posting(docid=i, length=1, weight=1.0)
             ])
             fw.finish_term()
         fw.finish_field()
@@ -365,7 +365,7 @@ def test_matcher():
     for i, doc in enumerate(docs):
         length, posts = field.index(doc, docid=i)
         for post in posts:
-            lookup[post[postings.TERMBYTES]].append(post)
+            lookup[post[ptuples.TERMBYTES]].append(post)
 
     with TempStorage() as st:
         cdc = x1.X1Codec()
@@ -387,7 +387,7 @@ def test_matcher():
         random.shuffle(ts)
         for tbytes in ts:
             posts = lookup[tbytes]
-            target = [p[postings.DOCID] for p in lookup[tbytes]]
+            target = [p[ptuples.DOCID] for p in lookup[tbytes]]
 
             m = tr.matcher("a", tbytes, field.format)
             assert m.has_positions()
@@ -397,7 +397,7 @@ def test_matcher():
             while m.is_active():
                 allids.append(m.id())
 
-                assert m.weight() == posts[i][postings.WEIGHT]
+                assert m.weight() == posts[i][ptuples.WEIGHT]
                 for pos in m.positions():
                     assert anadocs[m.id()][pos].encode("utf8") == tbytes
 

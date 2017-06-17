@@ -29,19 +29,18 @@
 This module contains base classes/interfaces for "codec" objects.
 """
 
-import re
 import pickle
-from abc import abstractmethod, abstractclassmethod
+from abc import abstractmethod
 from bisect import bisect_right
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-from whoosh import columns, fields, postings
+from whoosh import columns, fields
 from whoosh.automata import lev
 from whoosh.automata.fsa import DFA
 from whoosh.compat import text_type
 from whoosh.ifaces import readers, storage
+from whoosh.postings import postform, postings, ptuples
 from whoosh.system import IS_LITTLE
-from whoosh.util import random_name
 from whoosh.util.loading import find_object
 
 
@@ -374,7 +373,7 @@ class PerDocumentWriter:
 
     @abstractmethod
     def add_vector_postings(self, fieldname: str, fieldobj: 'fields.FieldType',
-                            posts: 'Sequence[postings.PostTuple]'):
+                            posts: 'Sequence[ptuples.PostTuple]'):
         raise NotImplementedError
 
     @abstractmethod
@@ -398,17 +397,17 @@ class FieldWriter:
         raise NotImplementedError
 
     @abstractmethod
-    def add_posting(self, post: 'postings.PostTuple'):
+    def add_posting(self, post: 'ptuples.PostTuple'):
         raise NotImplementedError
 
     @abstractmethod
-    def add_raw_post(self, rawpost: 'postings.RawData'):
+    def add_raw_post(self, rawpost: 'ptuples.RawPost'):
         raise NotImplementedError
 
     def add_elements(self, *args, **kwargs):
-        self.add_posting(postings.posting(*args, **kwargs))
+        self.add_posting(ptuples.posting(*args, **kwargs))
 
-    def add_posting_list(self, posts: 'Iterable[postings.PostTuple]'):
+    def add_posting_list(self, posts: 'Iterable[ptuples.PostTuple]'):
         add = self.add_posting
         for post in posts:
             add(post)
@@ -425,7 +424,7 @@ class FieldWriter:
 
     def add_dict_of_dicts(
         self, schema,
-        fielddict: 'Dict[str, Dict[bytes, Sequence[postings.PostTuple]]]'
+        fielddict: 'Dict[str, Dict[bytes, Sequence[ptuples.PostTuple]]]'
     ):
         for fieldname in sorted(fielddict):
             self.start_field(fieldname, schema[fieldname])
@@ -616,7 +615,7 @@ class TermsReader:
 
     @abstractmethod
     def matcher(self, fieldname: str, termbytes: bytes,
-                fmt: 'postings.Format', scorer=None):
+                fmt: 'postform.Format', scorer=None):
         raise NotImplementedError
 
     @abstractmethod
@@ -741,7 +740,7 @@ class PerDocumentReader:
         return False
 
     # Don't need to override this if has_vector() always returns False
-    def vector(self, docnum: int, fieldname: str, fmt: 'postings.Format'
+    def vector(self, docnum: int, fieldname: str, fmt: 'postform.Format'
                ) -> 'postings.VectorReader':
         raise UnsupportedFeature
 

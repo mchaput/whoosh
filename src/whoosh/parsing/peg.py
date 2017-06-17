@@ -1277,6 +1277,9 @@ class Apply(Wrapper):
         return at, self.fn(value)
 
 
+integer = Apply(Regex("[0-9]+"), lambda s: int(s))
+
+
 class Do(Expr):
     def __init__(self, fn: FuncType):
         super(Do, self).__init__()
@@ -1411,6 +1414,27 @@ class Parsed(Expr):
                                         tokenize=self.tokenize)
 
 
-integer = Apply(Regex("[0-9]+"), lambda s: int(s))
+class Fieldify(Expr):
+    def __init__(self, parser: 'parsing.QueryParser', fn: Callable):
+        self.parser = parser
+        self.fn = fn
+        self.may_be_empty = True
 
+    def _parse(self, s: str, at: int, ctx: Context) -> Tuple[int, Any]:
+        from whoosh.query import NullQuery, Or
+
+        newctx = ctx.push()
+        qs = []
+        for fieldname in self.parser.fieldnames_for(ctx.fieldname):
+            newctx.fieldname = fieldname
+            qs.append(self.fn(newctx))
+
+        if not qs:
+            qs = NullQuery
+        elif len(qs) == 1:
+            qs = qs[0]
+        else:
+            qs = Or(qs)
+
+        return at, qs
 

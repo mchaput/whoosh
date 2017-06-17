@@ -7,14 +7,15 @@ from abc import abstractmethod
 from datetime import datetime
 from decimal import Decimal
 from struct import Struct
-from typing import Any, Callable, Dict, List, Iterable, Sequence, Tuple, Union
-from typing import cast
+from typing import (Any, Callable, Dict, Iterable, List, Optional, Sequence,
+                    Tuple, Union, cast)
 
-from whoosh import columns, postings
+from whoosh import columns
 from whoosh.ifaces import analysis, readers
 from whoosh.analysis import analyzers, ngrams, tokenizers
 from whoosh.compat import string_type, text_type
 from whoosh.ifaces import queries
+from whoosh.postings import postform, ptuples
 from whoosh.system import pack_byte
 from whoosh.util import times
 from whoosh.util.numeric import to_sortable, from_sortable
@@ -28,16 +29,16 @@ class FieldType:
     multitoken_query = "default"
     spelling = False
 
-    def __init__(self, fmt: 'postings.Format', stored: bool=False,
+    def __init__(self, fmt: 'postform.Format', stored: bool=False,
                  unique: bool=False, column: columns.Column=None,
                  sortable: bool=False, indexed: bool=False,
-                 field_boost:float=1.0):
+                 field_boost: float=1.0):
         self.format = fmt
         self.stored = stored
         self.unique = unique
         self.indexed = indexed
         self.field_boost = field_boost
-        self.vector = None  # type: postings.Format
+        self.vector = None  # type: postform.Format
 
         if not column and sortable:
             column = self.default_column()
@@ -60,10 +61,6 @@ class FieldType:
         raise NotImplementedError
 
     @abstractmethod
-    def empty_column_reader(self, doccount: int) -> columns.ColumnReader:
-        raise NotImplementedError
-
-    @abstractmethod
     def to_bytes(self, value: Any) -> bytes:
         raise NotImplementedError
 
@@ -81,7 +78,7 @@ class FieldType:
 
     @abstractmethod
     def index(self, value: text_type, docid: int=None,
-              **kwargs) -> 'Tuple[int, Sequence[postings.PostTuple]]':
+              **kwargs) -> 'Tuple[int, Sequence[ptuples.PostTuple]]':
         raise NotImplementedError
 
     def process_text(self, qstring: text_type, mode='', **kwargs
@@ -97,9 +94,6 @@ class FieldType:
     def parse_query(self, fieldname: str, qstring: string_type,
                     boost: float=1.0) -> 'queries.Query':
         raise Exception("This field is not self parsing")
-
-    def rewrite_query(self, q: 'queries.Query') -> 'queries.Query':
-        return q
 
     def sortable_terms(self, reader: 'readers.IndexReader',
                        fieldname: str) -> Iterable[bytes]:
@@ -140,12 +134,15 @@ class UnindexedField(FieldType):
     def __init__(self, stored: bool=False, column: columns.Column=None,
                  sortable: bool=False, field_boost: float=1.0):
         super(UnindexedField, self).__init__(
-            postings.Format(), stored=stored, column=column, sortable=sortable,
+            postform.Format(), stored=stored, column=column, sortable=sortable,
             field_boost=field_boost,
         )
 
+    def default_column(self) -> columns.Column:
+        raise NotImplementedError
+
     def index(self, value: text_type, docid: int=None,
-              **kwargs) -> 'Tuple[int, Sequence[postings.PostTuple]]':
+              **kwargs) -> 'Tuple[int, Sequence[ptuples.PostTuple]]':
         raise TypeError("Field is unindexed")
 
     def to_bytes(self, value: None) -> None:
@@ -170,7 +167,7 @@ class Stored(UnindexedField):
 
 
 class TokenizedField(FieldType):
-    def __init__(self, fmt: 'postings.Format', analyzer: 'analysis.Analyzer',
+    def __init__(self, fmt: 'postform.Format', analyzer: 'analysis.Analyzer',
                  stored: bool=False, unique: bool=False,
                  column: columns.Column=None, sortable=False,
                  indexed: bool=True, field_boost: float=1.0):
@@ -182,23 +179,23 @@ class TokenizedField(FieldType):
         self.analyzer = analyzer
 
     @staticmethod
-    def _vector_format(obj: 'Union[bool, postings.Format]'
-                       ) -> 'postings.Format':
+    def _vector_format(obj: 'Union[bool, postform.Format]'
+                       ) -> 'Optional[postform.Format]':
         # The user can pass a boolean or a format as the vector argument...
         # convert either to a Format object
-        if isinstance(obj, postings.Format):
+        if isinstance(obj, postform.Format):
             # User passed a Format object, use it as the vector format
             return obj
         elif obj:
             # User passed something truthy, so use the default vector Format
             # which only stores weights
-            return postings.Format(has_weights=True)
+            return postform.Format(has_weights=True)
         else:
             # User passed something falsey, so return None
             return None
 
     def index(self, value: text_type, docid: int=None, **kwargs
-              ) -> 'Tuple[int, Sequence[postings.PostTuple]]':
+              ) -> 'Tuple[int, Sequence[ptuples.PostTuple]]':
         """
         Tokenizes the given string and collates the terms into postings.
         Returns a tuple of the field length and sequence of posting tuples.
@@ -256,20 +253,13 @@ class TokenizedField(FieldType):
     def from_column_value(self, value: bytes) -> text_type:
         return self.from_bytes(value)
 
-    def rewrite_query(self, q: 'queries.Query') -> 'queries.Query':
-        qc = copy.copy(q)
-        text = q.query_text()
-        for token in self.tokenize(text, mode="query"):
-            qc.set_text(token.text)
-        return qc
-
 
 class Id(TokenizedField):
     def __init__(self, analyzer: analysis.Analyzer=None, lowercase: bool=False,
                  stored: bool=False, unique: bool=False,
                  column: columns.Column=None, sortable: bool=False,
                  indexed: bool=True, field_boost: float=1.0):
-        fmt = postings.Format()
+        fmt = postform.Format()
         analyzer = analyzer or analyzers.IDAnalyzer(lowercase)
         super(Id, self).__init__(
             fmt, analyzer, stored=stored, unique=unique, column=column,
@@ -280,11 +270,11 @@ class Id(TokenizedField):
 class Text(TokenizedField):
     def __init__(self, analyzer: analysis.Analyzer=None, phrase: bool=True,
                  spelling: bool=False,
-                 vector: 'Union[bool, postings.Format]'=False,
+                 vector: 'Union[bool, postform.Format]'=False,
                  stored: bool=False,
                  column: columns.Column=None, sortable: bool=False,
                  chars: bool=False, field_boost: float=1.0):
-        fmt = postings.Format(has_weights=True, has_positions=phrase,
+        fmt = postform.Format(has_weights=True, has_positions=phrase,
                               has_chars=chars)
         super(Text, self).__init__(
             fmt, analyzer or analyzers.StandardAnalyzer(), stored=stored,
@@ -311,11 +301,11 @@ class Text(TokenizedField):
 class SpellField(TokenizedField):
     def __init__(self, analyzer: analysis.Analyzer):
         super(SpellField, self).__init__(
-            postings.Format(has_weights=True), analyzer
+            postform.Format(has_weights=True), analyzer
         )
 
     def index(self, value: text_type, docid: int=None, **kwargs
-              ) -> 'Tuple[int, Sequence[postings.PostTuple]]':
+              ) -> 'Tuple[int, Sequence[ptuples.PostTuple]]':
         kwargs["no_morph"] = True
         return super(SpellField, self).index(value, docid, **kwargs)
 
@@ -329,13 +319,13 @@ class Keyword(TokenizedField):
                  lowercase: bool=True, commas: bool=False,
                  unique: bool=False, scorable: bool=False,
                  column: columns.Column=None, sortable: bool=False,
-                 vector: 'Union[bool, postings.Format]'=False,
+                 vector: 'Union[bool, postform.Format]'=False,
                  field_boost: float=1.0):
         if not analyzer:
             analyzer = analyzers.KeywordAnalyzer(lowercase=lowercase,
                                                  commas=commas)
         super(Keyword, self).__init__(
-            postings.Format(has_weights=scorable), analyzer, stored=stored,
+            postform.Format(has_weights=scorable), analyzer, stored=stored,
             unique=unique, column=column, sortable=sortable,
             field_boost=field_boost,
         )
@@ -348,7 +338,7 @@ class Ngram(TokenizedField):
                  column: columns.Column=None, sortable: bool=False,
                  phrase: bool=False):
         super(Ngram, self).__init__(
-            postings.Format(has_weights=True, has_positions=phrase),
+            postform.Format(has_weights=True, has_positions=phrase),
             ngrams.NgramAnalyzer(minsize, maxsize),
             stored=stored, column=column, sortable=sortable,
         )
@@ -371,7 +361,7 @@ class NgramWords(TokenizedField):
                  column: columns.Column=None, sortable: bool=False,
                  field_boost: float=1.0):
         super(NgramWords, self).__init__(
-            postings.Format(has_weights=True),
+            postform.Format(has_weights=True),
             ngrams.NgramWordAnalyzer(minsize, maxsize, tokenizer, at=at),
             stored=stored, column=column, sortable=sortable,
             field_boost=field_boost,
@@ -386,7 +376,7 @@ class Boolean(FieldType):
 
     def __init__(self, stored=False, sortable=False, indexed=True):
         super(Boolean, self).__init__(
-            postings.Format(), stored=stored, sortable=sortable,
+            postform.Format(), stored=stored, sortable=sortable,
             indexed=indexed,
         )
 
@@ -413,9 +403,9 @@ class Boolean(FieldType):
         return value
 
     def index(self, value: Union[bool, str], docid: int=None,
-              **_) -> 'Tuple[int, Sequence[postings.PostTuple]]':
+              **_) -> 'Tuple[int, Sequence[ptuples.PostTuple]]':
         bs = self.to_bytes(value)
-        return 1, [postings.posting(termbytes=bs, docid=docid)]
+        return 1, [ptuples.posting(termbytes=bs, docid=docid)]
 
     def self_parsing(self) -> bool:
         return True
@@ -470,7 +460,7 @@ class Numeric(TokenizedField):
 
         analyzer = analyzer or tokenizers.SpaceSeparatedTokenizer()
         super(Numeric, self).__init__(
-            postings.Format(), analyzer, stored=stored, unique=unique,
+            postform.Format(), analyzer, stored=stored, unique=unique,
             column=column, sortable=sortable, indexed=indexed,
             field_boost=field_boost,
         )
@@ -515,7 +505,7 @@ class Numeric(TokenizedField):
                                      default=self.default)
 
     def index(self, value: Union[string_type, float], docid: int=None,
-              **kwargs) -> 'Tuple[int, Sequence[postings.PostTuple]]':
+              **kwargs) -> 'Tuple[int, Sequence[ptuples.PostTuple]]':
         # Pull number(s) out of whatever value is
         numbers = []
         if isinstance(value, string_type):
@@ -534,12 +524,12 @@ class Numeric(TokenizedField):
         for num in numbers:
             if self.shift_step:
                 for shift in range(0, self.bits, self.shift_step):
-                    posts.append(postings.posting(
+                    posts.append(ptuples.posting(
                         docid=docid, termbytes=to_bytes(num, shift),
                         length=length, weight=weight,
                     ))
             else:
-                posts.append(postings.posting(
+                posts.append(ptuples.posting(
                     docid=docid, termbytes=to_bytes(num), length=length,
                     weight=weight,
                 ))

@@ -8,6 +8,7 @@ from whoosh import analysis, fields, postings, query
 from whoosh.compat import array_tobytes
 from whoosh.codec import default_codec
 from whoosh.filedb.filestore import RamStorage
+from whoosh.postings import ptuples
 from whoosh.util.testing import TempIndex, TempStorage
 
 
@@ -241,8 +242,8 @@ def test_vector():
     dw.start_doc(0)
     dw.add_field("title", field, None, 1)
     dw.add_vector_postings("title", field, [
-        postings.posting(termbytes=b"alfa", weight=1.0, positions=[0]),
-        postings.posting(termbytes=b"bravo", weight=2.0, positions=[1]),
+        ptuples.posting(termbytes=b"alfa", weight=1.0, positions=[0]),
+        ptuples.posting(termbytes=b"bravo", weight=2.0, positions=[1]),
     ])
     dw.finish_doc()
     dw.close()
@@ -427,7 +428,7 @@ def test_term_values():
     fw.start_field("f1", field)
     length, posts = field.index(content, docid=0)
     for p in posts:
-        fw.start_term(p[postings.TERMBYTES])
+        fw.start_term(p[ptuples.TERMBYTES])
         fw.add_posting(p)
         fw.finish_term()
     fw.finish_field()

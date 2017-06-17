@@ -36,10 +36,11 @@ from typing import (
     Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union,
 )
 
-from whoosh import columns, fields, idsets, postings
-from whoosh.ifaces import codecs, queries, readers, storage, weights
+from whoosh import columns, fields, idsets
+from whoosh.ifaces import codecs, readers, storage, weights
 from whoosh.compat import text_type
 from whoosh.ifaces import matchers
+from whoosh.postings import postings
 from whoosh.util import unclosed
 
 
@@ -311,7 +312,7 @@ class SegmentReader(readers.IndexReader):
 
         fieldobj = self.schema[fieldname]
         spellfield = fieldobj.spelling_fieldname(fieldname)
-        auto = self._codec.automata(self._storage, self._segment)
+        auto = self._codec.automata(self._session, self._segment)
         fieldcur = self.cursor(spellfield)
         return auto.terms_within(fieldcur, text, maxdist, prefix)
 

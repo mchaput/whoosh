@@ -170,8 +170,7 @@ class PrefixPlugin(Plugin):
         def make_prefix(ctx: 'peg.Context') -> 'query.Query':
             # Pull the prefix text out of the context and make a Prefix query
             # from it
-            fieldname = ctx.fieldname
-            q = query.Prefix(fieldname, ctx["pre"]).set_extent(*ctx["extent"])
+            q = query.Prefix(None, ctx["pre"]).set_extent(*ctx["extent"])
             q.analyzed = False
             return q
 

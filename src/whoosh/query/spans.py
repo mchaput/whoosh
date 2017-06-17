@@ -46,11 +46,11 @@ For example, to find documents containing "whoosh" at most 5 positions before
 from abc import abstractmethod
 from typing import List, Sequence
 
-from whoosh import postings
 from whoosh.ifaces import queries
 from whoosh.query import wrappers as qwrappers
 from whoosh.ifaces import matchers
 from whoosh.matching import wrappers, binary
+from whoosh.postings import ptuples
 from whoosh.util import make_binary_tree
 
 
@@ -277,7 +277,7 @@ def bisect_spans(spans: Sequence[Span], start: int) -> int:
     return lo
 
 
-def posting_to_spans(post: 'postings.PostTuple') -> 'List[Span]':
+def posting_to_spans(post: 'ptuples.PostTuple') -> 'List[Span]':
     """
     Takes a posting tuple (as produced by :func:`whoosh.postings.posting`) and
     converts it into a list of :class:`Span` objects.
@@ -285,10 +285,10 @@ def posting_to_spans(post: 'postings.PostTuple') -> 'List[Span]':
     :param post: a posting tuple.
     """
 
-    weight = post[postings.WEIGHT] or 1.0
-    poses = post[postings.POSITIONS]
-    chars = post[postings.CHARS]
-    pays = post[postings.PAYLOADS]
+    weight = post[ptuples.WEIGHT] or 1.0
+    poses = post[ptuples.POSITIONS]
+    chars = post[ptuples.CHARS]
+    pays = post[ptuples.PAYLOADS]
     # if not poses:
     #     raise Exception("No positions")
     # if chars:

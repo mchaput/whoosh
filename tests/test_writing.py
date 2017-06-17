@@ -453,8 +453,6 @@ def test_long_term():
 
 
 def test_long_lengths():
-    from whoosh.postings import Format
-
     schema = fields.Schema(text=fields.Text)
     lengths = [256, 35000]
     with TempIndex(schema) as ix:

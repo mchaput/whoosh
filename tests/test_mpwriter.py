@@ -6,6 +6,7 @@ from itertools import permutations
 import pytest
 
 from whoosh import fields, query
+from whoosh.postings import postform
 from whoosh.util.numeric import length_to_byte, byte_to_length
 from whoosh.util.testing import TempIndex
 
@@ -59,7 +60,7 @@ def _do_basic(*args, **kwargs):
     # Shuffle the list of document values
     random.shuffle(docs)
 
-    vfmt = postings.Format(has_weights=True, has_positions=True)
+    vfmt = postform.Format(has_weights=True, has_positions=True)
     schema = fields.Schema(
         text=fields.TEXT(stored=True, spelling=True, phrase=True, vector=vfmt),
         row=fields.NUMERIC(stored=True)

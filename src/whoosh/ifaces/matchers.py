@@ -54,8 +54,9 @@ from abc import abstractmethod
 from functools import wraps
 from typing import Any, Iterable, Optional, Sequence, Set, Tuple, Union
 
-from whoosh import idsets, postings
+from whoosh import idsets
 from whoosh.ifaces import codecs, readers, weights
+from whoosh.postings import postform, postings, ptuples
 
 
 # Typing aliases
@@ -381,7 +382,7 @@ class Matcher:
         else:
             return []
 
-    def can_copy_raw_to(self, fmt: 'postings.Format') -> bool:
+    def can_copy_raw_to(self, fmt: 'postform.Format') -> bool:
         return False
 
     # Leaf methods
@@ -394,7 +395,7 @@ class Matcher:
 
         raise NotLeafMatcher(self.__class__.__name__)
 
-    def posting(self) -> 'Optional[postings.PostTuple]':
+    def posting(self) -> 'Optional[ptuples.PostTuple]':
         """
         Returns a posting tuple corresponding to the current document, if this
         is a term matcher.
@@ -402,7 +403,7 @@ class Matcher:
 
         raise NotLeafMatcher(self.__class__.__name__)
 
-    def raw_posting(self) -> 'postings.RawPost':
+    def raw_posting(self) -> 'ptuples.RawPost':
         raise NotLeafMatcher(self.__class__.__name__)
 
     def all_postings(self) -> 'Iterable[postings.PostTuple]':
@@ -414,7 +415,7 @@ class Matcher:
 
         raise NotLeafMatcher(self.__class__.__name__)
 
-    def all_raw_postings(self) -> 'Iterable[postings.PostTuple]':
+    def all_raw_postings(self) -> 'Iterable[ptuples.PostTuple]':
         """
         Returns a generator of "raw" (partially encoded) posting tuples for each
         document in the matcher. What happens if you call this on a matcher
@@ -576,7 +577,7 @@ class LeafMatcher(Matcher):
     #   self.scorer -- a Scorer object or None
     #   self.format -- Format object for the posting values
 
-    def __init__(self, fieldname: str, tbytes: bytes, fmt: 'postings.Format',
+    def __init__(self, fieldname: str, tbytes: bytes, fmt: 'postform.Format',
                  terminfo: 'codecs.TermInfo', scorer: 'weights.Scorer'=None):
         self._fieldname = fieldname
         self._tbytes = tbytes
@@ -591,10 +592,10 @@ class LeafMatcher(Matcher):
     def term(self) -> Tuple[str, bytes]:
         return self._fieldname, self._tbytes
 
-    def format(self) -> 'postings.Format':
+    def format(self) -> 'postform.Format':
         return self._format
 
-    def can_copy_raw_to(self, fmt: 'postings.Format') -> bool:
+    def can_copy_raw_to(self, fmt: 'postform.Format') -> bool:
         return self.format().can_copy_raw_to(fmt)
 
     def replace(self, minquality: float=0.0) -> Matcher:
@@ -658,7 +659,7 @@ class LeafMatcher(Matcher):
     def posting(self):
         raise NotImplementedError(self.__class__.__name__)
 
-    def raw_posting(self) -> 'postings.RawPost':
+    def raw_posting(self) -> 'ptuples.RawPost':
         raise NotImplementedError(self.__class__.__name__)
 
     def length(self) -> int:
@@ -686,11 +687,11 @@ class LeafMatcher(Matcher):
 
     # Derived
 
-    def all_postings(self) -> 'Iterable[postings.PostTuple]':
+    def all_postings(self) -> 'Iterable[ptuples.PostTuple]':
         for m in self._run_out():
             yield m.posting()
 
-    def all_raw_postings(self) -> 'Iterable[postings.RawPost]':
+    def all_raw_postings(self) -> 'Iterable[ptuples.RawPost]':
         for m in self._run_out():
             yield m.raw_posting()
 
@@ -699,7 +700,7 @@ class LeafMatcher(Matcher):
 
 class PostReaderMatcher(LeafMatcher):
     def __init__(self, dpreader: 'postings.DocListReader',
-                 format_: 'postings.Format',
+                 format_: 'postform.Format',
                  fieldname: str, tbytes: bytes,
                  terminfo: 'readers.TermInfo', scorer: 'weights.Scorer'=None):
         self._posts = dpreader
@@ -749,10 +750,10 @@ class PostReaderMatcher(LeafMatcher):
         else:
             return 1.0
 
-    def posting(self) -> 'postings.PostTuple':
+    def posting(self) -> 'ptuples.PostTuple':
         return self._posts.posting_at(self._i, termbytes=self._tbytes)
 
-    def raw_posting(self) -> 'postings.RawPost':
+    def raw_posting(self) -> 'ptuples.RawPost':
         return self._posts.raw_posting_at(self._i)
 
     def skip_to_quality(self, minquality: float):
@@ -770,7 +771,7 @@ class PostReaderMatcher(LeafMatcher):
 
     # Raw copy methods
 
-    def raw_postings(self) -> Iterable[RawPost]:
+    def raw_postings(self) -> 'Iterable[ptuples.RawPost]':
         return self._posts.raw_postings()
 
     # Format methods

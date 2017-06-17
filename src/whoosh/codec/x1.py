@@ -36,12 +36,13 @@ from collections import defaultdict
 from typing import (Any, Callable, Dict, Iterable, List, Optional, Sequence,
                     Set, Tuple, Union, cast)
 
-from whoosh import columns, fields, postings
+from whoosh import columns, fields
 from whoosh.ifaces import codecs, matchers, readers, storage, weights
 from whoosh.compat import bytes_type, text_type
 from whoosh.filedb import blueline, filestore
 from whoosh.filedb.datafile import Data, OutputFile
 from whoosh.metadata import MetaData
+from whoosh.postings import postform, postings, ptuples
 from whoosh.system import IS_LITTLE
 
 try:
@@ -167,19 +168,19 @@ class X1TermInfo(readers.TermInfo):
         else:
             self._minlength = min(self._minlength, length)
 
-    def add_block(self, posts: Sequence[postings.PostTuple]):
+    def add_block(self, posts: Sequence[ptuples.PostTuple]):
         self.blockcount += 1
         self.add_posting_list_stats(posts)
 
-    def add_posting_list_stats(self, posts: Sequence[postings.PostTuple]):
+    def add_posting_list_stats(self, posts: Sequence[ptuples.PostTuple]):
         # Incorporate the stats from a list of postings into this object.
         # We assume the min doc id of the list > our current max doc id
 
         self._df += len(posts)
 
-        post_weight = postings.post_weight
+        post_weight = ptuples.post_weight
         weights = [post_weight(p) for p in posts if post_weight(p)]
-        post_length = postings.post_length
+        post_length = ptuples.post_length
         lengths = [post_length(p) for p in posts if post_length(p)]
 
         if weights:
@@ -190,8 +191,8 @@ class X1TermInfo(readers.TermInfo):
             self._update_minlen(min(lengths))
 
         if self._minid is None:
-            self._minid = posts[0][postings.DOCID]
-        self._maxid = posts[-1][postings.DOCID]
+            self._minid = posts[0][ptuples.DOCID]
+        self._maxid = posts[-1][ptuples.DOCID]
 
     def add_posting_reader_stats(self, r: postings.DocListReader):
         # Incorporate the stats from the reader into this info object
@@ -207,7 +208,7 @@ class X1TermInfo(readers.TermInfo):
             self._minid = r.min_id()
         self._maxid = r.max_id()
 
-    def posting_reader(self, fmt: 'postings.Format'):
+    def posting_reader(self, fmt: 'postform.Format'):
         if self.inlinebytes is None:
             raise ValueError("This TermInfo does not have inlined postings")
         return fmt.doclist_reader(self.inlinebytes)
@@ -693,7 +694,7 @@ class X1PerDocReader(codecs.PerDocumentReader):
     def has_vector(self, docnum: int, fieldname: str):
         return bool(self._vector_bytes(docnum, fieldname))
 
-    def vector(self, docnum: int, fieldname: str, fmt: postings.Format):
+    def vector(self, docnum: int, fieldname: str, fmt: postform.Format):
         vbytes = self._vector_bytes(docnum, fieldname)
         if not vbytes:
             raise readers.NoVectorError("This document has no stored vector")
@@ -742,7 +743,7 @@ class X1FieldWriter(codecs.FieldWriter):
         self._fieldname = None
         self._fieldnum = None
         self._fieldobj = None
-        self._format = None  # type: postings.Format
+        self._format = None  # type: postform.Format
         self._io = None  # type: postings.PostingsIO
         self._infield = False
 
@@ -773,10 +774,10 @@ class X1FieldWriter(codecs.FieldWriter):
         self._postbuf = []
         self._blockcount = 0
 
-    def add_posting(self, post: 'postings.PostTuple'):
+    def add_posting(self, post: 'ptuples.PostTuple'):
         self.add_raw_post(self._io.condition_post(post))
 
-    def add_raw_post(self, rawpost: 'postings.RawPost'):
+    def add_raw_post(self, rawpost: 'ptuples.RawPost'):
         self._postbuf.append(rawpost)
         if len(self._postbuf) >= self._blocksize:
             self._flush_postings()
@@ -1019,7 +1020,7 @@ class X1TermsReader(codecs.TermsReader):
 
         return X1TermInfo.decode_weight(data, 0)
 
-    def doc_frequency(self, fieldname: str, tbytes: bytes) -> int:
+    def doc_frequency(self, fieldname: str, tbytes: bytes) -> float:
         try:
             key = self._keycoder(fieldname, tbytes)
         except readers.TermNotFound:
@@ -1033,7 +1034,7 @@ class X1TermsReader(codecs.TermsReader):
         return X1TermInfo.decode_doc_freq(data, 0)
 
     def matcher_from_terminfo(self, ti: X1TermInfo, fieldname: str,
-                              tbytes: bytes, format_: 'postings.Format',
+                              tbytes: bytes, format_: 'postform.Format',
                               scorer: 'weights.Scorer'=None) -> 'X1Matcher':
         if ti.inlinebytes:
             m = matchers.PostReaderMatcher(
@@ -1046,7 +1047,7 @@ class X1TermsReader(codecs.TermsReader):
             )
         return m
 
-    def matcher(self, fieldname: str, tbytes: bytes, format_: 'postings.Format',
+    def matcher(self, fieldname: str, tbytes: bytes, format_: 'postform.Format',
                 scorer: 'weights.Scorer'=None) -> 'X1Matcher':
         ti = self.term_info(fieldname, tbytes)
         return self.matcher_from_terminfo(ti, fieldname, tbytes, format_,
@@ -1103,7 +1104,7 @@ class X1TermCursor(codecs.TermCursor):
 
 class X1Matcher(matchers.LeafMatcher):
     def __init__(self, data: Data, fieldname: str, tbytes: bytes,
-                 terminfo: X1TermInfo, format_: 'postings.Format',
+                 terminfo: X1TermInfo, format_: 'postform.Format',
                  scorer: 'weights.Scorer'=None):
         super(X1Matcher, self).__init__(fieldname, tbytes, format_, terminfo,
                                         scorer=scorer)
@@ -1189,16 +1190,16 @@ class X1Matcher(matchers.LeafMatcher):
         return self._posts.posting_at(self._i, termbytes=self._tbytes)
 
     @matchers.check_active
-    def all_postings(self) -> 'Iterable[postings.PostTuple]':
+    def all_postings(self) -> 'Iterable[ptuples.PostTuple]':
         while self._blocknum < self._blockcount:
             for rp in self._posts.postings():
                 yield rp
             self._next_block()
 
-    def raw_posting(self) -> 'postings.RawPost':
+    def raw_posting(self) -> 'ptuples.RawPost':
         return self._posts.raw_posting_at(self._i)
 
-    def all_raw_postings(self) -> 'Iterable[postings.RawPost]':
+    def all_raw_postings(self) -> 'Iterable[ptuples.RawPost]':
         while self._blocknum < self._blockcount:
             for rp in self._posts.raw_postings():
                 yield rp

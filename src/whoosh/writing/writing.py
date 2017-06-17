@@ -7,7 +7,7 @@ from typing import Any, List, Sequence
 from whoosh import fields
 from whoosh.ifaces import codecs, queries, readers, searchers, storage
 from whoosh.writing import merging, reporting, segmentlist
-from whoosh.postings import PostTuple, TERMBYTES, DOCID
+from whoosh.postings.ptuples import PostTuple, TERMBYTES, DOCID
 from whoosh.util import now, unclosed
 
 

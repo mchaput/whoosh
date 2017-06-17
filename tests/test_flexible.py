@@ -203,3 +203,81 @@ def test_dynamic_chars():
                 ]
 
 
+def test_dynamic_remove_chars():
+    from whoosh.query import Term
+
+    with TempStorage() as st:
+        schema1 = fields.Schema(data=fields.Text(phrase=True, chars=True))
+        with st.create_index(schema1) as ix:
+            with ix.writer() as w:
+                w.add_document(data="alfa bravo charlie delta")
+                w.add_document(data="bravo charlie delta echo")
+                w.add_document(data="charlie delta echo foxtrot")
+
+        schema2 = fields.Schema(data=fields.Text(phrase=True, chars=False))
+        with st.open_index(schema=schema2) as ix:
+            with ix.writer() as w:
+                w.add_document(data="delta echo foxtrot")
+                w.add_document(data="echo delta charlie")
+                w.add_document(data="charlie bravo alfa")
+
+            with ix.searcher() as s:
+                ss = s.leaf_searchers()[0][0]
+                print("ss=", ss)
+                r = ss.reader()
+                m = Term("data", "charlie").matcher(ss, ss.context())
+                print("m=", m)
+                print("format=", m._format)
+                print("format.has_chars=", m._format.has_chars)
+                while m.is_active():
+                    print("id=", m.id())
+                    print(m.posting())
+                    print(m._posts.has_chars)
+                    m.next()
+
+                m = Term("data", "charlie").matcher(s, s.context())
+                out = []
+                while m.is_active():
+                    out.append((m.id(), [s.startchar for s in m.spans()]))
+                    m.next()
+                m.close()
+
+                print(out)
+                assert out == [
+                    (0, [11]),
+                    (1, [6]),
+                    (2, [0]),
+                    (4, [None]),
+                    (5, [None])
+                ]
+
+
+def test_dynamic_vector():
+    from whoosh.ifaces import readers
+
+    with TempStorage() as st:
+        schema1 = fields.Schema(data=fields.Text(vector=False))
+        with st.create_index(schema1) as ix:
+            with ix.writer() as w:
+                w.add_document(data="alfa bravo charlie delta")
+                w.add_document(data="bravo charlie delta echo")
+                w.add_document(data="charlie delta echo foxtrot")
+
+        schema2 = fields.Schema(data=fields.Text(vector=True))
+        with st.open_index(schema=schema2) as ix:
+            with ix.writer() as w:
+                w.add_document(data="delta echo foxtrot")
+                w.add_document(data="echo delta charlie")
+                w.add_document(data="charlie bravo alfa")
+
+            with ix.reader() as r:
+                for docnum in r.all_doc_ids():
+                    try:
+                        v = r.vector(docnum, "data")
+                        print(docnum, v)
+                    except readers.NoVectorError:
+                        print(docnum, "-")
+                        pass
+
+    assert False
+
