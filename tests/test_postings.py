@@ -5,19 +5,19 @@ import pytest
 from whoosh import analysis
 from whoosh.postings import ptuples as pt
 from whoosh.compat import text_type
-from whoosh.postings import basic, postform, postio, postings
-from whoosh.postings.basic import BasicIO as bio
+from whoosh.postings import basic, postform, postings
+from whoosh.postings.basic import BasicIO as Bio
 from whoosh.util.testing import TempStorage
 
 
 def test_encode_docids():
     def _roundtrip(ids):
-        tc, bs = bio.encode_docids(ids)
-        end, xs = bio.decode_docids(bs, 0, tc, len(ids))
+        tc, bs = Bio.encode_docids(ids)
+        end, xs = Bio.decode_docids(bs, 0, tc, len(ids))
         assert list(xs) == ids
 
         bs = b'12345678' + bs
-        end, xs = bio.decode_docids(bs, 8, tc, len(ids))
+        end, xs = Bio.decode_docids(bs, 8, tc, len(ids))
         assert list(xs) == ids
 
     _roundtrip([1, 10, 57, 8402, 90210])
@@ -40,12 +40,12 @@ def test_encode_docids():
 
 def test_encode_terms():
     def _roundtrip(terms):
-        tc, bs = bio.encode_terms(terms)
-        end, xs = bio.decode_terms(bs, 0, tc, len(terms))
+        tc, bs = Bio.encode_terms(terms)
+        end, xs = Bio.decode_terms(bs, 0, tc, len(terms))
         assert list(xs) == terms
 
         bs = b'12345678' + bs
-        end, xs = bio.decode_terms(bs, 8, tc, len(terms))
+        end, xs = Bio.decode_terms(bs, 8, tc, len(terms))
         assert list(xs) == terms
 
     _roundtrip(b"alfa bravo charlie delta echo foxtrot golf hotel".split())
@@ -55,11 +55,11 @@ def test_encode_terms():
 
 def test_encode_lengths():
     def _roundtrip(lens):
-        bs = bio.encode_lengths(lens)
-        assert list(bio.decode_lengths(bs, 0, len(bs))) == lens
+        bs = Bio.encode_lengths(lens)
+        assert list(Bio.decode_lengths(bs, 0, len(bs))) == lens
 
         bs = b'12345678' + bs
-        assert list(bio.decode_lengths(bs, 8, len(bs))) == lens
+        assert list(Bio.decode_lengths(bs, 8, len(bs))) == lens
 
     _roundtrip([1, 7, 2, 56, 1, 102, 90, 255])
 
@@ -71,11 +71,11 @@ def test_encode_lengths():
 
 def test_encode_weights():
     def _roundtrip(ws):
-        tc, bs = bio.encode_weights(ws)
-        assert list(bio.decode_weights(bs, 0, tc, len(ws))) == ws
+        tc, bs = Bio.encode_weights(ws)
+        assert list(Bio.decode_weights(bs, 0, tc, len(ws))) == ws
 
         bs = b'12345678' + bs
-        assert list(bio.decode_weights(bs, 8, tc, len(ws))) == ws
+        assert list(Bio.decode_weights(bs, 8, tc, len(ws))) == ws
 
     _roundtrip([0.5, 1, 0.5, 2.5, 345.5])
     _roundtrip([1, 1, 1, 1, 1, 1, 1, 1])
@@ -87,12 +87,12 @@ def test_encode_weights():
 
 def test_encode_positions():
     def _roundtrip(ps):
-        bs = bio.encode_positions(ps)
-        result = list(bio.decode_positions(bs, 0, len(bs)))
+        bs = Bio.encode_positions(ps)
+        result = list(Bio.decode_positions(bs, 0, len(bs)))
         assert result == ps
 
         bs = b'12345678' + bs
-        result = list(bio.decode_positions(bs, 8, len(bs)))
+        result = list(Bio.decode_positions(bs, 8, len(bs)))
         assert result == ps
 
     _roundtrip([1, 10, 20, 30])
@@ -108,12 +108,12 @@ def test_encode_positions():
 
 def test_encode_chars():
     def _roundtrip(cs):
-        bs = bio.encode_chars(cs)
-        result = list(bio.decode_chars(bs, 0, len(bs)))
+        bs = Bio.encode_chars(cs)
+        result = list(Bio.decode_chars(bs, 0, len(bs)))
         assert result == cs
 
         bs = b'12345678' + bs
-        result = list(bio.decode_chars(bs, 8, len(bs)))
+        result = list(Bio.decode_chars(bs, 8, len(bs)))
         assert result == cs
 
     _roundtrip([(0, 5), (7, 10), (12, 73), (75, 100)])
@@ -130,12 +130,12 @@ def test_encode_chars():
 
 def test_encode_payloads():
     def _roundtrip(ps):
-        bs = bio.encode_payloads(ps)
-        result = list(bio.decode_payloads(bs, 0, len(bs)))
+        bs = Bio.encode_payloads(ps)
+        result = list(Bio.decode_payloads(bs, 0, len(bs)))
         assert result == ps
 
         bs = b'12345678' + bs
-        result = list(bio.decode_payloads(bs, 8, len(bs)))
+        result = list(Bio.decode_payloads(bs, 8, len(bs)))
         assert result == ps
 
     _roundtrip([b'alfa', b'bravo', b'charlie'])

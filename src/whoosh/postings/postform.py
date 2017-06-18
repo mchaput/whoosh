@@ -44,7 +44,7 @@ class Format(object):
                  has_positions: bool=False, has_chars: bool=False,
                  has_payloads: bool=False, io: postings.PostingsIO=None,
                  boost=1.0):
-        from whoosh.postings.postio import BasicIO
+        from whoosh.postings.basic import BasicIO
 
         self._io = io or BasicIO()
         self.has_lengths = has_lengths
