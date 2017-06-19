@@ -94,9 +94,9 @@ class LockBase:
         self.release()
 
     def read_key(self):
-        os.lseek(self.fd, 0, 0)
-        keybytes = os.read(self.fd, 16)
-        return decode_key(keybytes)
+        with open(self.filename, "rb") as f:
+            keybytes = f.read(16)
+            return decode_key(keybytes)
 
     def acquire(self, blocking=False):
         """Acquire the lock. Returns True if the lock was acquired.

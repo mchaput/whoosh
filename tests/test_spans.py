@@ -368,7 +368,7 @@ def test_spannear2():
             assert q.estimate_size(s.reader()) == 4
 
             ids = "".join(sorted(hit["id"] for hit in s.search(q)))
-            assert ids == "bcd"
+            assert ids == "bcde"
 
 
 def test_posting_phrase():

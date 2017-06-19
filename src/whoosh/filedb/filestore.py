@@ -81,9 +81,11 @@ def make_lock_name(indexname: str):
 
 class FileSession(storage.Session):
     def __init__(self, store: 'BaseFileStorage', indexname: str,
-                 writable: bool, id_counter: int):
+                 writable: bool, id_counter: int, recursive: bool=False):
         super(FileSession, self).__init__(store, indexname, writable,
                                           id_counter)
+        self.recursive = recursive
+        
         if writable:
             self._lock = store.lock(make_lock_name(indexname))
             if getattr(self._lock, "supports_key", False):
@@ -500,8 +502,8 @@ class FileStorage(BaseFileStorage):
             raise Exception("Recursive open attempt has wrong key; %d != %d" %
                             (disk_key, key))
 
-        id_counter = self._read_id_counter(indexname)
-        return FileSession(self, indexname, True, id_counter)
+        return FileSession(self, indexname, False, id_counter=-8888,
+                           recursive=True)
 
     @classmethod
     def from_url(cls, url: str) -> 'FileStorage':

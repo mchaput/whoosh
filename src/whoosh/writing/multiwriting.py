@@ -57,10 +57,12 @@ class MultiWriter(IndexWriter):
         if store.supports_multiproc_writing():
             # The storage supports recursive locks, so use a version of the
             # merge function that takes a recursive lock
+            sessionkey = self.session.read_key()
+            assert sessionkey is not None
             args = (
                 batch_r_index,
                 filepath, count, self.codec, store, self.schema, newsegment,
-                self.session.read_key(), self.session.indexname
+                sessionkey, self.session.indexname
             )
         else:
             # We don't support multi-processing, but if this is a threading

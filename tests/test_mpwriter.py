@@ -100,7 +100,7 @@ def _do_basic(*args, **kwargs):
                 # Get the terms and positions from the vector matcher
                 iv = list(vr.items_as("positions"))
                 # What the vector should look like
-                ov = sorted((text.encode("utf8"), [i]) for i, text
+                ov = sorted((text.encode("utf8"), tuple([i])) for i, text
                             in enumerate(pieces))
                 assert iv == ov
 
