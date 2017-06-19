@@ -530,7 +530,7 @@ class IndexReader:
         Returns a :class:`~whoosh.matching.Matcher` for the postings of the
         given term.
 
-        >>> pr = reader.postings("content", "render")
+        >>> pr = reader.matcher("content", "render")
         >>> pr.skip_to(10)
         >>> pr.id
         12

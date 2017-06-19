@@ -31,6 +31,7 @@ class SpoolingWriter(SegmentWriter):
 
     def finish_document(self):
         pickle.dump(self._arglist, self._tempfile, -1)
+        self.count += 1
 
     def finish_segment(self):
         self._tempfile.close()

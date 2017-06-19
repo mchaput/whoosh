@@ -42,7 +42,7 @@ from whoosh.compat import bytes_type, text_type
 from whoosh.filedb import blueline, filestore
 from whoosh.filedb.datafile import Data, OutputFile
 from whoosh.metadata import MetaData
-from whoosh.postings import postform, postings, ptuples
+from whoosh.postings import basic, postform, postings, ptuples
 from whoosh.system import IS_LITTLE
 
 try:
@@ -208,10 +208,12 @@ class X1TermInfo(readers.TermInfo):
             self._minid = r.min_id()
         self._maxid = r.max_id()
 
-    def posting_reader(self, fmt: 'postform.Format'):
+    def posting_reader(self, postings_io: 'postings.PostingsIO'
+                       ) -> 'postings.DocListReader':
         if self.inlinebytes is None:
             raise ValueError("This TermInfo does not have inlined postings")
-        return fmt.doclist_reader(self.inlinebytes)
+
+        return postings_io.doclist_reader(self.inlinebytes)
 
     def to_bytes(self) -> bytes:
         inlinebytes = self.inlinebytes
@@ -392,6 +394,7 @@ class X1Codec(codecs.Codec):
         self._compression = compression
         self._inlinelimit = inlinelimit
         self._assemble = assemble
+        self._io = basic.BasicIO()
 
     # Self
 
@@ -449,7 +452,10 @@ class X1Codec(codecs.Codec):
         return store
 
     def segment_from_bytes(self, bs:bytes) -> X1Segment:
-        return X1Segment.from_bytes(bs)
+        return cast(X1Segment, X1Segment.from_bytes(bs))
+
+    def postings_io(self) -> 'postings.PostingsIO':
+        return self._io
 
 
 codecs.register_codec("whoosh.codec.x1.X1Codec", X1Codec)
@@ -461,6 +467,8 @@ class X1PerDocWriter(codecs.PerDocumentWriter):
     def __init__(self, session: 'storage.Session', segment: X1Segment):
         self._store = session.store
         self._segment = segment
+        self._io = segment.codec().postings_io()
+
         self._segid = segment.segment_id()
 
         # Cached column writers map fieldname -> (OutputFile, colwriter)
@@ -485,6 +493,9 @@ class X1PerDocWriter(codecs.PerDocumentWriter):
             _cws[fieldname] = f, cw
 
         return cw
+
+    def postings_io(self) -> 'postings.PostingsIO':
+        return self._io
 
     def start_doc(self, docnum: int):
         self._docnum += 1
@@ -515,7 +526,7 @@ class X1PerDocWriter(codecs.PerDocumentWriter):
     def add_vector_postings(self, fieldname: str, fieldobj: 'fields.FieldType',
                             posts: 'Sequence[postings.PostTuple]'):
         fmt = fieldobj.vector
-        data = fmt.vector_to_bytes(posts)
+        data = self._io.vector_to_bytes(fmt, posts)
         self.add_raw_vector(fieldname, data)
 
     def add_raw_vector(self, fieldname: str, data: bytes):
@@ -560,6 +571,8 @@ class X1PerDocReader(codecs.PerDocumentReader):
     def __init__(self, session: 'storage.Session', segment: X1Segment):
         self._store = session.store
         self._segment = segment
+        self._io = segment.codec().postings_io()
+
         self._segid = segment.segment_id()
         self._doccount = segment.doc_count_all()
 
@@ -694,11 +707,12 @@ class X1PerDocReader(codecs.PerDocumentReader):
     def has_vector(self, docnum: int, fieldname: str):
         return bool(self._vector_bytes(docnum, fieldname))
 
-    def vector(self, docnum: int, fieldname: str, fmt: postform.Format):
+    def vector(self, docnum: int, fieldname: str):
         vbytes = self._vector_bytes(docnum, fieldname)
         if not vbytes:
-            raise readers.NoVectorError("This document has no stored vector")
-        return fmt.vector_reader(vbytes)
+            return postings.EmptyVectorReader()
+            # raise readers.NoVectorError("This document has no stored vector")
+        return self._io.vector_reader(vbytes)
 
     # Stored fields
 
@@ -755,12 +769,15 @@ class X1FieldWriter(codecs.FieldWriter):
 
         self.closed = False
 
+    def postings_io(self) -> 'postings.PostingsIO':
+        return self._segment.codec().postings_io()
+
     def start_field(self, fieldname: str, fieldobj: 'fields.FieldType'):
         assert not self._infield
         self._fieldname = fieldname
         self._fieldobj = fieldobj
         self._format = fieldobj.format
-        self._io = fieldobj.format.io()
+        self._io = self._segment.codec().postings_io()
         self._infield = True
 
         self._fieldnum = len(self._fieldnames)
@@ -792,8 +809,8 @@ class X1FieldWriter(codecs.FieldWriter):
         # Remember where the block starts
         # offset = postsfile.tell()
 
-        # Use the format to write the postings
-        postsfile.write(self._format.doclist_to_bytes(block))
+        # Write the postings
+        postsfile.write(self._io.doclist_to_bytes(self._format, block))
 
         self._blockcount += 1
         self._postbuf = []
@@ -806,9 +823,8 @@ class X1FieldWriter(codecs.FieldWriter):
             # We haven't written any blocks to disk yet, and the number of posts
             # in the buffer is within the inline limit, so include the post(s)
             # inline with the term info
-            fmt = self._fieldobj.format
             ti.add_posting_list_stats(postbuf)
-            ti.inlinebytes = fmt.doclist_to_bytes(postbuf)
+            ti.inlinebytes = self._io.doclist_to_bytes(self._format, postbuf)
         elif len(postbuf):
             # There's postings left in the buffer, flush them to disk
             self._flush_postings()
@@ -885,6 +901,7 @@ class X1TermsReader(codecs.TermsReader):
     def __init__(self, session: 'storage.Session', segment: X1Segment):
         self._store = session.store
         self._segment = segment
+        self._io = segment.codec().postings_io()
 
         terms_filename = segment.make_filename(X1Codec.TERMS_EXT)
         self._termsdata = self._store.map_file(terms_filename)
@@ -956,7 +973,7 @@ class X1TermsReader(codecs.TermsReader):
         return list(self._fieldnames)
 
     def cursor(self, fieldname: str, fieldobj: 'fields.FieldType'
-               ) -> 'X1TermCursor':
+               ) -> 'codecs.TermCursor':
         try:
             fnum = self._fieldnames.index(fieldname)
         except ValueError:
@@ -1034,24 +1051,23 @@ class X1TermsReader(codecs.TermsReader):
         return X1TermInfo.decode_doc_freq(data, 0)
 
     def matcher_from_terminfo(self, ti: X1TermInfo, fieldname: str,
-                              tbytes: bytes, format_: 'postform.Format',
-                              scorer: 'weights.Scorer'=None) -> 'X1Matcher':
+                              tbytes: bytes, scorer: 'weights.Scorer'=None
+                              ) -> 'X1Matcher':
         if ti.inlinebytes:
             m = matchers.PostReaderMatcher(
-                ti.posting_reader(format_), format_, fieldname, tbytes, ti,
+                ti.posting_reader(self._io), fieldname, tbytes, ti, self._io,
                 scorer=scorer
             )
         else:
             m = X1Matcher(
-                self._postsdata, fieldname, tbytes, ti, format_, scorer=scorer
+                self._postsdata, fieldname, tbytes, ti, self._io, scorer=scorer
             )
         return m
 
     def matcher(self, fieldname: str, tbytes: bytes, format_: 'postform.Format',
                 scorer: 'weights.Scorer'=None) -> 'X1Matcher':
         ti = self.term_info(fieldname, tbytes)
-        return self.matcher_from_terminfo(ti, fieldname, tbytes, format_,
-                                          scorer=scorer)
+        return self.matcher_from_terminfo(ti, fieldname, tbytes, scorer=scorer)
 
     def close(self):
         self._kv.close()
@@ -1104,17 +1120,12 @@ class X1TermCursor(codecs.TermCursor):
 
 class X1Matcher(matchers.LeafMatcher):
     def __init__(self, data: Data, fieldname: str, tbytes: bytes,
-                 terminfo: X1TermInfo, format_: 'postform.Format',
+                 terminfo: X1TermInfo, postings_io: 'postings.PostingsIO',
                  scorer: 'weights.Scorer'=None):
-        super(X1Matcher, self).__init__(fieldname, tbytes, format_, terminfo,
-                                        scorer=scorer)
+        super(X1Matcher, self).__init__(fieldname, tbytes, terminfo,
+                                        postings_io, scorer=scorer)
 
         self._data = data
-        self._fieldname = fieldname
-        self._tbytes = tbytes
-        self._terminfo = terminfo
-        self._format = format_
-        self._scorer = scorer
 
         # Current offset into postings file
         self._offset = None
@@ -1127,7 +1138,7 @@ class X1Matcher(matchers.LeafMatcher):
 
     def _go(self, offset: int, i: int=0):
         self._offset = offset
-        self._posts = self._format.doclist_reader(self._data, self._offset)
+        self._posts = self._io.doclist_reader(self._data, self._offset)
         # Index into current block
         self._i = i
 
@@ -1221,7 +1232,7 @@ class X1Matcher(matchers.LeafMatcher):
                 yield docid
             self._next_block()
 
-    # Format methods
+    # Postings methods
 
     def length(self) -> int:
         return self._posts.length(self._i)

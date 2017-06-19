@@ -29,24 +29,18 @@ from collections import defaultdict
 from typing import Any, Callable, Sequence, Tuple
 
 from whoosh import analysis
-from whoosh.postings import postings
-from whoosh.postings.postings import RawPost, PostTuple, tokens
-from whoosh.postings.ptuples import posting
+from whoosh.postings import ptuples
 
 
 class Format(object):
     """
-    Base class of objects representing a format for storing postings in the
-    database.
+    Base class of objects representing a set of options for storing postings in
+    the backend.
     """
 
     def __init__(self, has_lengths: bool=False, has_weights: bool=False,
                  has_positions: bool=False, has_chars: bool=False,
-                 has_payloads: bool=False, io: postings.PostingsIO=None,
-                 boost=1.0):
-        from whoosh.postings.basic import BasicIO
-
-        self._io = io or BasicIO()
+                 has_payloads: bool=False, boost=1.0):
         self.has_lengths = has_lengths
         self.has_weights = has_weights
         self.has_positions = has_positions
@@ -70,17 +64,13 @@ class Format(object):
     def __ne__(self, other):
         return not self == other
 
-    def io(self) -> postings.PostingsIO:
-        return self._io
-
     def can_copy_raw_to(self, fmt: 'Format') -> bool:
         return (
             fmt.has_lengths == self.has_lengths and
             fmt.has_weights == self.has_weights and
             fmt.has_positions == self.has_positions and
             fmt.has_chars == self.has_chars and
-            fmt.has_payloads == self.has_payloads and
-            fmt.io().can_copy_raw_to(self.io())
+            fmt.has_payloads == self.has_payloads
         )
 
     def supports(self, feature: str) -> bool:
@@ -94,27 +84,10 @@ class Format(object):
 
         return getattr(self, "has_%s" % feature, False)
 
-    def condition_post(self, post: PostTuple) -> RawPost:
-        return self.io().condition_post(post)
-
-    def doclist_to_bytes(self, posts: Sequence[RawPost]) -> bytes:
-        return self.io().doclist_to_bytes(self, posts)
-
-    def doclist_reader(self, bs: bytes, offset: int=0
-                       ) -> postings.DocListReader:
-        return self.io().doclist_reader(self, bs, offset)
-
-    def vector_to_bytes(self, posts: Sequence[PostTuple]) -> bytes:
-        return self.io().vector_to_bytes(self, posts)
-
-    def vector_reader(self, bs: bytes, offset: int=0
-                      ) -> postings.VectorReader:
-        return self.io().vector_reader(self, bs, offset)
-
     def index(self, analyzer: 'analysis.Analyzer',
               to_bytes: Callable[[str], bytes],
               value: Any, docid: int=None, boost: float=1.0,
-              **kwargs) -> Tuple[int, Sequence[PostTuple]]:
+              **kwargs) -> Tuple[int, Sequence[ptuples.PostTuple]]:
         """
         Calls the given analyzer on the field value (passing through any keyword
         arguments to the analyzer) and groups the resulting tokens. Returns a
@@ -130,6 +103,9 @@ class Format(object):
         :param boost: the weight to use for each occurrence.
         :param kwargs: keyword arguments to pass to the analyzer.
         """
+
+        from whoosh.postings.postings import tokens
+        posting = ptuples.posting
 
         boost *= self.boost
 

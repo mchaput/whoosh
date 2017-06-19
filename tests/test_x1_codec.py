@@ -13,16 +13,17 @@ from whoosh.util.testing import TempStorage
 def test_terminfo():
     fmt = postform.Format(has_weights=True, has_positions=True)
 
-    single = postform.posting(docid=100, length=1, weight=2.5,
-                              positions=[1, 9, 30])
-    posts = [fmt.condition_post(single)]
+    bio = basic.BasicIO()
+    single = ptuples.posting(docid=100, length=1, weight=2.5,
+                             positions=[1, 9, 30])
+    posts = [bio.condition_post(single)]
 
     infos = [
         x1.X1TermInfo(weight=3.0, df=3, minlength=7, maxlength=10,
                       maxweight=1.5, minid=12, maxid=70),
         x1.X1TermInfo(weight=2.5, df=1, minlength=25, maxlength=25,
                       maxweight=2.5, minid=100, maxid=100,
-                      inlinebytes=fmt.doclist_to_bytes(posts))
+                      inlinebytes=bio.doclist_to_bytes(fmt, posts))
     ]
     infos[0].offset = 10000
 
@@ -64,7 +65,7 @@ def test_terminfo():
             assert ti.offset == -1
             assert ti.inlinebytes
 
-            inline_post = ti.posting_reader(fmt).posting_at(0)
+            inline_post = ti.posting_reader(bio).posting_at(0)
             assert inline_post == ptuples.posting(
                 docid=100, weight=2.5, positions=(1, 9, 30)
             )
@@ -105,6 +106,7 @@ def test_list_stats():
 
 
 def test_reader_stats():
+    bio = basic.BasicIO()
     fmt = postform.Format(has_lengths=True, has_weights=True)
 
     posts = [
@@ -112,7 +114,7 @@ def test_reader_stats():
         ptuples.posting(docid=85, length=5, weight=3.0),
         ptuples.posting(docid=95, length=12, weight=1.5),
     ]
-    r = fmt.doclist_reader(fmt.doclist_to_bytes(posts))
+    r = bio.doclist_reader(bio.doclist_to_bytes(fmt, posts))
     ti = x1.X1TermInfo(weight=3.0, df=3, minlength=7, maxlength=10,
                        maxweight=1.5, minid=12, maxid=70)
     ti.add_posting_reader_stats(r)
@@ -129,7 +131,7 @@ def test_reader_stats():
         ptuples.posting(85, length=9, weight=1.0),
         ptuples.posting(95, length=10, weight=1.0),
     ]
-    r = fmt.doclist_reader(fmt.doclist_to_bytes(posts))
+    r = bio.doclist_reader(bio.doclist_to_bytes(fmt, posts))
     ti = x1.X1TermInfo(weight=3.0, df=3, minlength=7, maxlength=10,
                        maxweight=1.5, minid=12, maxid=70)
     ti.add_posting_reader_stats(r)
@@ -183,7 +185,7 @@ def test_perdoc():
 
         assert pdr.has_vector(0, "a")
         assert not pdr.has_vector(1, "a")
-        vr = pdr.vector(0, "a", field.vector)
+        vr = pdr.vector(0, "a")
         assert isinstance(vr, basic.BasicVectorReader)
         assert vr.termbytes(0) == b"alfa"
         assert vr.weight(0) == 1.5

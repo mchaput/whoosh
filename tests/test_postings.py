@@ -151,12 +151,13 @@ def test_roundtrip_docs():
         pt.posting(80, b'', 1, 3, [13, 14], [(5, 10)], [b"g", b"h", b"i"]),
     ]
 
+    bio = basic.BasicIO()
     bf = postform.Format(True, True, True, True, True)
-    raw_posts = [bf.condition_post(x) for x in posts]
+    raw_posts = [bio.condition_post(x) for x in posts]
 
-    bs = bf.doclist_to_bytes(raw_posts)
+    bs = bio.doclist_to_bytes(bf, raw_posts)
 
-    br = bf.doclist_reader(bs)
+    br = bio.doclist_reader(bs)
     for i in range(len(posts)):
         assert br.id(i) == posts[i][pt.DOCID]
         assert br.length(i) == posts[i][pt.LENGTH]
@@ -173,17 +174,19 @@ def test_payloads():
         pt.posting(docid=3, length=1, payloads=[b'a' * 1000, b'b' * 10000]),
     ]
 
+    bio = basic.BasicIO()
     bf = postform.Format(False, False, False, False, True)
-    raw_posts = [bf.condition_post(p) for p in posts]
-    bs = bf.doclist_to_bytes(raw_posts)
+    raw_posts = [bio.condition_post(p) for p in posts]
+    bs = bio.doclist_to_bytes(bf, raw_posts)
 
-    br = bf.doclist_reader(bs)
+    br = bio.doclist_reader(bs)
     assert list(br.payloads(0)) == [b'foo']
     assert list(br.payloads(1)) == [b'bar', b'baz']
     assert list(br.payloads(2)) == [b'a' * 1000, b'b' * 10000]
 
 
 def test_lengths():
+    bio = basic.BasicIO()
     fmt = postform.Format(has_weights=True, has_lengths=True,
                           has_positions=True, has_chars=True)
     ba = bytearray()
@@ -197,12 +200,12 @@ def test_lengths():
             cs = [(10, 11), (12, 13), (14, 15), (16, 17)]
             post = pt.posting(docid=i, length=ln, weight=w, positions=ps,
                               chars=cs)
-            rawpost = fmt.condition_post(post)
+            rawpost = bio.condition_post(post)
             posts.append(rawpost)
 
         offset = len(ba)
-        ba += fmt.doclist_to_bytes(posts)
-        br = fmt.doclist_reader(ba, offset)
+        ba += bio.doclist_to_bytes(fmt, posts)
+        br = bio.doclist_reader(ba, offset)
         assert br.length(0) == posts[0][pt.LENGTH]
 
 
@@ -220,6 +223,7 @@ def test_combos():
 
     bs = bytearray()
     origs = []
+    bio = basic.BasicIO()
     for fmt in fmts:
         ids = list(range(0, random.randint(10, 1000), random.randint(2, 10)))
         posts = []
@@ -245,11 +249,11 @@ def test_combos():
                                     chars=cs, payloads=pys))
 
         origs.append((fmt, len(bs), ids, posts))
-        raw_posts = [fmt.condition_post(x) for x in posts]
-        bs += fmt.doclist_to_bytes(raw_posts)
+        raw_posts = [bio.condition_post(x) for x in posts]
+        bs += bio.doclist_to_bytes(fmt, raw_posts)
 
     for fmt, offset, ids, posts in origs:
-        br = fmt.doclist_reader(bs, offset)
+        br = bio.doclist_reader(bs, offset)
         for n, i in enumerate(ids):
             assert br.id(n) == i
             if fmt.has_lengths:
@@ -265,6 +269,7 @@ def test_combos():
 
 
 def test_min_max():
+    bio = basic.BasicIO()
     fmt = postform.Format(has_lengths=True, has_weights=True)
     posts = [
         pt.posting(docid=1, length=5, weight=6.5),
@@ -273,9 +278,9 @@ def test_min_max():
         pt.posting(docid=13, length=7, weight=2.5),
         pt.posting(docid=26, length=6, weight=3.0),
     ]
-    bs = fmt.doclist_to_bytes(posts)
+    bs = bio.doclist_to_bytes(fmt, posts)
 
-    br = fmt.doclist_reader(bs)
+    br = bio.doclist_reader(bs)
     assert br.min_id() == 1
     assert br.max_id() == 26
     assert br.min_length() == 2
@@ -284,6 +289,7 @@ def test_min_max():
 
 
 def test_roundtrip_vector():
+    bio = basic.BasicIO()
     fmt = postform.Format(True, True, True, True, True)
     posts = [
         pt.posting(termbytes=b'abc', length=2, weight=2.0, positions=[1, 2],
@@ -295,9 +301,9 @@ def test_roundtrip_vector():
         pt.posting(termbytes=b'ghi', length=1, weight=1.0, positions=[3],
                    chars=[(4, 6)], payloads=[b'R']),
     ]
-    bs = fmt.vector_to_bytes(posts)
+    bs = bio.vector_to_bytes(fmt, posts)
 
-    br = fmt.vector_reader(bs)
+    br = bio.vector_reader(bs)
     for i, post in enumerate(posts):
         # assert br.length(i) == post[p.LENGTH]
         assert br.weight(i) == post[pt.WEIGHT]
@@ -389,6 +395,7 @@ def test_payload_postings():
 
 
 def test_from_disk():
+    bio = basic.BasicIO()
     fmt = postform.Format(has_lengths=True, has_weights=True,
                           has_positions=True, has_chars=True, has_payloads=True)
     target = [
@@ -403,14 +410,14 @@ def test_from_disk():
     ]
 
     with TempStorage() as st:
-        raw_posts = [fmt.condition_post(x) for x in target]
-        bs = fmt.doclist_to_bytes(raw_posts)
+        raw_posts = [bio.condition_post(x) for x in target]
+        bs = bio.doclist_to_bytes(fmt, raw_posts)
         with st.create_file("test") as f:
             f.write(bs)
             f.write(bs)
 
         with st.map_file("test") as mm:
-            r = fmt.doclist_reader(mm)
+            r = bio.doclist_reader(mm)
             for i, post in enumerate(r.postings()):
                 assert post[pt.DOCID] == target[i][pt.DOCID]
                 assert post[pt.LENGTH] == target[i][pt.LENGTH]
@@ -421,6 +428,7 @@ def test_from_disk():
 
 
 def test_minmax_length():
+    bio = basic.BasicIO()
     # Make a format that DOESN'T store lengths
     fmt = postform.Format(has_lengths=False, has_weights=True)
 
@@ -433,10 +441,10 @@ def test_minmax_length():
 
     with TempStorage() as st:
         with st.create_file("test") as f:
-            f.write(fmt.doclist_to_bytes(posts))
+            f.write(bio.doclist_to_bytes(fmt, posts))
 
         with st.map_file("test") as m:
-            r = fmt.doclist_reader(m)
+            r = bio.doclist_reader(m)
 
             # The lengths were not stored
             assert not r.has_lengths
@@ -466,19 +474,12 @@ def test_formats_equal():
                         do(has_lengths, has_weights, has_poses, has_chars,
                            has_pays)
 
-    fmt1 = postform.Format(has_weights=True, has_positions=True,
-                           io=basic.BasicIO())
-    fmt2 = postform.Format(has_weights=True, has_positions=True,
-                           io=basic.BasicIO())
+    fmt1 = postform.Format(has_weights=True, has_positions=True)
+    fmt2 = postform.Format(has_weights=True, has_positions=True)
     assert fmt1 == fmt2
 
-    class FakePostingsIO(postings.PostingsIO):
-        def __init__(self, label):
-            super(FakePostingsIO, self).__init__()
-            self.label = label
-
-    fmt2.io = FakePostingsIO("foo")
-    assert fmt1 != fmt2
+    fmt3 = postform.Format(has_positions=True, has_chars=True)
+    assert fmt1 != fmt3
 
 
 #

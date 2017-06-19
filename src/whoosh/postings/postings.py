@@ -4,6 +4,7 @@ from typing import Any, Iterable, List, Optional, Sequence, Tuple, Union
 
 from whoosh.ifaces import analysis
 from whoosh.compat import text_type
+from whoosh.postings import postform
 from whoosh.postings.ptuples import PostTuple, RawPost
 
 
@@ -56,7 +57,8 @@ class PostingReader:
         return sum(self.weight(i) for i in range(len(self)))
 
     @abstractmethod
-    def can_copy_raw_to(self, fmt) -> bool:
+    def can_copy_raw_to(self, to_io: 'PostingsIO',
+                        to_fmt: 'postform.Format') -> bool:
         raise NotImplementedError
 
     @abstractmethod
@@ -84,11 +86,15 @@ class PostingReader:
         raise NotImplementedError
 
     @abstractmethod
-    def max_weight(self):
+    def max_weight(self) -> float:
         raise NotImplementedError
 
 
 class DocListReader(PostingReader):
+    @abstractmethod
+    def __len__(self):
+        raise NotImplementedError
+
     @abstractmethod
     def id(self, n: int) -> int:
         raise NotImplementedError
@@ -160,6 +166,10 @@ class DocListReader(PostingReader):
 
 
 class VectorReader(PostingReader):
+    @abstractmethod
+    def __len__(self):
+        raise NotImplementedError
+
     @abstractmethod
     def termbytes(self, n: int) -> bytes:
         raise NotImplementedError
@@ -280,7 +290,10 @@ class PostingsIO:
 
         return vals
 
-    def can_copy_raw_to(self, io: 'PostingsIO') -> bool:
+    def can_copy_raw_to(self, from_fmt: 'postform.Format',
+                        other_io: 'PostingsIO',
+                        to_fmt: 'postform.Format'
+                        ) -> bool:
         return False
 
     @abstractmethod
@@ -298,15 +311,48 @@ class PostingsIO:
         raise NotImplementedError
 
     @abstractmethod
-    def doclist_reader(self, fmt: 'Format', bs: bytes,
-                       offset: int=0) -> DocListReader:
+    def doclist_reader(self, bs: bytes, offset: int=0) -> DocListReader:
         raise NotImplementedError
 
     @abstractmethod
-    def vector_reader(self, fmt: 'Format', bs: bytes) -> VectorReader:
+    def vector_reader(self, bs: bytes) -> VectorReader:
         raise NotImplementedError
 
 
+class EmptyVectorReader(VectorReader):
+    def __init__(self):
+        pass
+
+    def __len__(self):
+        return 0
+
+    def termbytes(self, n: int) -> bytes:
+        raise IndexError("No items in this reader")
+
+    def weight(self, n: int) -> float:
+        raise IndexError("No items in this reader")
+
+    def positions(self, n: int) -> List[int]:
+        raise IndexError("No items in this reader")
+
+    def chars(self, n: int) -> List[Tuple[int, int]]:
+        raise IndexError("No items in this reader")
+
+    def payloads(self, n: int) -> List[bytes]:
+        raise IndexError("No items in this reader")
+
+    def max_weight(self):
+        return 0.0
+
+    def raw_bytes(self) -> bytes:
+        raise Exception("You better not be trying to write this!")
+
+    def can_copy_raw_to(self, to_io: 'PostingsIO',
+                        fmt: 'postform.Format') -> bool:
+        raise Exception("You better not be trying to write this!")
+
+    def end_offset(self) -> int:
+        raise Exception("You better not be trying to write this!")
 
 
 

@@ -315,8 +315,17 @@ class Codec:
     def segment_from_bytes(self, bs: bytes) -> Segment:
         raise NotImplementedError
 
+    # On-disk posting block format
+
+    @abstractmethod
+    def postings_io(self) -> 'postings.PostingsIO':
+        raise NotImplementedError
+
 
 class WrappingCodec(Codec):
+    def name(self) -> str:
+        return "%s(%s)" % (type(self).__name__, self._child.name())
+
     def __init__(self, child: Codec):
         self._child = child
 
@@ -351,12 +360,19 @@ class WrappingCodec(Codec):
         return self._child.segment_storage(store, segment)
 
     def segment_from_bytes(self, bs: bytes) -> Codec:
-        raise self._child.segment_from_bytes(bs)
+        return self._child.segment_from_bytes(bs)
+
+    def postings_io(self) -> 'postings.PostingsIO':
+        return self._child.postings_io()
 
 
 # Writer classes
 
 class PerDocumentWriter:
+    @abstractmethod
+    def postings_io(self) -> 'postings.PostingsIO':
+        raise NotImplementedError
+
     @abstractmethod
     def start_doc(self, docnum: int):
         raise NotImplementedError
@@ -388,6 +404,10 @@ class PerDocumentWriter:
 
 
 class FieldWriter:
+    @abstractmethod
+    def postings_io(self) -> 'postings.PostingsIO':
+        raise NotImplementedError
+
     @abstractmethod
     def start_field(self, fieldname: str, fieldobj: 'fields.FieldType'):
         raise NotImplementedError
@@ -740,8 +760,7 @@ class PerDocumentReader:
         return False
 
     # Don't need to override this if has_vector() always returns False
-    def vector(self, docnum: int, fieldname: str, fmt: 'postform.Format'
-               ) -> 'postings.VectorReader':
+    def vector(self, docnum: int, fieldname: str) -> 'postings.VectorReader':
         raise UnsupportedFeature
 
     # Stored

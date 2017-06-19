@@ -382,7 +382,8 @@ class Matcher:
         else:
             return []
 
-    def can_copy_raw_to(self, fmt: 'postform.Format') -> bool:
+    def can_copy_raw_to(self, other_io: 'postings.PostingsIO',
+                        to_fmt: 'postform.Format') -> bool:
         return False
 
     # Leaf methods
@@ -570,20 +571,24 @@ class NullMatcherClass(Matcher):
 NullMatcher = NullMatcherClass()
 
 
-# Term/vector leaf posting matcher middleware
+# Term leaf posting matcher middleware
 
 class LeafMatcher(Matcher):
     # Subclasses need to set
     #   self.scorer -- a Scorer object or None
     #   self.format -- Format object for the posting values
 
-    def __init__(self, fieldname: str, tbytes: bytes, fmt: 'postform.Format',
-                 terminfo: 'codecs.TermInfo', scorer: 'weights.Scorer'=None):
+    def __init__(self, fieldname: str, tbytes: bytes,
+                 terminfo: 'readers.TermInfo',
+                 postings_io: 'postings.PostingsIO',
+                 scorer: 'weights.Scorer'=None):
         self._fieldname = fieldname
         self._tbytes = tbytes
-        self._format = fmt
         self._terminfo = terminfo
+        self._io = postings_io
         self._scorer = scorer
+
+        self._posts = None  # type: postings.DocListReader
 
     def __repr__(self):
         return "%s(%r, %s)" % (self.__class__.__name__, self.term(),
@@ -592,12 +597,6 @@ class LeafMatcher(Matcher):
     def term(self) -> Tuple[str, bytes]:
         return self._fieldname, self._tbytes
 
-    def format(self) -> 'postform.Format':
-        return self._format
-
-    def can_copy_raw_to(self, fmt: 'postform.Format') -> bool:
-        return self.format().can_copy_raw_to(fmt)
-
     def replace(self, minquality: float=0.0) -> Matcher:
         if not self.is_active():
             return NullMatcher()
@@ -605,9 +604,6 @@ class LeafMatcher(Matcher):
             return NullMatcher()
         else:
             return self
-
-    def supports(self, name: str) -> bool:
-        return self._format.supports(name)
 
     def supports_block_quality(self) -> bool:
         return self._scorer and self._scorer.supports_block_quality()
@@ -637,22 +633,35 @@ class LeafMatcher(Matcher):
         if self._scorer:
             self._scorer.close()
 
-    # Forward "has_" methods to format object
+    # Posting IO methods
 
-    def has_weights(self):
-        return self._format.has_weights
+    def can_copy_raw_to(self, other_io: 'postings.PostingsIO',
+                        to_fmt: 'postform.Format') -> bool:
+        # Create a Format object from this matcher's capabilities, to compare
+        # it to the destination format
+        from_fmt = postform.Format(self.has_lengths(), self.has_weights(),
+                                   self.has_positions(), self.has_chars(),
+                                   self.has_payloads())
 
-    def has_lengths(self):
-        return self._format.has_lengths
+        return self._io.can_copy_raw_to(from_fmt, other_io, to_fmt)
 
-    def has_positions(self):
-        return self._format.has_positions
+    def supports(self, feature: str) -> bool:
+        return self._posts.supports(feature)
 
-    def has_chars(self):
-        return self._format.has_chars
+    def has_lengths(self) -> bool:
+        return self._posts.has_lengths
 
-    def has_payloads(self):
-        return self._format.has_payloads
+    def has_weights(self) -> bool:
+        return self._posts.has_weights
+
+    def has_positions(self) -> bool:
+        return self._posts.has_positions
+
+    def has_chars(self) -> bool:
+        return self._posts.has_chars
+
+    def has_payloads(self) -> bool:
+        return self._posts.has_payloads
 
     # Subclasses need to implement these!
 
@@ -700,14 +709,15 @@ class LeafMatcher(Matcher):
 
 class PostReaderMatcher(LeafMatcher):
     def __init__(self, dpreader: 'postings.DocListReader',
-                 format_: 'postform.Format',
                  fieldname: str, tbytes: bytes,
-                 terminfo: 'readers.TermInfo', scorer: 'weights.Scorer'=None):
+                 terminfo: 'readers.TermInfo',
+                 postings_io: 'postings.PostingsIO',
+                 scorer: 'weights.Scorer'=None):
         self._posts = dpreader
-        self._format = format_
         self._fieldname = fieldname
         self._tbytes = tbytes
         self._terminfo = terminfo
+        self._io = postings_io
         self._scorer = scorer
 
         self._i = 0

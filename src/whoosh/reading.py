@@ -291,13 +291,9 @@ class SegmentReader(readers.IndexReader):
 
     @unclosed
     def vector(self, docnum: int, fieldname: str) -> 'postings.VectorReader':
-        try:
-            fieldobj = self.schema[fieldname]
-        except KeyError:
+        if fieldname not in self.schema:
             raise readers.TermNotFound("No %r field" % fieldname)
-        if not fieldobj.vector:
-            raise Exception("Field %r does not store vectors" % fieldname)
-        return self._perdoc.vector(docnum, fieldname, fieldobj.vector)
+        return self._perdoc.vector(docnum, fieldname)
 
     @field_checked
     def cursor(self, fieldname) -> 'codecs.TermCursor':
@@ -337,8 +333,6 @@ class SegmentReader(readers.IndexReader):
         column = column or fieldobj.column
         if not column:
             column = fieldobj.default_column()
-        print("column=", column)
-        print("has_column=", self._perdoc.has_column(fieldname))
 
         if self._perdoc.has_column(fieldname):
             creader = self._perdoc.column_reader(fieldname, column,

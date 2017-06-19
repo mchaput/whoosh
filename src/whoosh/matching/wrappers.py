@@ -32,7 +32,7 @@ from typing import (
 
 from whoosh import idsets
 from whoosh.ifaces import matchers, weights
-from whoosh.postings import postform, ptuples
+from whoosh.postings import postform, postings, ptuples
 
 
 __all__ = ("WrappingMatcher", "ConstantScoreMatcher", "MultiMatcher",
@@ -125,8 +125,9 @@ class WrappingMatcher(matchers.Matcher):
     def posting(self) -> 'Optional[ptuples.PostTuple]':
         return self.child.posting()
 
-    def can_copy_raw_to(self, fmt: 'postform.Format'):
-        return self.child.can_copy_raw_to(fmt)
+    def can_copy_raw_to(self, other_io: 'postings.PostingsIO',
+                        to_fmt: 'postform.Format'):
+        return self.child.can_copy_raw_to(other_io, to_fmt)
 
     def raw_posting(self) -> 'ptuples.RawPost':
         return self.child.raw_posting()
@@ -261,8 +262,9 @@ class MultiMatcher(matchers.Matcher):
 
     # Override interface
 
-    def can_copy_raw_to(self, fmt: 'postform.Format') -> bool:
-        return all(m.can_copy_raw_to(fmt) for m in self._matchers)
+    def can_copy_raw_to(self, other_io: 'postings.PostingsIO',
+                        to_fmt: 'postform.Format') -> bool:
+        return all(m.can_copy_raw_to(other_io, to_fmt) for m in self._matchers)
 
     def is_active(self) -> bool:
         return self._current < len(self._matchers)

@@ -48,6 +48,24 @@ FLOAT_WEIGHTS = 4  # weights are stored as floats
 # Struct for encoding the length typecode and count of a list of byte chunks
 tcodes_and_len = struct.Struct("<ccI")
 
+# Flags bitfield
+HAS_LENGTHS = 1 << 0
+HAS_WEIGHTS = 1 << 1
+HAS_POSITIONS = 1 << 2
+HAS_CHARS = 1 << 3
+HAS_PAYLOADS = 1 << 4
+
+
+def make_flags(has_lengths=False, has_weights=False, has_positions=False,
+               has_chars=False, has_payloads=False) -> int:
+    return (
+        (HAS_LENGTHS if has_lengths else 0) |
+        (HAS_WEIGHTS if has_weights else 0) |
+        (HAS_POSITIONS if has_positions else 0) |
+        (HAS_CHARS if has_chars else 0) |
+        (HAS_PAYLOADS if has_payloads else 0)
+    )
+
 
 # Helper functions
 
@@ -64,24 +82,26 @@ def min_array(nums: Sequence[int]) -> array:
 # Basic implementations of on-disk posting format
 
 class BasicIO(postings.PostingsIO):
+    # B   - Flags (has_*)
     # H   - Number of postings in block
     # 2c  - IDs and weights typecodes
     # ii  - Min/max length
     # iii - positions, characters, payloads data lengths
-    doc_header = struct.Struct("<H2ciiiii")
+    doc_header = struct.Struct("<BH2ciiiii")
 
+    # B   - Flags (has_*)
     # H   - Number of terms in vector
     # 2c  - IDs and weights typecodes
     # iii - positions, characters, payloads data lengths
-    vector_header = struct.Struct("<i2ciii")
+    vector_header = struct.Struct("<Bi2ciii")
 
     @classmethod
-    def pack_doc_header(cls, count: int, minlen: int, maxlen: int,
+    def pack_doc_header(cls, flags: int, count: int, minlen: int, maxlen: int,
                         ids_typecode: str, weights_typecode: str,
                         poslen: int, charlen: int, paylen: int
                         ) -> bytes:
         return cls.doc_header.pack(
-            count,
+            flags, count,
             ids_typecode.encode("ascii"), weights_typecode.encode("ascii"),
             minlen, maxlen,
             poslen, charlen, paylen
@@ -90,22 +110,22 @@ class BasicIO(postings.PostingsIO):
     @classmethod
     def unpack_doc_header(cls, src: bytes, offset: int) -> Tuple:
         h = cls.doc_header
-        count, idc, wc, minlen, maxlen, poslen, charlen, paylen = \
+        flags, count, idc, wc, minlen, maxlen, poslen, charlen, paylen = \
             h.unpack(src[offset:offset + h.size])
 
         ids_typecode = str(idc.decode("ascii"))
         weights_typecode = str(wc.decode("ascii"))
 
-        return (count, ids_typecode, weights_typecode, minlen, maxlen,
+        return (flags, count, ids_typecode, weights_typecode, minlen, maxlen,
                 poslen, charlen, paylen, offset + h.size)
 
     @classmethod
-    def pack_vector_header(cls, count: int,
+    def pack_vector_header(cls, flags: int, count: int,
                            terms_typecode: str, weights_typecode: str,
                            poslen: int, charlen: int, paylen: int
                            ) -> bytes:
         return cls.vector_header.pack(
-            count,
+            flags, count,
             terms_typecode.encode("ascii"), weights_typecode.encode("ascii"),
             poslen, charlen, paylen
         )
@@ -113,39 +133,44 @@ class BasicIO(postings.PostingsIO):
     @classmethod
     def unpack_vector_header(cls, src: bytes, offset: int) -> Tuple:
         h = cls.vector_header
-        count, idc, wc, poslen, charlen, paylen = \
+        flags, count, idc, wc, poslen, charlen, paylen = \
             h.unpack(src[offset:offset + h.size])
 
         ids_typecode = str(idc.decode("ascii"))
         weights_typecode = str(wc.decode("ascii"))
 
-        return (count, ids_typecode, weights_typecode, poslen, charlen, paylen,
+        return (flags, count, ids_typecode, weights_typecode,
+                poslen, charlen, paylen,
                 offset + h.size)
 
-    def can_copy_raw_to(self, io: postings.PostingsIO) -> bool:
-        return type(io) is type(self)
+    def can_copy_raw_to(self, from_fmt: 'postform.Format',
+                        to_io: postings.PostingsIO,
+                        to_fmt: 'postform.Format') -> bool:
+        return (
+            type(to_io) is type(self) and
+            from_fmt.can_copy_raw_to(to_fmt)
+        )
 
-    def doclist_reader(self, fmt: postform.Format, src: bytes,
-                       offset: int=0) -> 'basic.BasicDocListReader':
-        from whoosh.postings.basic import BasicDocListReader
-        return BasicDocListReader(fmt, src, offset)
+    def doclist_reader(self, src: bytes, offset: int=0) -> 'BasicDocListReader':
+        return BasicDocListReader(src, offset)
 
-    def vector_reader(self, fmt: postform.Format, src: bytes,
-                      offset: int=0) -> 'basic.BasicVectorReader':
-        from whoosh.postings.basic import BasicVectorReader
-        return BasicVectorReader(fmt, src, offset)
+    def vector_reader(self, src: bytes, offset: int=0) -> 'BasicVectorReader':
+        return BasicVectorReader(src, offset)
 
     def doclist_to_bytes(self, fmt: postform.Format,
                          posts: Sequence[RawPost]) -> bytes:
         if not posts:
             raise ValueError("Empty document postings list")
 
+        flags = make_flags(fmt.has_lengths, fmt.has_weights, fmt.has_positions,
+                           fmt.has_chars, fmt.has_payloads)
         ids_code, ids_bytes = self.encode_docids([p[DOCID] for p in posts])
         minlen, maxlen, len_bytes = self.extract_lengths(fmt, posts)
         weights_code, weight_bytes = self.extract_weights(fmt, posts)
         pos_bytes, char_bytes, pay_bytes = self.extract_features(fmt, posts)
+
         header = self.pack_doc_header(
-            len(posts), minlen, maxlen, ids_code, weights_code,
+            flags, len(posts), minlen, maxlen, ids_code, weights_code,
             len(pos_bytes), len(char_bytes), len(pay_bytes)
         )
         return b''.join((header, ids_bytes, len_bytes, weight_bytes,
@@ -157,11 +182,14 @@ class BasicIO(postings.PostingsIO):
             raise ValueError("Empty vector postings list")
 
         posts = [self.condition_post(p) for p in posts]
+        flags = make_flags(fmt.has_lengths, fmt.has_weights, fmt.has_positions,
+                           fmt.has_chars, fmt.has_payloads)
         t_code, t_bytes = self.encode_terms(self._extract(posts, TERMBYTES))
         weights_code, weight_bytes = self.extract_weights(fmt, posts)
         pos_bytes, char_bytes, pay_bytes = self.extract_features(fmt, posts)
+
         header = self.pack_vector_header(
-            len(posts), t_code, weights_code,
+            flags, len(posts), t_code, weights_code,
             len(pos_bytes), len(char_bytes), len(pay_bytes)
         )
         return b''.join((header, t_bytes, weight_bytes,
@@ -455,8 +483,7 @@ class BasicIO(postings.PostingsIO):
 
 class BasicPostingReader(postings.PostingReader):
     # Common superclass for Doclist and Vector readers
-    def __init__(self, fmt: postform.Format, source: bytes, offset: int):
-        self._format = fmt
+    def __init__(self, source: bytes, offset: int):
         self._src = source
         self._offset = offset
 
@@ -507,9 +534,6 @@ class BasicPostingReader(postings.PostingReader):
 
     def raw_bytes(self) -> bytes:
         return self._src[self._offset: self._end_offset]
-
-    def can_copy_raw_to(self, fmt: postform.Format) -> bool:
-        return self._format.can_copy_raw_to(fmt)
 
     def end_offset(self) -> int:
         return self._end_offset
@@ -600,33 +624,36 @@ class BasicPostingReader(postings.PostingReader):
 
 
 class BasicDocListReader(BasicPostingReader, postings.DocListReader):
-    def __init__(self, fmt: postform.Format, src: bytes, offset: int=0):
-        super(BasicDocListReader, self).__init__(fmt, src, offset)
+    def __init__(self, src: bytes, offset: int=0):
+        super(BasicDocListReader, self).__init__(src, offset)
         self._lens = None
 
-        # Copy feature flags from format
-        self.has_lengths = fmt.has_lengths
-        self.has_weights = fmt.has_weights
-        self.has_positions = fmt.has_positions
-        self.has_chars = fmt.has_chars
-        self.has_payloads = fmt.has_payloads
-
         # Unpack the header
-        (self._count, ids_tc, self._weights_tc, self._min_len,
+        (flags, self._count, ids_tc, self._weights_tc, self._min_len,
          self._max_len, self._poses_size, self._chars_size, self._pays_size,
          h_end) = BasicIO.unpack_doc_header(src, offset)
+
+        # Copy feature flags from flags
+        self.has_lengths = flags & HAS_LENGTHS
+        self.has_weights = flags & HAS_WEIGHTS
+        self.has_positions = flags & HAS_POSITIONS
+        self.has_chars = flags & HAS_CHARS
+        self.has_payloads = flags & HAS_PAYLOADS
 
         # Read the IDs
         offset, self._ids = BasicIO.decode_docids(src, h_end, ids_tc,
                                                   self._count)
 
         # Set up lengths if the format stores them
-        if fmt.has_lengths:
+        if self.has_lengths:
             self._lens_offset = offset
             offset += self._count
 
         # Set up offsets/sizes for other features (also self._end_offset)
         self._setup_offsets(offset)
+
+    def __len__(self):
+        return self._count
 
     def __repr__(self):
         return "<%s %d>" % (type(self).__name__, self._count)
@@ -682,13 +709,20 @@ class BasicDocListReader(BasicPostingReader, postings.DocListReader):
 
 
 class BasicVectorReader(BasicPostingReader, postings.VectorReader):
-    def __init__(self, fmt: postform.Format, src: bytes, offset: int=0):
-        super(BasicVectorReader, self).__init__(fmt, src, offset)
+    def __init__(self, src: bytes, offset: int=0):
+        super(BasicVectorReader, self).__init__(src, offset)
 
         # Unpack the header
-        (self._count, t_typecode, self._weights_tc,
+        (flags, self._count, t_typecode, self._weights_tc,
          self._poses_size, self._chars_size, self._pays_size,
          h_end) = BasicIO.unpack_vector_header(src, offset)
+
+        # Copy feature flags from flags
+        self.has_lengths = bool(flags & HAS_LENGTHS)
+        self.has_weights = bool(flags & HAS_WEIGHTS)
+        self.has_positions = bool(flags & HAS_POSITIONS)
+        self.has_chars = bool(flags & HAS_CHARS)
+        self.has_payloads = bool(flags & HAS_PAYLOADS)
 
         # Read the terms
         offset, self._terms = BasicIO.decode_terms(src, h_end, t_typecode,
@@ -696,6 +730,9 @@ class BasicVectorReader(BasicPostingReader, postings.VectorReader):
 
         # Set up offsets/sizes for other features (also self._end_offset)
         self._setup_offsets(offset)
+
+    def __len__(self):
+        return self._count
 
     def all_terms(self) -> Iterable[bytes]:
         for tbytes in self._terms:
@@ -716,3 +753,10 @@ class BasicVectorReader(BasicPostingReader, postings.VectorReader):
             return i
         else:
             raise KeyError(termbytes)
+
+    def can_copy_raw_to(self, to_io: 'postings.PostingsIO',
+                        to_fmt: 'postform.Format') -> bool:
+        from_fmt = postform.Format(self.has_lengths, self.has_weights,
+                                   self.has_positions, self.has_chars,
+                                   self.has_payloads)
+        return BasicIO().can_copy_raw_to(from_fmt, to_io, to_fmt)

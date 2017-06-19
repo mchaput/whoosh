@@ -254,7 +254,7 @@ def test_vector():
     pdr = codec.per_document_reader(sesh, seg)
     assert pdr.stored_fields(0) == {}
 
-    v = pdr.vector(0, "title", field.vector)
+    v = pdr.vector(0, "title")
     assert v.termbytes(0) == b"alfa"
     assert v.termbytes(1) == b"bravo"
     assert v.weight(0) == 1.0

@@ -297,6 +297,9 @@ def posting_to_spans(post: 'ptuples.PostTuple') -> 'List[Span]':
     #     assert len(pays) == len(poses)
 
     spans = []
+    if not poses:
+        return spans
+
     for i, pos in enumerate(poses):
         sp = Span(pos, boost=weight)
         if chars:

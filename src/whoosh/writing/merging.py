@@ -375,6 +375,8 @@ def _copy_perdoc(schema: 'fields.Schema', reader: 'readers.IndexReader',
             creader = reader.column_reader(fieldname, colobj)
             cols[fieldname] = creader
 
+    to_io = perdoc.postings_io()
+
     # Iterate over the docs in the reader, getting the stored fields at
     # the same time
     newdoc = 0
@@ -393,10 +395,10 @@ def _copy_perdoc(schema: 'fields.Schema', reader: 'readers.IndexReader',
                              stored.get(fieldname), length)
 
             # Copy any vector
-            vector = fieldobj.vector
-            if fieldobj.vector and reader.has_vector(docnum, fieldname):
+            to_vectorfmt = fieldobj.vector
+            if to_vectorfmt and reader.has_vector(docnum, fieldname):
                 vreader = reader.vector(docnum, fieldname)
-                if vreader.can_copy_raw_to(vector):
+                if vreader.can_copy_raw_to(to_io, to_vectorfmt):
                     rawbytes = vreader.raw_bytes()
                     perdoc.add_raw_vector(fieldname, rawbytes)
                 else:
@@ -455,8 +457,10 @@ def _copy_terms(schema: 'fields.Schema', reader: 'readers.IndexReader',
 
         fwriter.start_term(termbytes)
         m = reader.matcher(fieldname, termbytes)
-        if m.can_copy_raw_to(fieldobj.format):
-            # logger.debug("Copying posting bytes directly")
+
+        to_io = fwriter.postings_io()
+        if m.can_copy_raw_to(to_io, fieldobj.format):
+            logger.debug("Copying posting bytes directly")
             for rp in m.all_raw_postings():
                 docid = post_docid(rp)
                 length = reader.doc_field_length(docid, fieldname)
