@@ -710,7 +710,7 @@ class PerDocumentReader:
         raise NotImplementedError
 
     @abstractmethod
-    def is_deleted(self, docnum) -> bool:
+    def is_deleted(self, docnum: int) -> bool:
         raise NotImplementedError
 
     @abstractmethod

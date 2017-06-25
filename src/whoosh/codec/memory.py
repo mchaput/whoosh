@@ -41,6 +41,7 @@ from collections import defaultdict
 from typing import Any, Dict, Iterable, Optional, Sequence, Set, Tuple
 
 from whoosh import columns, fields, index
+from whoosh.codec import null
 from whoosh.ifaces import codecs, storage, readers
 from whoosh.postings import basic, postform, postings, ptuples
 
@@ -94,14 +95,15 @@ class MemoryStorage(storage.Storage):
 
 
 class MemorySegment(codecs.Segment):
-    def __init__(self, indexname: str):
+    def __init__(self, indexname: str, store_per_doc: bool=True):
         from whoosh.filedb.filestore import RamStorage
 
-        self.indexname = indexname
+        self._indexname = indexname
+        self._storeperdoc = store_per_doc
         self.terms = {}
         self.terminfos = {}
         self.docs = []
-        self.colstore = RamStorage()
+        self.colstore = RamStorage() if store_per_doc else None
 
         self.docfieldlens = defaultdict(list)
 
@@ -133,7 +135,7 @@ class MemorySegment(codecs.Segment):
         return self.terminfos[(fieldname, termbytes)]
 
     def codec(self) -> codecs.Codec:
-        return MemoryCodec()
+        return MemoryCodec(store_per_doc=self._storeperdoc)
 
     def size(self) -> int:
         return self._size
@@ -164,6 +166,9 @@ class MemorySegment(codecs.Segment):
 
 
 class MemoryCodec(codecs.Codec):
+    def __init__(self, store_per_doc: bool=True):
+        self._storeperdoc = store_per_doc
+
     def name(self) -> str:
         return "whoosh.codecs.memory"
 
@@ -171,23 +176,31 @@ class MemoryCodec(codecs.Codec):
         return basic.BasicIO()
 
     def per_document_writer(self, session: 'storage.Session',
-                            segment: MemorySegment) -> 'MemPerDocWriter':
-        return MemPerDocWriter(segment)
+                            segment: MemorySegment
+                            ) -> 'codecs.PerDocumentWriter':
+        if self._storeperdoc:
+            return MemPerDocWriter(segment)
+        else:
+            return null.NullPerDocWriter()
 
     def field_writer(self, session: 'storage.Session',
                      segment: MemorySegment) -> 'MemFieldWriter':
         return MemFieldWriter(segment)
 
     def per_document_reader(self, session: 'storage.Session',
-                            segment: MemorySegment) -> 'MemPerDocReader':
-        return MemPerDocReader(segment)
+                            segment: MemorySegment
+                            ) -> 'codecs.PerDocumentReader':
+        if self._storeperdoc:
+            return MemPerDocReader(segment)
+        else:
+            return null.NullPerDocReader()
 
     def terms_reader(self, session: 'storage.Session',
                      segment: MemorySegment) -> 'MemTermsReader':
         return MemTermsReader(segment)
 
     def new_segment(self, session: 'storage.Session'):
-        return MemorySegment(session.indexname)
+        return MemorySegment(session.indexname, store_per_doc=self._storeperdoc)
 
     def segment_from_bytes(self, bs: bytes) -> MemorySegment:
         return MemorySegment.from_bytes(bs)

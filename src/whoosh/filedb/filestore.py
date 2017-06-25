@@ -230,8 +230,10 @@ class BaseFileStorage(storage.Storage):
 
     def _write_id_counter(self, session: 'storage.Session'):
         filename = self._id_counter_filename(session.indexname)
-        with self.create_file(filename) as f:
+        tempname = filename + ".temp"
+        with self.create_file(tempname) as f:
             f.write(("%06x" % session.id_counter).encode("ascii"))
+        self.rename_file(tempname, filename)
 
     def load_toc(self, session: 'storage.Session', generation: int=None):
         # This backend has no concept of a session, all we need from the object
