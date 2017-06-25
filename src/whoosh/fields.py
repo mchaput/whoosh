@@ -52,6 +52,17 @@ class FieldType:
     def __ne__(self, other):
         return not self == other
 
+    def json_info(self) -> dict:
+        return {
+            "format": self.format.json_info() if self.format else None,
+            "stored": self.stored,
+            "unique": self.unique,
+            "indexed": self.indexed,
+            "field_boost": self.field_boost,
+            "vector": self.vector.json_info() if self.vector else None,
+            "column": self.column.json_info() if self.column else None,
+        }
+
     @property
     def scorable(self):
         return self.format.has_weights
@@ -576,6 +587,9 @@ class Numeric(TokenizedField):
         x = self.prepare_number(x)
         return to_sortable(self.numtype, self.bits, self.signed, x)
 
+    def from_column_value(self, value: int) -> float:
+        return from_sortable(self.numtype, self.bits, self.signed, value)
+
     def to_bytes(self, x: Union[str, float, Decimal], shift: int=0) -> bytes:
         if isinstance(x, bytes):
             return x
@@ -826,6 +840,14 @@ class Schema:
         except KeyError:
             return False
 
+    def json_info(self) -> dict:
+        return {
+            "fields": dict((name, f.json_info()) for name, f
+                           in self._fields.items()),
+            "dynamic": dict((glob, f.json_info()) for glob, f
+                            in self._dyn_fields.items()),
+        }
+
     def to_bytes(self) -> bytes:
         return pickle.dumps(self)
 
@@ -918,21 +940,12 @@ class Schema:
         else:
             raise KeyError("No field named %r" % name)
 
-    def stored_names(self) -> List[FieldType]:
+    def stored_names(self) -> List[str]:
         """
         Returns a list of the names of fields that are stored.
         """
 
         return [name for name, field in self.items() if field.stored]
-
-    def scorable_names(self) -> List[FieldType]:
-        """
-        Returns a list of the names of fields that store field
-        lengths.
-        """
-
-        return [name for name, field in self.items()
-                if field.supports("weights")]
 
     def clean(self):
         for field in self._fields.values():

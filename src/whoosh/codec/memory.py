@@ -34,31 +34,103 @@
 # from whoosh.reading import SegmentReader, TermInfo, TermNotFound
 # from whoosh.writing import SegmentWriter
 
+import threading
+from bisect import bisect_left
+from io import BytesIO
 from collections import defaultdict
-from typing import Any, Set
+from typing import Any, Dict, Iterable, Optional, Sequence, Set, Tuple
 
-from whoosh import fields
-from whoosh.ifaces import codecs, storage
+from whoosh import columns, fields, index
+from whoosh.ifaces import codecs, storage, readers
+from whoosh.postings import basic, postform, postings, ptuples
 
 
-class MemorySegment(codecs.Segment, codecs.PerDocumentWriter,
-                    codecs.FieldWriter, codecs.PerDocumentReader,
-                    codecs.TermsReader):
+class CapabilityError(Exception):
+    pass
+
+
+# Helper functions
+
+# Functions to generate fake field names for internal columns
+def _vecfield(fieldname: str) -> str:
+    return "_%s_vec" % fieldname
+
+
+# Column type to store pointers to encoded vectors
+VECTOR_COLUMN = columns.CompressedBytesColumn()
+
+
+# Implementations
+
+class MemoryStorage(storage.Storage):
+    def __init__(self, ):
+        self._generation = -1
+        self._id_counter = 0
+        self._toc = None
+
+    def open(self, indexname: str=None, writable: bool=False
+             ) -> storage.Session:
+        return storage.Session(self, indexname, writable, self._id_counter)
+
+    def save_toc(self, session: storage.Session, toc: 'index.Toc'):
+        self._toc = toc
+        self._generation += 1
+
+    def load_toc(self, session: storage.Session, generation: int=None
+                 ) -> 'index.Toc':
+        if generation is not None:
+            assert generation == self._generation
+        return self._toc
+
+    def latest_generation(self, session: storage.Session) -> int:
+        return self._generation
+
+    def lock(self, name: str) -> storage.Lock:
+        return threading.Lock()
+
+    def temp_storage(self, name: str = None) -> 'storage.Storage':
+        from whoosh.filedb.filestore import RamStorage
+        return RamStorage()
+
+
+class MemorySegment(codecs.Segment):
     def __init__(self, indexname: str):
-        self._indexname = indexname
-        self._terms = {}
-        self._docs = []
-        self._columns = defaultdict(dict)
+        from whoosh.filedb.filestore import RamStorage
+
+        self.indexname = indexname
+        self.terms = {}
+        self.terminfos = {}
+        self.docs = []
+        self.colstore = RamStorage()
+
+        self.docfieldlens = defaultdict(list)
+
         self._size = 0
         self._deleted = set()
         self._fieldlength = defaultdict(int)
 
-        self._docnum = 0
         self._indoc = False
         self._docdata = None
-        self._coldata =
+        self._coldata = BytesIO()
+        self._sorted = {}
 
-    # Segment interface
+    @property
+    def docnum(self) -> int:
+        return len(self.docs)
+
+    def segment_id(self) -> str:
+        return str(id(self))
+
+    def sorted_terms(self, fieldname: str) -> Sequence[bytes]:
+        try:
+            return self._sorted[fieldname]
+        except KeyError:
+            srtd = sorted(self.terms[fieldname])
+            self._sorted[fieldname] = srtd
+            return srtd
+
+    def term_info(self, fieldname: str, termbytes: bytes):
+        return self.terminfos[(fieldname, termbytes)]
 
     def codec(self) -> codecs.Codec:
         return MemoryCodec()
@@ -67,10 +139,10 @@ class MemorySegment(codecs.Segment, codecs.PerDocumentWriter,
         return self._size
 
     def doc_count_all(self) -> int:
-        return len(self._docs)
+        return len(self.docs)
 
     def set_doc_count(self, doccount: int):
-        raise Exception("Can't set doc count on MemorySegment")
+        raise CapabilityError("Can't set doc count on MemorySegment")
 
     def field_length(self, fieldname: str, default: int=0) -> int:
         return self._fieldlength.get(fieldname, default)
@@ -88,50 +160,31 @@ class MemorySegment(codecs.Segment, codecs.PerDocumentWriter,
         return docnum in self._deleted
 
     def should_rewrite(self) -> bool:
-        return self._deleted > len(self._docs) // 2
-
-    # PerDocumentWriter interface
-
-    def start_doc(self, docnum: int):
-        assert docnum == self._docnum
-        assert not self._indoc
-        self._indoc = True
-        self._docdata = {}
-
-    def add_field(self, fieldname: str, fieldobj: 'fields.FieldType',
-                  value: Any, length: int):
-        self._docdata[fieldname] = (value, length)
-
-    def
-
-
-
-    # FieldWriter interface
-
-    # PerDocumentReader interface
-
-    # TermsReader interface
+        return self._deleted > (len(self.docs) // 2)
 
 
 class MemoryCodec(codecs.Codec):
     def name(self) -> str:
         return "whoosh.codecs.memory"
 
+    def postings_io(self) -> 'postings.PostingsIO':
+        return basic.BasicIO()
+
     def per_document_writer(self, session: 'storage.Session',
-                            segment: MemorySegment) -> MemorySegment:
-        return segment
+                            segment: MemorySegment) -> 'MemPerDocWriter':
+        return MemPerDocWriter(segment)
 
     def field_writer(self, session: 'storage.Session',
-                     segment: MemorySegment) -> MemorySegment:
-        return segment
+                     segment: MemorySegment) -> 'MemFieldWriter':
+        return MemFieldWriter(segment)
 
     def per_document_reader(self, session: 'storage.Session',
-                            segment: MemorySegment) -> MemorySegment:
-        return segment
+                            segment: MemorySegment) -> 'MemPerDocReader':
+        return MemPerDocReader(segment)
 
     def terms_reader(self, session: 'storage.Session',
-                     segment: MemorySegment) -> MemorySegment:
-        return segment
+                     segment: MemorySegment) -> 'MemTermsReader':
+        return MemTermsReader(segment)
 
     def new_segment(self, session: 'storage.Session'):
         return MemorySegment(session.indexname)
@@ -140,306 +193,254 @@ class MemoryCodec(codecs.Codec):
         return MemorySegment.from_bytes(bs)
 
 
+class MemPerDocWriter(codecs.PerDocumentWriter):
+    def __init__(self, segment: MemorySegment):
+        self._segment = segment
+        self._io = basic.BasicIO()
+        self._storedfields = {}  # type: dict
+        self._colwriters = {}
+        self._docnum = 0
+
+    def postings_io(self) -> 'postings.PostingsIO':
+        return self._io
+
+    def start_doc(self, docnum: int):
+        self._storedfields = {}
+        self._docnum = docnum
+
+    def add_field(self, fieldname: str, fieldobj: 'fields.FieldType',
+                  value: Any, length: int):
+        if fieldobj.stored and value is not None:
+            self._storedfields[fieldname] = value
+
+        self._segment.docfieldlens[fieldname].append(length)
+
+    def add_column_value(self, fieldname: str, columnobj: 'columns.Column',
+                         value: Any):
+        if fieldname in self._colwriters:
+            _, cwriter = self._colwriters[fieldname]
+        else:
+            colstore = self._segment.colstore
+            cfile = colstore.create_file(fieldname)
+            cwriter = columnobj.writer(cfile)
+            self._colwriters[fieldname] = cfile, cwriter
+
+        cwriter.add(self._docnum, value)
+
+    def add_vector_postings(self, fieldname: str, fieldobj: 'fields.FieldType',
+                            posts: 'Sequence[postings.PostTuple]'):
+        data = self._io.vector_to_bytes(fieldobj.vector, posts)
+        self.add_raw_vector(fieldname, data)
+
+    def add_raw_vector(self, fieldname: str, data: bytes):
+        self.add_column_value(_vecfield(fieldname), VECTOR_COLUMN, data)
+
+    def finish_doc(self):
+        self._segment.docs.append(self._storedfields)
+        self._docnum += 1
+
+    def finish_field(self):
+        pass
+
+    def close(self):
+        for fieldname, (cfile, cwriter) in self._colwriters.items():
+            cwriter.finish(self._docnum)
+            cfile.close()
 
 
+class MemFieldWriter(codecs.FieldWriter):
+    def __init__(self, segment: MemorySegment):
+        self._segment = segment
+        self._io = basic.BasicIO()
+        self._fieldname = ''
+        self._fieldobj = None  # type: fields.FieldType
+        self._fielddict = {}
+        self._termbytes = b''
+        self._posts = []
+        self._terminfo = None  # type: readers.TermInfo
+
+    def postings_io(self) -> 'postings.PostingsIO':
+        return self._io
+
+    def start_field(self, fieldname: str, fieldobj: 'fields.FieldType'):
+        self._fieldname = fieldname
+        self._fieldobj = fieldobj
+        self._fielddict = self._segment.terms.setdefault(fieldname, {})
+
+    def start_term(self, termbytes: bytes):
+        self._termbytes = termbytes
+        self._posts = []
+        self._terminfo = readers.TermInfo()
+
+    def add_posting(self, post: 'ptuples.PostTuple'):
+        self._posts.append(self._io.condition_post(post))
+
+    def add_raw_post(self, rawpost: 'ptuples.RawPost'):
+        self._posts.append(rawpost)
+
+    def finish_term(self):
+        s = self._segment
+        self._terminfo.add_posting_list_stats(self._posts)
+        s.terminfos[(self._fieldname, self._termbytes)] = self._terminfo
+
+        encoded_block = self._io.doclist_to_bytes(self._fieldobj.format,
+                                                  self._posts)
+        s.terms[self._fieldname][self._termbytes] = encoded_block
 
 
+class MemPerDocReader(codecs.PerDocumentReader):
+    def __init__(self, segment: MemorySegment):
+        self._segment = segment
+        self._vector_readers = {}
+        self._io = segment.codec().postings_io()
+
+    def doc_count(self) -> int:
+        return self._segment.doc_count()
+
+    def doc_count_all(self) -> int:
+        return self._segment.doc_count_all()
+
+    def has_deletions(self) -> bool:
+        return self._segment.has_deletions()
+
+    def is_deleted(self, docnum) -> bool:
+        return self._segment.is_deleted(docnum)
+
+    def deleted_docs(self) -> Set[int]:
+        return self._segment.deleted_docs()
+
+    def all_doc_ids(self) -> Iterable[int]:
+        s = self._segment
+        for docnum in range(self._segment.doc_count_all()):
+            if not s.is_deleted(docnum):
+                yield docnum
+
+    def supports_columns(self) -> bool:
+        return True
+
+    def has_column(self, fieldname: str) -> bool:
+        return fieldname in self._segment.colstore
+
+    def column_reader(self, fieldname: str, column: 'columns.Column',
+                      reverse: bool=False) -> 'columns.ColumnReader':
+        colstore = self._segment.colstore
+        cfile = colstore.map_file(fieldname)
+        return column.reader(cfile, 0, length=colstore.file_length(fieldname),
+                             doccount=self.doc_count_all(), native=True,
+                             reverse=reverse)
+
+    # Vectors
+
+    def _vector_bytes(self, docnum: int, fieldname: str) -> Optional[bytes]:
+        if fieldname in self._vector_readers:
+            vreader = self._vector_readers[fieldname]
+        else:
+            vecfield = _vecfield(fieldname)
+            vreader = self.column_reader(vecfield, VECTOR_COLUMN)
+            self._vector_readers[fieldname] = vreader
+        return vreader[docnum]
+
+    def has_vector(self, docnum: int, fieldname: str):
+        return bool(self._vector_bytes(docnum, fieldname))
+
+    def vector(self, docnum: int, fieldname: str):
+        vbytes = self._vector_bytes(docnum, fieldname)
+        if not vbytes:
+            return postings.EmptyVectorReader()
+            # raise readers.NoVectorError("This document has no stored vector")
+        return self._io.vector_reader(vbytes)
+
+    # Stored fields
+
+    def stored_fields(self, docnum: int) -> Dict:
+        return self._segment.docs[docnum]
+
+    # Lengths
+
+    def field_length(self, fieldname: str) -> int:
+        return self._segment.field_length(fieldname)
+
+    def doc_field_length(self, docnum: int, fieldname: str, default: int = 0
+                         ) -> int:
+        return self._segment.docfieldlens[fieldname][docnum]
+
+    def min_field_length(self, fieldname: str) -> int:
+        return min(self._segment.docfieldlens[fieldname])
+
+    def max_field_length(self, fieldname: str) -> int:
+        return max(self._segment.docfieldlens[fieldname])
 
 
-# class MemWriter(SegmentWriter):
-#     def commit(self):
-#         self._finalize_segment()
-#
-#
-# class MemoryCodec(codecs.Codec):
-#     def __init__(self):
-#         from whoosh.filedb.filestore import RamStorage
-#
-#         self.storage = RamStorage()
-#         self.segment = MemSegment(self, "blah")
-#
-#     def writer(self, schema):
-#         ix = self.storage.create_index(schema)
-#         return MemWriter(ix, _lk=False, codec=self,
-#                          docbase=self.segment._doccount)
-#
-#     def reader(self, schema):
-#         return SegmentReader(self.storage, schema, self.segment, codec=self)
-#
-#     def per_document_writer(self, storage, segment):
-#         return MemPerDocWriter(self.storage, self.segment)
-#
-#     def field_writer(self, storage, segment):
-#         return MemFieldWriter(self.storage, self.segment)
-#
-#     def per_document_reader(self, storage, segment):
-#         return MemPerDocReader(self.storage, self.segment)
-#
-#     def terms_reader(self, storage, segment):
-#         return MemTermsReader(self.storage, self.segment)
-#
-#     def new_segment(self, storage, indexname):
-#         return self.segment
-#
-#
-# class MemPerDocWriter(codecs.PerDocWriterWithColumns):
-#     def __init__(self, storage, segment):
-#         self._storage = storage
-#         self._segment = segment
-#         self.is_closed = False
-#         self._colwriters = {}
-#         self._doccount = 0
-#
-#     def _has_column(self, fieldname):
-#         return fieldname in self._colwriters
-#
-#     def _create_column(self, fieldname, column):
-#         colfile = self._storage.create_file("%s.c" % fieldname)
-#         self._colwriters[fieldname] = (colfile, column.writer(colfile))
-#
-#     def _get_column(self, fieldname):
-#         return self._colwriters[fieldname][1]
-#
-#     def start_doc(self, docnum):
-#         self._doccount += 1
-#         self._docnum = docnum
-#         self._stored = {}
-#         self._lengths = {}
-#         self._vectors = {}
-#
-#     def add_field(self, fieldname, fieldobj, value, length):
-#         if value is not None:
-#             self._stored[fieldname] = value
-#         if length is not None:
-#             self._lengths[fieldname] = length
-#
-#     def add_vector_items(self, fieldname, fieldobj, items):
-#         self._vectors[fieldname] = tuple(items)
-#
-#     def finish_doc(self):
-#         with self._segment._lock:
-#             docnum = self._docnum
-#             self._segment._stored[docnum] = self._stored
-#             self._segment._lengths[docnum] = self._lengths
-#             self._segment._vectors[docnum] = self._vectors
-#
-#     def close(self):
-#         colwriters = self._colwriters
-#         for fieldname in colwriters:
-#             colfile, colwriter = colwriters[fieldname]
-#             colwriter.finish(self._doccount)
-#             colfile.close()
-#         self.is_closed = True
-#
-#
-# class MemPerDocReader(codecs.PerDocumentReader):
-#     def __init__(self, storage, segment):
-#         self._storage = storage
-#         self._segment = segment
-#
-#     def doc_count(self):
-#         return self._segment.doc_count()
-#
-#     def doc_count_all(self):
-#         return self._segment.doc_count_all()
-#
-#     def has_deletions(self):
-#         return self._segment.has_deletions()
-#
-#     def is_deleted(self, docnum):
-#         return self._segment.is_deleted(docnum)
-#
-#     def deleted_docs(self):
-#         return self._segment.deleted_docs()
-#
-#     def supports_columns(self):
-#         return True
-#
-#     def has_column(self, fieldname):
-#         filename = "%s.c" % fieldname
-#         return self._storage.file_exists(filename)
-#
-#     def column_reader(self, fieldname, column, reverse=False):
-#         filename = "%s.c" % fieldname
-#         colfile = self._storage.open_file(filename)
-#         length = self._storage.file_length(filename)
-#         return column.reader(colfile, 0, length, self._segment.doc_count_all(),
-#                              reverse=reverse)
-#
-#     def doc_field_length(self, docnum, fieldname, default=0):
-#         return self._segment._lengths[docnum].get(fieldname, default)
-#
-#     def field_length(self, fieldname):
-#         return sum(lens.get(fieldname, 0) for lens
-#                    in self._segment._lengths.values())
-#
-#     def min_field_length(self, fieldname):
-#         return min(lens[fieldname] for lens in self._segment._lengths.values()
-#                    if fieldname in lens)
-#
-#     def max_field_length(self, fieldname):
-#         return max(lens[fieldname] for lens in self._segment._lengths.values()
-#                    if fieldname in lens)
-#
-#     def has_vector(self, docnum, fieldname):
-#         return (docnum in self._segment._vectors
-#                 and fieldname in self._segment._vectors[docnum])
-#
-#     def vector(self, docnum, fieldname, format_):
-#         items = self._segment._vectors[docnum][fieldname]
-#         ids, weights, values = zip(*items)
-#         return ListMatcher(ids, weights, values, format_)
-#
-#     def stored_fields(self, docnum):
-#         return self._segment._stored[docnum]
-#
-#     def close(self):
-#         pass
-#
-#
-# class MemFieldWriter(codecs.FieldWriter):
-#     def __init__(self, storage, segment):
-#         self._storage = storage
-#         self._segment = segment
-#         self._fieldname = None
-#         self._btext = None
-#         self.is_closed = False
-#
-#     def start_field(self, fieldname, fieldobj):
-#         if self._fieldname is not None:
-#             raise Exception("Called start_field in a field")
-#
-#         with self._segment._lock:
-#             invindex = self._segment._invindex
-#             if fieldname not in invindex:
-#                 invindex[fieldname] = {}
-#
-#         self._fieldname = fieldname
-#         self._fieldobj = fieldobj
-#
-#     def start_term(self, btext):
-#         if self._btext is not None:
-#             raise Exception("Called start_term in a term")
-#         fieldname = self._fieldname
-#
-#         fielddict = self._segment._invindex[fieldname]
-#         terminfos = self._segment._terminfos
-#         with self._segment._lock:
-#             if btext not in fielddict:
-#                 fielddict[btext] = []
-#
-#             if (fieldname, btext) not in terminfos:
-#                 terminfos[fieldname, btext] = TermInfo()
-#
-#         self._postings = fielddict[btext]
-#         self._terminfo = terminfos[fieldname, btext]
-#         self._btext = btext
-#
-#     def add(self, docnum, weight, vbytes, length):
-#         self._postings.append((docnum, weight, vbytes))
-#         self._terminfo.add_posting(docnum, weight, length)
-#
-#     def finish_term(self):
-#         if self._btext is None:
-#             raise Exception("Called finish_term outside a term")
-#
-#         self._postings = None
-#         self._btext = None
-#         self._terminfo = None
-#
-#     def finish_field(self):
-#         if self._fieldname is None:
-#             raise Exception("Called finish_field outside a field")
-#         self._fieldname = None
-#         self._fieldobj = None
-#
-#     def close(self):
-#         self.is_closed = True
-#
-#
-# class MemTermsReader(codecs.TermsReader):
-#     def __init__(self, storage, segment):
-#         self._storage = storage
-#         self._segment = segment
-#         self._invindex = segment._invindex
-#
-#     def __contains__(self, term):
-#         return term in self._segment._terminfos
-#
-#     def terms(self):
-#         for fieldname in self._invindex:
-#             for btext in self._invindex[fieldname]:
-#                 yield (fieldname, btext)
-#
-#     def terms_from(self, fieldname, prefix):
-#         if fieldname not in self._invindex:
-#             raise TermNotFound("Unknown field %r" % (fieldname,))
-#         terms = sorted(self._invindex[fieldname])
-#         if not terms:
-#             return
-#         start = bisect_left(terms, prefix)
-#         for i in range(start, len(terms)):
-#             yield (fieldname, terms[i])
-#
-#     def term_info(self, fieldname, text):
-#         return self._segment._terminfos[fieldname, text]
-#
-#     def matcher(self, fieldname, btext, format_, scorer=None):
-#         items = self._invindex[fieldname][btext]
-#         ids, weights, values = zip(*items)
-#         return ListMatcher(ids, weights, values, format_, scorer=scorer)
-#
-#     def indexed_field_names(self):
-#         return self._invindex.keys()
-#
-#     def close(self):
-#         pass
-#
-#
-# class MemSegment(codecs.Segment):
-#     def __init__(self, cdc, indexname):
-#         codecs.Segment.__init__(self, indexname)
-#         self._codec = cdc
-#         self._doccount = 0
-#         self._stored = {}
-#         self._lengths = {}
-#         self._vectors = {}
-#         self._invindex = {}
-#         self._terminfos = {}
-#         self._lock = Lock()
-#
-#     def codec(self):
-#         return self._codec
-#
-#     def set_doc_count(self, doccount):
-#         self._doccount = doccount
-#
-#     def doc_count(self):
-#         return len(self._stored)
-#
-#     def doc_count_all(self):
-#         return self._doccount
-#
-#     def delete_document(self, docnum, delete=True):
-#         if not delete:
-#             raise Exception("MemoryCodec can't undelete")
-#         with self._lock:
-#             del self._stored[docnum]
-#             del self._lengths[docnum]
-#             del self._vectors[docnum]
-#
-#     def has_deletions(self):
-#         with self._lock:
-#             return self._doccount - len(self._stored)
-#
-#     def is_deleted(self, docnum):
-#         return docnum not in self._stored
-#
-#     def deleted_docs(self):
-#         stored = self._stored
-#         for docnum in range(self.doc_count_all()):
-#             if docnum not in stored:
-#                 yield docnum
-#
-#     def should_assemble(self):
-#         return False
+class MemTermsReader(codecs.TermsReader):
+    def __init__(self, segment: MemorySegment):
+        self._segment = segment
+        self._io = basic.BasicIO()
+
+    def __contains__(self, term: codecs.TermTuple) -> bool:
+        fieldname, termbytes = term
+        try:
+            fdict = self._segment.terms[fieldname]
+        except KeyError:
+            return False
+        return termbytes in fdict
+
+    def cursor(self, fieldname: str, fieldobj: 'fields.FieldType'
+               ) -> 'MemCursor':
+        return MemCursor(fieldname, fieldobj, self._segment)
+
+    def terms(self) -> Iterable[codecs.TermTuple]:
+        for fieldname in sorted(self._segment.terms):
+            for termbytes in self._segment.sorted_terms(fieldname):
+                yield fieldname, termbytes
+
+    def items(self) -> 'Iterable[Tuple[codecs.TermTuple, readers.TermInfo]]':
+        for fieldname in sorted(self._segment.terms):
+            for termbytes in self._segment.sorted_terms(fieldname):
+                yield ((fieldname, termbytes),
+                       self.term_info(fieldname, termbytes))
+
+    def term_info(self, fieldname: str, termbytes: bytes) -> readers.TermInfo:
+        return self._segment.term_info(fieldname, termbytes)
+
+    def indexed_field_names(self) -> Sequence[str]:
+        return sorted(self._segment.terms)
+
+    def matcher(self, fieldname: str, termbytes: bytes, fmt: 'postform.Format',
+                scorer=None):
+        from whoosh.matching import PostReaderMatcher
+
+        postbytes = self._segment.terms[fieldname][termbytes]
+        dlr = self._io.doclist_reader(postbytes)
+        tinfo = self._segment.term_info(fieldname, termbytes)
+        return PostReaderMatcher(dlr, fieldname, termbytes, tinfo, self._io,
+                                 scorer=scorer)
+
+
+class MemCursor(codecs.TermCursor):
+    def __init__(self, fieldname: str, fieldobj: 'fields.FieldType',
+                 segment: MemorySegment):
+        self.fieldname = fieldname
+        self.field = fieldobj
+        self._segment = segment
+        self._termlist = segment.sorted_terms(fieldname)
+        self._i = 0
+
+    def first(self):
+        self._i = 0
+
+    def is_valid(self):
+        return self._i < len(self._termlist)
+
+    def seek(self, termbytes: bytes):
+        self._i = bisect_left(self._termlist, termbytes)
+
+    def next(self):
+        self._i += 1
+
+    def termbytes(self) -> bytes:
+        return self._termlist[self._i]
+
+    def term_info(self) -> 'readers.TermInfo':
+        return self._segment.term_info(self.fieldname, self.termbytes())
+
+

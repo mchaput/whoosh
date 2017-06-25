@@ -37,7 +37,7 @@ from typing import (
 from whoosh import columns, fields, idsets, spelling
 from whoosh.ifaces import codecs, matchers, weights
 from whoosh.compat import text_type
-from whoosh.postings import postings
+from whoosh.postings import postings, ptuples
 from whoosh.support.levenshtein import distance
 from whoosh.util import unclosed
 
@@ -105,6 +105,48 @@ class TermInfo:
         xid = max(ti.max_id() + offset for ti, offset in tis)
 
         return TermInfo(w, df, ml, xl, xw, mid, xid)
+
+    def _update_minlen(self, length):
+        if self._minlength is None:
+            self._minlength = length
+        else:
+            self._minlength = min(self._minlength, length)
+
+    def add_posting_list_stats(self, posts: Sequence[ptuples.PostTuple]):
+        # Incorporate the stats from a list of postings into this object.
+        # We assume the min doc id of the list > our current max doc id
+
+        self._df += len(posts)
+
+        post_weight = ptuples.post_weight
+        weights = [post_weight(p) for p in posts if post_weight(p)]
+        post_length = ptuples.post_length
+        lengths = [post_length(p) for p in posts if post_length(p)]
+
+        if weights:
+            self._weight += sum(weights)
+            self._maxweight = max(self._maxweight, max(weights))
+        if lengths:
+            self._maxlength = max(self._maxlength, max(lengths))
+            self._update_minlen(min(lengths))
+
+        if self._minid is None:
+            self._minid = posts[0][ptuples.DOCID]
+        self._maxid = posts[-1][ptuples.DOCID]
+
+    def add_posting_reader_stats(self, r: postings.DocListReader):
+        # Incorporate the stats from the reader into this info object
+        # We assume the min docid of the list > our current max docid
+
+        self._weight += r.total_weight()
+        self._df += len(r)
+        self._maxlength = max(self._maxlength, r.max_length())
+        self._maxweight = max(self._maxweight, r.max_weight())
+        self._update_minlen(r.min_length())
+
+        if self._minid is None:
+            self._minid = r.min_id()
+        self._maxid = r.max_id()
 
     def shift(self, delta):
         self._minid += delta

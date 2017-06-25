@@ -194,7 +194,7 @@ def compile_expr(expr):
 
 # Elements
 
-class Expr(object):
+class Expr:
     hidden = False
 
     def __init__(self, name: str=""):

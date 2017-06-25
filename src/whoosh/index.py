@@ -260,6 +260,23 @@ class Index:
         if not exc_type:
             self.close()
 
+    def json_info(self) -> dict:
+        toc = self.toc
+        return {
+            "indexname": self.indexname,
+            # "schema": toc.schema.json_info(),
+            "segments": [seg.json_info() for seg in toc.segments],
+            "generation": toc.generation,
+            "toc_version": toc.toc_version,
+            "release": toc.release,
+            "created": toc.created,
+            "filename": toc.filename,
+            "doc_count": self.doc_count(),
+            "doc_count_all": self.doc_count_all(),
+            "up_to_date": self.up_to_date(),
+            "is_empty": self.is_empty(),
+        }
+
     @property
     def toc(self):
         with self.store.open(self.indexname) as session:
@@ -513,40 +530,6 @@ class Index:
         return cls(codec,
                    self.store, self.indexname, list(toc.segments), schema,
                    toc.generation + 1, executor=executor, **kwargs)
-
-
-# Codec-based index implementation
-
-# def clean_files(storage: 'filestore.FileStorage', indexname, gen, segments):
-#     # Attempts to remove unused index files (called when a new generation
-#     # is created). If existing Index and/or reader objects have the files
-#     # open, they may not be deleted immediately (i.e. on Windows) but will
-#     # probably be deleted eventually by a later call to clean_files.
-#
-#     current_segment_names = set(s.segment_id() for s in segments)
-#     tocpattern = TOC._pattern(indexname)
-#     segpattern = TOC._segment_pattern(indexname)
-#
-#     todelete = set()
-#     for filename in storage:
-#         if filename.startswith("."):
-#             continue
-#         tocm = tocpattern.match(filename)
-#         segm = segpattern.match(filename)
-#         if tocm:
-#             if int(tocm.group(1)) != gen:
-#                 todelete.add(filename)
-#         elif segm:
-#             name = segm.group(1)
-#             if name not in current_segment_names:
-#                 todelete.add(filename)
-#
-#     for filename in todelete:
-#         try:
-#             storage.delete_file(filename)
-#         except OSError:
-#             # Another process still has this file open, I guess
-#             pass
 
 
 # Convenience functions

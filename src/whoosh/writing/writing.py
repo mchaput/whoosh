@@ -34,7 +34,7 @@ def posting_sort_key(post: PostTuple):
     return post[TERMBYTES], post[DOCID]
 
 
-class SegmentWriter(object):
+class SegmentWriter:
     def __init__(self,
                  codec: 'codecs.Codec',
                  session: 'storage.Session',
@@ -56,8 +56,8 @@ class SegmentWriter(object):
     def start_document(self):
         self._perdoc.start_doc(self._docnum)
 
-    def index_field(self, fieldname: str, field: 'fields.FieldType',
-                    value: Any, stored_val: Any, boost=1.0):
+    def index_field(self, fieldname: str, value: Any, stored_val: Any,
+                    boost=1.0):
         if value is None:
             return
 
@@ -65,6 +65,7 @@ class SegmentWriter(object):
         perdoc = self._perdoc
 
         length = 0
+        field = self.schema[fieldname]
         if field.indexed:
             # Returns the field length and a generator of post tuples
             length, posts = field.index(value, docnum, boost=boost)
@@ -149,7 +150,7 @@ class SegmentWriter(object):
 # High-level writer object manages writing and merging multiple segments in an
 # indexing session
 
-class IndexWriter(object):
+class IndexWriter:
     def __init__(self,
                  codec: 'codecs.Codec',
                  store: 'storage.Storage',
@@ -321,11 +322,11 @@ class IndexWriter(object):
                      kwargs.get("_%s_boost" % fieldname, 1.0))
 
             # Pass the information down to the SegmentWriter
-            index_field(fieldname, field, value, stored_val, boost)
+            index_field(fieldname, value, stored_val, boost)
 
             # If the field has sub-fields, index them with the same values
             for subname, subfield in field.subfields(fieldname):
-                index_field(subname, subfield, value, stored_val)
+                index_field(subname, value, stored_val)
 
         # Tell the SegmentWriter we're done with this document
         segwriter.finish_document()

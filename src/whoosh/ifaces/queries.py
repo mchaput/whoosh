@@ -50,7 +50,7 @@ class QueryParserError(Exception):
 
 # Interface
 
-class Query(object):
+class Query:
     """
     Base class for all queries.
     """

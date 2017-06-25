@@ -25,8 +25,8 @@ class SpoolingWriter(SegmentWriter):
     def start_document(self):
         self._arglist = []
 
-    def index_field(self, fieldname: str, field: 'fields.FieldType',
-                    value: Any, stored_val: Any, boost=1.0):
+    def index_field(self, fieldname: str, value: Any, stored_val: Any,
+                    boost=1.0):
         self._arglist.append((fieldname, value, stored_val, boost))
 
     def finish_document(self):
@@ -117,9 +117,7 @@ def batch_index(batch_filename: str,
             arg_list = pickle.load(f)
             segwriter.start_document()
             for fieldname, value, stored_val, boost in arg_list:
-                field = schema[fieldname]
-                segwriter.index_field(fieldname, field, value, stored_val,
-                                      boost)
+                segwriter.index_field(fieldname, value, stored_val, boost)
             segwriter.finish_document()
 
     # Get the finished segment from the segment writer

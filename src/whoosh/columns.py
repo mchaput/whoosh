@@ -126,6 +126,11 @@ class Column:
 
     reversible = False
 
+    def json_info(self) -> dict:
+        return {
+            "class": type(self).__name__,
+        }
+
     @abstractmethod
     def writer(self, output: OutputFile) -> ColumnWriter:
         """

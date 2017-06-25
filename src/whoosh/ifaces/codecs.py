@@ -119,6 +119,17 @@ class Segment:
         self.was_little = was_little
         self._segid = index.make_segment_id()
 
+    def json_info(self) -> dict:
+        return {
+            "indexname": self.index_name(),
+            "codec_name": self.codec_name(),
+            "was_little": self.was_little,
+            "id": self.segment_id(),
+            "size": self.size(),
+            "doc_count": self.doc_count(),
+            "deleted_count": self.deleted_count(),
+        }
+
     @classmethod
     def from_bytes(cls, bs: bytes) -> 'Segment':
         return pickle.loads(bytes(bs))
@@ -432,9 +443,8 @@ class FieldWriter:
         for post in posts:
             add(post)
 
-    @abstractmethod
     def finish_term(self):
-        raise NotImplementedError
+        pass
 
     def finish_field(self):
         pass
@@ -597,7 +607,7 @@ class TermsReader:
         pass
 
     @abstractmethod
-    def cursor(self, fieldname: str, fieldobj: 'fields.FieldType'
+    def cursor(self, fieldname: str, fieldobj: 'Optional[fields.FieldType]'
                ) -> TermCursor:
         raise NotImplementedError
 
@@ -605,10 +615,13 @@ class TermsReader:
     def terms(self) -> Iterable[TermTuple]:
         raise NotImplementedError
 
-    @abstractmethod
     def term_range(self, fieldname: str, start: bytes, end: Optional[bytes]
                    ) -> Iterable[TermTuple]:
-        raise NotImplementedError
+        cur = self.cursor(fieldname, None)
+        cur.seek(start)
+        while cur.is_valid() and ((end is None) or cur.termbytes() < end):
+            yield cur.termbytes()
+            cur.next()
 
     @abstractmethod
     def items(self) -> 'Iterable[Tuple[TermTuple, readers.TermInfo]]':
@@ -620,12 +633,8 @@ class TermsReader:
     #     raise NotImplementedError
 
     @abstractmethod
-    def term_info(self, fieldname: str, termbytes: bytes):
+    def term_info(self, fieldname: str, termbytes: bytes) -> 'readers.TermInfo':
         raise NotImplementedError
-
-    # TODO: delete this method
-    def frequency(self, fieldname: str, termbytes: bytes) -> float:
-        return self.term_info(fieldname, termbytes).weight()
 
     def weight(self, fieldname: str, termbytes: bytes) -> float:
         return self.term_info(fieldname, termbytes).weight()
@@ -705,7 +714,7 @@ class PerDocumentReader:
         raise NotImplementedError
 
     @abstractmethod
-    def deleted_docs(self) -> Set:
+    def deleted_docs(self) -> Set[int]:
         raise NotImplementedError
 
     def all_doc_ids(self) -> Iterable[int]:
@@ -723,8 +732,7 @@ class PerDocumentReader:
 
     # Columns
 
-    @staticmethod
-    def supports_columns() -> bool:
+    def supports_columns(self) -> bool:
         return False
 
     def has_column(self, fieldname: str) -> bool:
@@ -877,6 +885,11 @@ class MultiPerDocumentReader(PerDocumentReader):
         rnum = self._document_reader(docnum)
         offset = self._doc_offsets[rnum]
         return rnum, docnum - offset
+
+    def stored_fields(self, docnum: int) -> Dict:
+        reader_i, sub_docnum = self._reader_and_docnum(docnum)
+        reader = self._readers[reader_i]
+        return reader.stored_fields(sub_docnum)
 
     # Deletions
 

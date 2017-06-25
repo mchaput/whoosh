@@ -34,7 +34,7 @@ class DatetimePlugin(Plugin):
     pass
 
 
-class DateLocale(object):
+class DateLocale:
     pass
 
 

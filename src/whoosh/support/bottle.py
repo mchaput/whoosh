@@ -241,7 +241,7 @@ def makelist(data):  # This is just too handy
         return []
 
 
-class DictProperty(object):
+class DictProperty:
     """ Property that maps to a key in a local dict-like attribute. """
 
     def __init__(self, attr, key=None, read_only=False):
@@ -267,7 +267,7 @@ class DictProperty(object):
         del getattr(obj, self.attr)[self.key]
 
 
-class cached_property(object):
+class cached_property:
     """ A property that is only computed once per instance and then replaces
         itself with an ordinary attribute. Deleting the attribute resets the
         property. """

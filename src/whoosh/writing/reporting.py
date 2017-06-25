@@ -4,7 +4,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class Reporter(object):
+class Reporter:
     def __init__(self, logger_obj=None):
         self.logger = logger_obj or logger
 

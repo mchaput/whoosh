@@ -32,7 +32,7 @@ from whoosh import analysis
 from whoosh.postings import ptuples
 
 
-class Format(object):
+class Format:
     """
     Base class of objects representing a set of options for storing postings in
     the backend.
@@ -63,6 +63,15 @@ class Format(object):
 
     def __ne__(self, other):
         return not self == other
+
+    def json_info(self) -> dict:
+        return {
+            "has_lengths": self.has_lengths,
+            "has_weights": self.has_weights,
+            "has_positions": self.has_positions,
+            "has_chars": self.has_chars,
+            "has_payloads": self.has_payloads,
+        }
 
     def can_copy_raw_to(self, fmt: 'Format') -> bool:
         return (

@@ -20,7 +20,7 @@ def synchronized(orig):
     return inner
 
 
-class SegmentList(object):
+class SegmentList:
     """
     This object keeps track of the list of segments in the index during writing,
     as newly indexed segments are added and existing segments are merged into

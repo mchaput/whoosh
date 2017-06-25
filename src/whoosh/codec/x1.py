@@ -162,51 +162,9 @@ class X1TermInfo(readers.TermInfo):
                 (type(self).__name__, self._weight, self._df, self._minlength,
                  self._maxlength, self._maxweight, self._minid, self._maxid))
 
-    def _update_minlen(self, length):
-        if self._minlength is None:
-            self._minlength = length
-        else:
-            self._minlength = min(self._minlength, length)
-
     def add_block(self, posts: Sequence[ptuples.PostTuple]):
         self.blockcount += 1
         self.add_posting_list_stats(posts)
-
-    def add_posting_list_stats(self, posts: Sequence[ptuples.PostTuple]):
-        # Incorporate the stats from a list of postings into this object.
-        # We assume the min doc id of the list > our current max doc id
-
-        self._df += len(posts)
-
-        post_weight = ptuples.post_weight
-        weights = [post_weight(p) for p in posts if post_weight(p)]
-        post_length = ptuples.post_length
-        lengths = [post_length(p) for p in posts if post_length(p)]
-
-        if weights:
-            self._weight += sum(weights)
-            self._maxweight = max(self._maxweight, max(weights))
-        if lengths:
-            self._maxlength = max(self._maxlength, max(lengths))
-            self._update_minlen(min(lengths))
-
-        if self._minid is None:
-            self._minid = posts[0][ptuples.DOCID]
-        self._maxid = posts[-1][ptuples.DOCID]
-
-    def add_posting_reader_stats(self, r: postings.DocListReader):
-        # Incorporate the stats from the reader into this info object
-        # We assume the min docid of the list > our current max docid
-
-        self._weight += r.total_weight()
-        self._df += len(r)
-        self._maxlength = max(self._maxlength, r.max_length())
-        self._maxweight = max(self._maxweight, r.max_weight())
-        self._update_minlen(r.min_length())
-
-        if self._minid is None:
-            self._minid = r.min_id()
-        self._maxid = r.max_id()
 
     def posting_reader(self, postings_io: 'postings.PostingsIO'
                        ) -> 'postings.DocListReader':
@@ -525,8 +483,7 @@ class X1PerDocWriter(codecs.PerDocumentWriter):
 
     def add_vector_postings(self, fieldname: str, fieldobj: 'fields.FieldType',
                             posts: 'Sequence[postings.PostTuple]'):
-        fmt = fieldobj.vector
-        data = self._io.vector_to_bytes(fmt, posts)
+        data = self._io.vector_to_bytes(fieldobj.vector, posts)
         self.add_raw_vector(fieldname, data)
 
     def add_raw_vector(self, fieldname: str, data: bytes):

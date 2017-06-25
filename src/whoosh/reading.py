@@ -115,6 +115,17 @@ class SegmentReader(readers.IndexReader):
     def segment(self) -> 'codecs.Segment':
         return self._segment
 
+    def json_info(self) -> dict:
+        return {
+            "schema": self.schema.json_info(),
+            "segment_id": self.segment().json_info(),
+            "generation": self.generation(),
+            "has_deletions": self.has_deletions(),
+            "doc_count": self.doc_count(),
+            "doc_count_all": self.doc_count_all(),
+            "indexed_fields": list(self.indexed_field_names()),
+        }
+
     @unclosed
     def has_deletions(self) -> bool:
         return self._perdoc.has_deletions()
