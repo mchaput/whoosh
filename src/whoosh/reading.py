@@ -323,14 +323,12 @@ class SegmentReader(readers.IndexReader):
         format_ = self.schema[fieldname].format
         matcher = self._terms.matcher(fieldname, termbytes, format_, scorer)
 
-        print("self._eol=", self._eol, "pd.hd()=", self._perdoc.has_deletions())
         if self._eol or self._perdoc.has_deletions():
             deleted = self.deleted_set()
             if exclude:
                 exclude = idsets.OverlaySet(deleted, exclude)
             else:
                 exclude = deleted
-            print("exclude=", exclude)
 
         if include is not None:
             matcher = FilterMatcher(matcher, include, exclude=False)
