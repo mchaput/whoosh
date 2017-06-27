@@ -85,11 +85,11 @@ def register_codec(name: str, cls: type):
 
 def codec_by_name(name: str) -> 'Codec':
     try:
-        return codec_registry[name]
+        cls = codec_registry[name]
     except KeyError:
-        pass
+        cls = find_object(name)
 
-    return find_object(name)
+    return cls()
     # raise UnknownCodecError(name)
 
 

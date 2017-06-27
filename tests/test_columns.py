@@ -188,6 +188,7 @@ def test_compact_ints():
             assert cr[i] == v
 
         assert list(cr) == vals
+        cr.close()
 
     with TempStorage() as st:
         with st.create_file("compact") as f:
@@ -345,5 +346,34 @@ def test_roaring_column():
 
     rw(gen(568739))
     # rw(gen(100))
+
+
+def test_sparse_readback():
+    from datetime import datetime
+    from whoosh.util import now
+    from whoosh.util.times import datetime_to_long, long_to_datetime
+
+    limit = 10000
+    docnums = list(range(limit))
+    random.shuffle(docnums)
+    docnums = sorted(docnums[:limit // 3])
+
+    col = columns.SparseIntColumn()
+    with TempStorage() as st:
+        with st.create_file("test") as f:
+            cw = col.writer(f)
+            for docnum in docnums:
+                cw.add(docnum, datetime_to_long(datetime.utcnow()))
+            cw.finish(limit)
+            length = f.tell()
+
+        with st.map_file("test") as m:
+            t = now()
+            cr = col.reader(m, 0, length, limit, True)
+            for i, v in enumerate(cr):
+                if v:
+                    _ = long_to_datetime(v)
+            # print(now() - t)
+
 
 
