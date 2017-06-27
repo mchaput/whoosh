@@ -405,5 +405,9 @@ class FileArray:
             pos = _offset + n * _struct.size
             return _unpack(_source[pos:pos + _size])[0]
 
+    @property
+    def itemsize(self) -> int:
+        return self._struct.size
+
     def release(self):
         pass
