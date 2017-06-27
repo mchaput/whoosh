@@ -936,8 +936,9 @@ class SparseIntColumn(Column):
     # c - docnum typecode
     # c - value typecode
     # x - pad byte
+    # q - base value
     # i - block size (including this header)
-    header = struct.Struct("<IIBccxi")
+    header = struct.Struct("<IIBccxQi")
 
 
 class SparseIntWriter(ColumnWriter):
@@ -958,10 +959,22 @@ class SparseIntWriter(ColumnWriter):
         output = self._output
         docnums = self._docnums
         values = self._values
+        baseval = 0
 
         if any(v < 0 for v in values):
             val_type = min_signed_code(min(values), max(values))
         else:
+            # If the numbers are large, remember the minimum and subtract
+            # it from all values in the block. This is an attempt to reduce the
+            # storage size of dates-converted-to-longs, which are always very
+            # large. If the band is narrow enough, this allows us to store the
+            # values as 16 or 32 bits instead of 64.
+            base = min(values)
+            if base >= 2**16:
+                baseval = base
+                for i, v in enumerate(values):
+                    values[i] -= baseval
+
             val_type = min_array_code(max(values))
 
         base = docnums[0]
@@ -977,7 +990,8 @@ class SparseIntWriter(ColumnWriter):
         # Write the header
         output.write(header.pack(docnums[0], docnums[-1], len(docnums),
                                  doc_type.encode("ascii"),
-                                 val_type.encode("ascii"), size))
+                                 val_type.encode("ascii"),
+                                 baseval, size))
         # Write the doc deltas and values
         output.write_array(doc_array)
         output.write_array(val_array)
@@ -1003,7 +1017,7 @@ class SparseIntReader(ColumnReader):
 
         self._cache = {}
 
-    def _read_refs(self) -> List[Tuple[int, int, int, int, str, str]]:
+    def _read_refs(self) -> List[Tuple[int, int, int, int, int, str, str]]:
         data = self._data
         header = SparseIntColumn.header
 
@@ -1011,11 +1025,11 @@ class SparseIntReader(ColumnReader):
         offset = self._basepos
         limit = self._basepos + self._length
         while offset < limit:
-            (mindoc, maxdoc, length, doc_type, val_type, size
-             ) = header.unpack(data[offset:offset + header.size])
+            vs = header.unpack(data[offset:offset + header.size])
+            mindoc, maxdoc, length, doc_type, val_type, baseval, size = vs
             assert size
 
-            refs.append((offset, mindoc, maxdoc, length,
+            refs.append((offset, mindoc, maxdoc, length, baseval,
                          doc_type.decode("ascii"), val_type.decode("ascii")))
 
             offset += size
@@ -1050,12 +1064,13 @@ class SparseIntReader(ColumnReader):
 
         return deltas, values
 
-    def _get(self, docnum, offset, mindoc, length, dtype, vtype) -> int:
+    def _get(self, docnum, offset, mindoc, length, baseval, dtype, vtype
+             ) -> int:
         deltas, values = self._load(offset, length, dtype, vtype)
         docnum -= mindoc
         for i, dn in enumerate(deltas):
             if dn == docnum:
-                return values[i]
+                return values[i] + baseval
         return self._default
 
     def __getitem__(self, docnum: int) -> int:
@@ -1063,17 +1078,18 @@ class SparseIntReader(ColumnReader):
         if i >= len(self._refs):
             return self._default
 
-        offset, mindoc, maxdoc, length, dtype, vtype = self._refs[i]
+        offset, mindoc, maxdoc, length, baseval, dtype, vtype = self._refs[i]
         if mindoc <= docnum <= maxdoc:
-            return self._get(docnum, offset, mindoc, length, dtype, vtype)
+            return self._get(docnum, offset, mindoc, length, baseval,
+                             dtype, vtype)
         else:
             return self._default
 
     def _items(self) -> Iterable[Tuple[int, int]]:
-        for offset, mindoc, maxdoc, length, dtype, vtype in self._refs:
+        for offset, mindoc, maxdoc, length, baseval, dtype, vtype in self._refs:
             deltas, values = self._load(offset, length, dtype, vtype, False)
             for delta, v in zip(deltas, values):
-                yield mindoc + delta, v
+                yield mindoc + delta, v + baseval
 
     def __iter__(self) -> Iterable[bool]:
         i = 0
