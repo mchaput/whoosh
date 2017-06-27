@@ -219,9 +219,14 @@ class BitSet(DocIdSet):
         if bits is not None:
             self.bits = bits
         else:
-            # If the source is a list, tuple, or set, we can guess the size
-            if not size and isinstance(source, (list, tuple, set, frozenset)):
-                size = max(source)
+            if source:
+                # If the source is a list, tuple, or set, we can guess the size
+                if not size and isinstance(source, (list, tuple, set,
+                                                    frozenset)):
+                    size = max(source)
+            else:
+                size = 0
+
             bytecount = bytes_for_bits(size)
             self.bits = array("B", (0 for _ in range(bytecount)))
 

@@ -337,7 +337,7 @@ class X1Segment(codecs.FileSegment):
 
 # Codec
 
-@codecs.register("whoosh.codec.x1.X1Codec")
+@codecs.register
 class X1Codec(codecs.Codec):
     # File extensions
     TERMS_EXT = "trm"  # Term index
@@ -396,7 +396,9 @@ class X1Codec(codecs.Codec):
 
         store = session.store
         filename = segment.make_filename(X1Codec.SEGMENT_EXT)
+
         assemble_segment(store, store, segment, filename, delete=True)
+
         segment.is_compound = True
         segment.compound_filename = filename
 
@@ -414,9 +416,6 @@ class X1Codec(codecs.Codec):
 
     def postings_io(self) -> 'postings.PostingsIO':
         return self._io
-
-
-codecs.register_codec("whoosh.codec.x1.X1Codec", X1Codec)
 
 
 # Per-doc
@@ -578,6 +577,9 @@ class X1PerDocReader(codecs.PerDocumentReader):
         return self._segment.deleted_docs()
 
     # Columns
+
+    def supports_columns(self):
+        return True
 
     def has_column(self, fieldname: str) -> bool:
         filename = self._segment.make_col_filename(fieldname)

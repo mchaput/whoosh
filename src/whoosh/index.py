@@ -224,7 +224,7 @@ class Toc:
             namelen, seglen = segment_entry.unpack(bs[pos:namestart])
             name = bytes(bs[namestart:namestart + namelen]).decode("utf8")
 
-            c = codecs.codec_by_name(name)()
+            c = codecs.codec_by_name(name)
             segstart = namestart + namelen
             segment = c.segment_from_bytes(bs[segstart:segstart + seglen])
             segments.append(segment)
@@ -233,7 +233,7 @@ class Toc:
 
         return cls(
             schema=schema, segments=segments, generation=head.generation,
-            toc_version=head.toc_version, release=release, created=created,
+            toc_version=head.toc_version, release=release, created=created
         )
 
 

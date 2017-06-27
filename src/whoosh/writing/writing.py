@@ -2,16 +2,20 @@ import logging
 from collections import defaultdict
 from concurrent import futures
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from typing import Any, List, Sequence
 
-from whoosh import fields
+from whoosh import columns, fields
 from whoosh.ifaces import codecs, queries, readers, searchers, storage
 from whoosh.writing import merging, reporting, segmentlist
 from whoosh.postings.ptuples import PostTuple, TERMBYTES, DOCID
-from whoosh.util import now, unclosed
+from whoosh.util import now, times, unclosed
 
 
 logger = logging.getLogger(__name__)
+
+EOL_FIELDNAME = "_eol"
+EOL_COLUMN = columns.SparseIntColumn()
 
 
 # Exceptions
@@ -85,8 +89,12 @@ class SegmentWriter:
 
         return length
 
+    def add_column_value(self, fieldname: str, columnobj: 'columns.Column',
+                         value: Any):
+        self._perdoc.add_column_value(fieldname, columnobj, value)
+
     def finish_document(self):
-        # Tell the per-document writer to finish the curent document
+        # Tell the per-document writer to finish the current document
         self._perdoc.finish_doc()
 
         # Update writer state
@@ -303,6 +311,15 @@ class IndexWriter:
 
         # You can pass _doc_boost=2.0 to multiply the boost on all fields
         doc_boost = kwargs.get("_boost", 1.0)
+
+        eol_dt = None
+        if "_ttl" in kwargs:
+            eol_dt = datetime.utcnow() + timedelta(seconds=kwargs["_ttl"])
+        elif "_eol" in kwargs:
+            eol_dt = datetime.utcnow()
+        if eol_dt is not None:
+            segwriter.add_column_value(EOL_FIELDNAME, EOL_COLUMN,
+                                       times.datetime_to_long(eol_dt))
 
         for fieldname in fieldnames:
             try:

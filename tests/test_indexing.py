@@ -720,3 +720,47 @@ def test_index_decimals():
     with TempIndex(schema) as ix:
         with ix.writer() as w:
             w.add_document(name=u"hello", num=Decimal("3.2"))
+
+
+def test_extra_files():
+    schema = fields.Schema(name=fields.Keyword, id=fields.Numeric)
+    with TempIndex(schema) as ix:
+        store = ix.storage()
+
+        with ix.writer() as w:
+            w.add_document(name="alfa", id=1)
+            w.add_document(name="bravo", id=2)
+            w.add_document(name="charlie", id=3)
+
+            xfile = store.create_file(ix.indexname + ".test")
+            xfile.write("Hello there".encode("ascii"))
+            xfile.close()
+
+        xfile = store.open_file(ix.indexname + ".test")
+        content = xfile.read().decode("ascii")
+        assert content == "Hello there"
+
+
+def test_eol():
+    from whoosh import query
+    import time
+
+    schema = fields.Schema(name=fields.Keyword, id=fields.Numeric(stored=True))
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            w.add_document(name="alfa", id=0)
+            w.add_document(name="bravo", id=1, _ttl=0.5)
+            w.add_document(name="charlie", id=2)
+            w.add_document(name="delta", id=3, _ttl=0.5)
+            w.add_document(name="echo", id=4)
+            w.add_document(name="foxtrot", id=5, _ttl=0.5)
+
+        time.sleep(0.6)
+
+        with ix.searcher() as s:
+            q = query.Every()
+            r = s.search(q)
+            ids = [hit["id"] for hit in r]
+            assert ids == [0, 2, 4]
+            assert s.reader().doc_count() == 3
+

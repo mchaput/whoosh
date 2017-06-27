@@ -33,7 +33,7 @@ from bisect import bisect_right
 from functools import wraps
 from heapq import heapify, heapreplace, heappop
 from typing import (
-    Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union,
+    cast, Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union,
 )
 
 from whoosh import columns, fields, idsets
@@ -108,9 +108,30 @@ class SegmentReader(readers.IndexReader):
         self.default_idset_type = idsets.BitSet
         self._deleted_set = None
 
+        from whoosh.writing.writing import EOL_FIELDNAME
+        if (self._perdoc.supports_columns() and
+                self._perdoc.has_column(EOL_FIELDNAME)):
+            self._eol = self._eol_docs()
+        else:
+            self._eol = frozenset(())
+
     def __repr__(self):
         return "%s(%r, %r)" % (self.__class__.__name__, self._storage,
                                self._segment)
+
+    def _eol_docs(self) -> Set[int]:
+        from datetime import datetime
+        from whoosh.writing.writing import EOL_FIELDNAME, EOL_COLUMN
+        from whoosh.util.times import datetime_to_long
+
+        now = datetime_to_long(datetime.utcnow())
+        creader = self._perdoc.column_reader(EOL_FIELDNAME, EOL_COLUMN)
+        delset = set()
+        for docnum, eol in enumerate(creader):
+            if eol and eol <= now:
+                delset.add(docnum)
+        creader.close()
+        return delset
 
     def segment(self) -> 'codecs.Segment':
         return self._segment
@@ -128,11 +149,14 @@ class SegmentReader(readers.IndexReader):
 
     @unclosed
     def has_deletions(self) -> bool:
-        return self._perdoc.has_deletions()
+        return self._eol or self._perdoc.has_deletions()
 
     @unclosed
     def doc_count(self) -> int:
-        return self._perdoc.doc_count()
+        if self._eol:
+            return len(self.deleted_set())
+        else:
+            return self._perdoc.doc_count()
 
     @unclosed
     def doc_count_all(self) -> int:
@@ -140,7 +164,7 @@ class SegmentReader(readers.IndexReader):
 
     @unclosed
     def is_deleted(self, docnum: int):
-        return self._perdoc.is_deleted(docnum)
+        return docnum in self._eol or self._perdoc.is_deleted(docnum)
 
     def generation(self) -> int:
         return self._gen
@@ -180,11 +204,22 @@ class SegmentReader(readers.IndexReader):
 
     @unclosed
     def all_doc_ids(self) -> Iterable[int]:
-        return self._perdoc.all_doc_ids()
+        if self._eol:
+            _eol = self._eol
+            return (docid for docid in self._perdoc.all_doc_ids()
+                    if docid not in _eol)
+        else:
+            return self._perdoc.all_doc_ids()
 
     @unclosed
     def iter_docs(self) -> Iterable[Tuple[int, Dict]]:
-        return self._perdoc.iter_docs()
+        if self._eol:
+            _eol = self._eol
+            return ((docid, self.stored_fields(docid))
+                    for docid in self._perdoc.all_doc_ids()
+                    if docid not in _eol)
+        else:
+            return self._perdoc.iter_docs()
 
     @unclosed
     def field_length(self, fieldname: str) -> int:
@@ -272,7 +307,9 @@ class SegmentReader(readers.IndexReader):
         if self._deleted_set is None:
             deldocs = self._perdoc.deleted_docs()
             self._deleted_set = self.default_idset_type(deldocs)
-        return self._deleted_set
+            if self._eol:
+                self._deleted_set.update(self._eol)
+        return cast(idsets.DocIdSet, self._deleted_set)
 
     @field_checked
     def matcher(self, fieldname: str, termbytes: TermText,
@@ -286,12 +323,14 @@ class SegmentReader(readers.IndexReader):
         format_ = self.schema[fieldname].format
         matcher = self._terms.matcher(fieldname, termbytes, format_, scorer)
 
-        if self._perdoc.has_deletions():
+        print("self._eol=", self._eol, "pd.hd()=", self._perdoc.has_deletions())
+        if self._eol or self._perdoc.has_deletions():
             deleted = self.deleted_set()
             if exclude:
                 exclude = idsets.OverlaySet(deleted, exclude)
             else:
                 exclude = deleted
+            print("exclude=", exclude)
 
         if include is not None:
             matcher = FilterMatcher(matcher, include, exclude=False)
@@ -324,6 +363,9 @@ class SegmentReader(readers.IndexReader):
         return auto.terms_within(fieldcur, text, maxdist, prefix)
 
     # Column methods
+
+    def _special_column(self, fieldname: str, columnobj: columns.Column):
+        return self._perdoc.column_reader(fieldname, columnobj)
 
     def has_column(self, fieldname: str) -> bool:
         if fieldname not in self.schema:
