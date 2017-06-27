@@ -429,14 +429,14 @@ def test_negated_unlimited_ranges():
 
             nq = qp.parse(u"NOT [to]")
             assert nq.__class__ == query.Not
-            q = nq.query
+            q = nq.child
             assert q.__class__ == query.Every
             assert "".join(h["id"] for h in s.search(q, limit=None)) == domain
             assert not list(nq.docs(s))
 
             nq = qp.parse(u"NOT num:[to]")
             assert nq.__class__ == query.Not
-            q = nq.query
+            q = nq.child
             assert q.__class__ == query.NumericRange
             assert q.start is None
             assert q.end is None
@@ -445,7 +445,7 @@ def test_negated_unlimited_ranges():
 
             nq = qp.parse(u"NOT date:[to]")
             assert nq.__class__ == query.Not
-            q = nq.query
+            q = nq.child
             assert q.__class__ == query.Every
             assert "".join(h["id"] for h in s.search(q, limit=None)) == domain
             assert not list(nq.docs(s))

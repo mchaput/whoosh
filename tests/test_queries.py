@@ -1,5 +1,6 @@
 from __future__ import with_statement
 import copy
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -562,6 +563,376 @@ def test_numeric_filter():
             assert r.scored_length() == 0
 
 
+def test_queries_as_json():
+    # whoosh.ifaces.queries.NullQuery
+    assert query.NullQuery().as_json() == {
+        "class": "whoosh.ifaces.queries.NullQuery", "name": "NullQuery"
+    }
+
+    # whoosh.ifaces.queries.ErrorQuery
+    assert query.ErrorQuery("No such field").as_json() == {
+        "class": "whoosh.ifaces.queries.ErrorQuery",
+        "name": "ErrorQuery",
+        "error": "No such field"
+    }
+
+    assert query.Term("foo", "bar").as_json() == {
+        "class": "whoosh.query.terms.Term",
+        "fieldname": "foo", "text": "bar",
+    }
+
+    # whoosh.query.terms.Prefix
+    assert query.Prefix("foo", "bar").as_json() == {
+        "class": "whoosh.query.terms.Prefix",
+        "fieldname": "foo", "text": "bar", "constantscore": True,
+    }
+
+    # whoosh.query.terms.Wildcard
+    assert query.Wildcard("foo", "b??ar*").as_json() == {
+        "class": "whoosh.query.terms.Wildcard",
+        "fieldname": "foo", "text": "b??ar*", "constantscore": True,
+    }
+
+    # whoosh.query.terms.Regex
+    assert query.Regex("foo", "b.*?r").as_json() == {
+        "class": "whoosh.query.terms.Regex",
+        "fieldname": "foo", "text": "b.*?r", "constantscore": True,
+    }
+
+    # whoosh.query.terms.FuzzyTerm
+    assert query.FuzzyTerm("foo", "bland").as_json() == {
+        "class": "whoosh.query.terms.FuzzyTerm",
+        "fieldname": "foo", "text": "bland", "constantscore": True,
+        "maxdist": 1, "prefixlength": 1,
+    }
+
+    # whoosh.query.terms.Variations
+    assert query.Variations("foo", "bar").as_json() == {
+        "class": "whoosh.query.terms.Variations",
+        "fieldname": "foo", "text": "bar", "constantscore": False,
+    }
+
+    # whoosh.query.ranges.Range
+    assert query.Range("foo", "a", "z", False, True).as_json() == {
+        "class": "whoosh.query.ranges.Range",
+        "fieldname": "foo", "start": "a", "end": "z",
+        "startexcl": False, "endexcl": True,
+        "constantscore": True,
+    }
+
+    # whoosh.query.ranges.TermRange
+    assert query.TermRange("foo", "a", "z", False, True).as_json() == {
+        "class": "whoosh.query.ranges.TermRange",
+        "fieldname": "foo", "start": "a", "end": "z",
+        "startexcl": False, "endexcl": True,
+        "constantscore": True,
+    }
+
+    # whoosh.query.ranges.NumericRange
+    assert query.NumericRange("foo", 10, 20, False, True).as_json() == {
+        "class": "whoosh.query.ranges.NumericRange",
+        "fieldname": "foo", "start": 10, "end": 20,
+        "startexcl": False, "endexcl": True,
+        "constantscore": True,
+    }
+
+    # whoosh.query.ranges.DateRange
+    assert query.DateRange("foo", datetime(2010, 3, 29), datetime(2010, 3, 30),
+                           False, True).as_json() == {
+        "class": "whoosh.query.ranges.DateRange", "fieldname": "foo",
+        "startdate:date": "2010-03-29T00:00:00",
+        "enddate:date": "2010-03-30T00:00:00",
+        "start": 63405417600000000, "end": 63405504000000000,
+        "startexcl": False, "endexcl": True,
+        "constantscore": True,
+    }
+
+    # whoosh.query.wrappers.ConstantScoreQuery
+    q = query.ConstantScoreQuery(query.Term("foo", "bar", boost=2.0), 1.5)
+    assert q.as_json() == {
+        "class": "whoosh.query.wrappers.ConstantScoreQuery",
+        "child": {
+            "class": "whoosh.query.terms.Term",
+            "fieldname": "foo", "text": "bar", "boost": 2.0,
+        },
+        "score": 1.5,
+    }
+
+    # whoosh.query.wrappers.WeightingQuery
+    from whoosh.scoring import TF_IDF
+    q = query.WeightingQuery(query.Term("foo", "bar"),
+                             weighting=TF_IDF())
+    assert q.as_json() == {
+        "class": "whoosh.query.wrappers.WeightingQuery",
+        "child": {
+            "class": "whoosh.query.terms.Term",
+            "fieldname": "foo", "text": "bar",
+        },
+        "weighting": {"class": "whoosh.scoring.TF_IDF"},
+    }
+
+    assert query.SpanFirst(query.Term("foo", "bar")).as_json() == {
+        "class": "whoosh.query.spans.SpanFirst",
+        "child": {
+            "class": "whoosh.query.terms.Term",
+            "fieldname": "foo", "text": "bar",
+        },
+        "limit": 1,
+    }
+
+    # whoosh.query.nested.NestedParent
+    # whoosh.query.nested.NestedChildren
+    # whoosh.query.wrappers.Not
+    assert query.Not(query.Term("foo", "bar")).as_json() == {
+        "class": "whoosh.query.wrappers.Not",
+        "child": {
+            "class": "whoosh.query.terms.Term",
+            "fieldname": "foo", "text": "bar",
+        },
+    }
+
+    # whoosh.query.ranges.Every
+    assert query.Every().as_json() == {
+        "class": "whoosh.query.ranges.Every",
+    }
+    assert query.Every("foo").as_json() == {
+        "class": "whoosh.query.ranges.Every",
+        "fieldname": "foo",
+    }
+
+    # whoosh.query.compound.And
+    q = query.And([query.Term("foo", "bar"), query.Term("baz", "quux")])
+    assert q.as_json() == {
+        "class": "whoosh.query.compound.And",
+        "subqueries": [
+            {
+                "class": "whoosh.query.terms.Term",
+                "fieldname": "foo", "text": "bar",
+            }, {
+                "class": "whoosh.query.terms.Term",
+                "fieldname": "baz", "text": "quux",
+            },
+        ]
+    }
+
+    # whoosh.query.compound.Or
+    q = query.Or([query.Term("foo", "bar"), query.Term("baz", "quux")])
+    assert q.as_json() == {
+        "class": "whoosh.query.compound.Or",
+        "subqueries": [
+            {
+                "class": "whoosh.query.terms.Term",
+                "fieldname": "foo", "text": "bar",
+            }, {
+                "class": "whoosh.query.terms.Term",
+                "fieldname": "baz", "text": "quux",
+            },
+        ],
+        "minmatch": 0.0,
+    }
+
+    # whoosh.query.compound.DisjunctionMax
+    q = query.DisjunctionMax([query.Term("foo", "bar"),
+                              query.Term("baz", "quux")])
+    assert q.as_json() == {
+        "class": "whoosh.query.compound.DisjunctionMax",
+        "subqueries": [
+            {
+                "class": "whoosh.query.terms.Term",
+                "fieldname": "foo", "text": "bar",
+            }, {
+                "class": "whoosh.query.terms.Term",
+                "fieldname": "baz", "text": "quux",
+            },
+        ],
+        "tiebreak": 0.0,
+    }
+
+    # whoosh.query.compound.AndNot
+    q = query.AndNot(query.Term("foo", "bar"), query.Term("baz", "quux"))
+    assert q.as_json() == {
+        "class": "whoosh.query.compound.AndNot",
+        "a":{
+            "class": "whoosh.query.terms.Term",
+            "fieldname": "foo", "text": "bar",
+        },
+        "b": {
+            "class": "whoosh.query.terms.Term",
+            "fieldname": "baz", "text": "quux",
+        },
+    }
+
+    # whoosh.query.compound.Otherwise
+    q = query.Otherwise(query.Term("foo", "bar"), query.Term("baz", "quux"))
+    assert q.as_json() == {
+        "class": "whoosh.query.compound.Otherwise",
+        "a": {
+            "class": "whoosh.query.terms.Term",
+            "fieldname": "foo", "text": "bar",
+        },
+        "b": {
+            "class": "whoosh.query.terms.Term",
+            "fieldname": "baz", "text": "quux",
+        },
+    }
+
+    # whoosh.query.compound.Require
+    q = query.Require(query.Term("foo", "bar"), query.Term("baz", "quux"))
+    assert q.as_json() == {
+        "class": "whoosh.query.compound.Require",
+        "a": {
+            "class": "whoosh.query.terms.Term",
+            "fieldname": "foo", "text": "bar",
+        },
+        "b": {
+            "class": "whoosh.query.terms.Term",
+            "fieldname": "baz", "text": "quux",
+        },
+    }
+
+    # whoosh.query.compound.AndMaybe
+    q = query.AndMaybe(query.Term("foo", "bar"), query.Term("baz", "quux"))
+    assert q.as_json() == {
+        "class": "whoosh.query.compound.AndMaybe",
+        "a": {
+            "class": "whoosh.query.terms.Term",
+            "fieldname": "foo", "text": "bar",
+        },
+        "b": {
+            "class": "whoosh.query.terms.Term",
+            "fieldname": "baz", "text": "quux",
+        },
+    }
+
+    # whoosh.query.positional.Sequence
+    q = query.Sequence([query.Term("foo", "bar"), query.Term("baz", "quux")])
+    assert q.as_json() == {
+        "class": "whoosh.query.positional.Sequence",
+        "subqueries": [
+            {
+                "class": "whoosh.query.terms.Term",
+                "fieldname": "foo", "text": "bar",
+            }, {
+                "class": "whoosh.query.terms.Term",
+                "fieldname": "baz", "text": "quux",
+            },
+        ],
+        "ordered": True, "slop": 0,
+    }
+
+    # whoosh.query.positional.Ordered
+    q = query.Ordered([query.Term("foo", "bar"), query.Term("baz", "quux")])
+    assert q.as_json() == {
+        "class": "whoosh.query.positional.Ordered",
+        "subqueries": [
+            {
+                "class": "whoosh.query.terms.Term",
+                "fieldname": "foo", "text": "bar",
+            }, {
+                "class": "whoosh.query.terms.Term",
+                "fieldname": "baz", "text": "quux",
+            },
+        ],
+        "ordered": True, "slop": 0,
+    }
+
+    # whoosh.query.spans.SpanNear
+    q = query.SpanNear([query.Term("foo", "bar"), query.Term("baz", "quux")])
+    assert q.as_json() == {
+        "class": "whoosh.query.spans.SpanNear",
+        "subqueries": [
+            {
+                "class": "whoosh.query.terms.Term",
+                "fieldname": "foo", "text": "bar",
+            }, {
+                "class": "whoosh.query.terms.Term",
+                "fieldname": "baz", "text": "quux",
+            },
+        ],
+        "mindist": 0, "slop": 0, "ordered": True,
+    }
+
+    # whoosh.query.spans.SpanOr
+    q = query.SpanOr([query.Term("foo", "bar"), query.Term("baz", "quux")])
+    assert q.as_json() == {
+        "class": "whoosh.query.spans.SpanOr",
+        "subqueries": [
+            {
+                "class": "whoosh.query.terms.Term",
+                "fieldname": "foo", "text": "bar",
+            }, {
+                "class": "whoosh.query.terms.Term",
+                "fieldname": "baz", "text": "quux",
+            },
+        ],
+    }
+
+    # whoosh.query.spans.SpanNot
+    q = query.SpanNot(query.Term("foo", "bar"), query.Term("baz", "quux"))
+    assert q.as_json() == {
+        "class": "whoosh.query.spans.SpanNot",
+        "a": {
+            "class": "whoosh.query.terms.Term",
+            "fieldname": "foo", "text": "bar",
+        },
+        "b": {
+            "class": "whoosh.query.terms.Term",
+            "fieldname": "baz", "text": "quux",
+        },
+    }
+
+    # whoosh.query.spans.SpanContains
+    q = query.SpanContains(query.Term("foo", "bar"), query.Term("baz", "quux"))
+    assert q.as_json() == {
+        "class": "whoosh.query.spans.SpanContains",
+        "a": {
+            "class": "whoosh.query.terms.Term",
+            "fieldname": "foo", "text": "bar",
+        },
+        "b": {
+            "class": "whoosh.query.terms.Term",
+            "fieldname": "baz", "text": "quux",
+        },
+    }
+
+    # whoosh.query.spans.SpanBefore
+    q = query.SpanBefore(query.Term("foo", "bar"), query.Term("baz", "quux"))
+    assert q.as_json() == {
+        "class": "whoosh.query.spans.SpanBefore",
+        "a": {
+            "class": "whoosh.query.terms.Term",
+            "fieldname": "foo", "text": "bar",
+        },
+        "b": {
+            "class": "whoosh.query.terms.Term",
+            "fieldname": "baz", "text": "quux",
+        },
+    }
+
+    # whoosh.query.spans.SpanCondition
+    q = query.SpanCondition(query.Term("foo", "bar"), query.Term("baz", "quux"))
+    assert q.as_json() == {
+        "class": "whoosh.query.spans.SpanCondition",
+        "a": {
+            "class": "whoosh.query.terms.Term",
+            "fieldname": "foo", "text": "bar",
+        },
+        "b": {
+            "class": "whoosh.query.terms.Term",
+            "fieldname": "baz", "text": "quux",
+        },
+    }
+
+    # whoosh.query.positional.Phrase
+    q = query.Phrase("foo", ["bar", "baz", "quux"], slop=3)
+    assert q.as_json() == {
+        "class": "whoosh.query.positional.Phrase",
+        "fieldname": "foo",
+        "words": ["bar", "baz", "quux"],
+        "slop": 3,
+    }
+
+    # whoosh.query.qcolumns.ColumnQuery
 
 
 

@@ -445,6 +445,11 @@ class BinaryQuery(CompoundQuery):
     def __hash__(self):
         return hash(self.__class__.__name__) ^ hash(self.a) ^ hash(self.b)
 
+    def as_json(self) -> dict:
+        d = super(BinaryQuery, self).as_json()
+        d.pop("subqueries", None)
+        return d
+
     def set_children(self, children: 'Sequence[queries.Query]'):
         assert len(children) == 2
         self.a = children[0]

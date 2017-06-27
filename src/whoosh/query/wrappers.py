@@ -118,39 +118,39 @@ class Not(queries.Query):
         """
 
         super(Not, self).__init__(boost=boost)
-        self.query = collectors.as_query(q)
+        self.child = collectors.as_query(q)
 
     def __eq__(self, other: 'Not') -> bool:
         return (other and self.__class__ is other.__class__ and
-                self.query == other.query)
+                self.child == other.child)
 
     def __repr__(self):
-        return "%s(%s)" % (self.__class__.__name__, repr(self.query))
+        return "%s(%s)" % (self.__class__.__name__, repr(self.child))
 
     def __unicode__(self):
-        return u"NOT " + text_type(self.query)
+        return u"NOT " + text_type(self.child)
 
     __str__ = __unicode__
 
     def __hash__(self):
         return (hash(self.__class__.__name__) ^
-                hash(self.query) ^ hash(self.boost))
+                hash(self.child) ^ hash(self.boost))
 
     def is_leaf(self) -> bool:
         return False
 
     def children(self) -> Iterable[queries.Query]:
-        yield self.query
+        yield self.child
 
     def set_children(self, children: 'Sequence[queries.Query]'):
         assert len(children) == 1
-        self.query = children[0]
+        self.child = children[0]
 
     def apply(self, fn: Callable[[queries.Query], queries.Query]) -> queries.Query:
         return self.__class__(fn(self.child))
 
     def normalize(self) -> queries.Query:
-        q = self.query.normalize()
+        q = self.child.normalize()
         if isinstance(q, queries.NullQuery):
             return q
         else:
@@ -168,7 +168,7 @@ class Not(queries.Query):
         # Usually only called if Not is the root query. Otherwise, queries such
         # as And and Or do special handling of Not subqueries.
         reader = searcher.reader()
-        child = self.query.matcher(searcher, searcher.boolean_context())
+        child = self.child.matcher(searcher, searcher.boolean_context())
         return InverseMatcher(child, reader.doc_count_all(),
                               missing=reader.is_deleted)
 

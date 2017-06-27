@@ -35,7 +35,7 @@ from whoosh.ifaces import analysis, matchers, readers, searchers
 
 
 __all__ = ("QueryError", "QueryParserError", "Query", "NullQuery", "ErrorQuery",
-           "make_binary_tree", "make_weighted_tree")
+           "IgnoreQuery", "make_binary_tree", "make_weighted_tree")
 
 
 # Exceptions
@@ -71,6 +71,44 @@ class Query:
         self.error = error
         self.boost = boost
         self.analyzed = True
+
+    def as_json(self) -> dict:
+        import copy
+        from datetime import datetime
+
+        t = type(self)
+        d = {
+            "class": "%s.%s" % (t.__module__, t.__name__),
+        }
+        for key, value in self.__dict__.items():
+            # print("key=", key, "value=", value)
+            if key.startswith("_"):
+                continue
+            elif key == "boost" and value == 1.0:
+                continue
+            elif key == "analyzed" and value:
+                continue
+            elif (
+                isinstance(value, (list, tuple)) and
+                value and
+                all(isinstance(q, Query) for q in value)
+            ):
+                d[key] = [q.as_json() for q in value]
+            elif isinstance(value, (bool, int, float, str, bytes, list, tuple,
+                                    dict)):
+                d[key] = value
+            elif isinstance(value, datetime):
+                d[key + ":date"] = value.isoformat()
+            elif hasattr(value, "as_json"):
+                d[key] = value.as_json()
+            elif value is not None:
+                tt = type(value)
+                dd = copy.copy(value.__dict__)
+                dd.update({
+                    "class": "%s.%s" % (tt.__module__, tt.__name__)
+                })
+                d[key] = dd
+        return d
 
     def field(self) -> Optional[str]:
         """
@@ -202,9 +240,6 @@ class Query:
         """
 
         raise TypeError("Can't change children on a %s query" % self.__class__)
-
-    def can_merge_with(self, other: 'Query'):
-        return False
 
     def leaves(self) -> 'Iterable[Query]':
         """
@@ -338,6 +373,9 @@ class Query:
             return m.all_ids()
         except readers.TermNotFound:
             return iter(())
+
+    def can_merge_with(self, other: 'Query'):
+        return False
 
     def merge_subqueries(self) -> 'Query':
         """

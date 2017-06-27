@@ -477,43 +477,44 @@ class SpanNear(SpanQuery):
         """
 
         super(SpanNear, self).__init__()
-        self.qs = qs
+        self.subqueries = qs
         self.slop = slop
         self.ordered = ordered
         self.mindist = mindist
 
     def __repr__(self):
         return ("%s(%r, slop=%d, ordered=%s, mindist=%d)"
-                % (self.__class__.__name__, self.qs, self.slop, self.ordered,
-                   self.mindist))
+                % (self.__class__.__name__, self.subqueries, self.slop,
+                   self.ordered, self.mindist))
 
     def __eq__(self, other):
         return (other and self.__class__ == other.__class__
-                and self.qs == other.qs and self.slop == other.slop
+                and self.subqueries == other.subqueries
+                and self.slop == other.slop
                 and self.ordered == other.ordered
                 and self.mindist == other.mindist)
 
     def __hash__(self):
         h = hash(self.slop) ^ hash(self.ordered) ^ hash(self.mindist)
-        for q in self.qs:
+        for q in self.subqueries:
             h ^= hash(q)
         return h
 
     def estimate_size(self, reader: 'readers.IndexReader') -> int:
-        return min(q.estimate_size(reader) for q in self.qs)
+        return min(q.estimate_size(reader) for q in self.subqueries)
 
     def is_leaf(self):
         return False
 
     def children(self):
-        return self.qs
+        return self.subqueries
 
     def apply(self, fn):
-        return self.__class__([fn(q) for q in self.qs], slop=self.slop,
+        return self.__class__([fn(q) for q in self.subqueries], slop=self.slop,
                               ordered=self.ordered, mindist=self.mindist)
 
     def matcher(self, searcher, context=None):
-        ms = [q.matcher(searcher, context) for q in self.qs]
+        ms = [q.matcher(searcher, context) for q in self.subqueries]
         return self.SpanNearMatcher(ms, self.slop, self.ordered, self.mindist)
 
     class SpanNearMatcher(SpanWrappingMatcher):
@@ -597,23 +598,23 @@ class SpanOr(SpanQuery):
         from whoosh.query.compound import Or
 
         super(SpanOr, self).__init__()
-        self.q = Or(subqs)
-        self.subqs = subqs
+        self._q = Or(subqs)
+        self.subqueries = subqs
 
     def __eq__(self, other: 'SpanOr'):
-        return type(self) is type(other) and self.subqs == other.subqs
+        return type(self) is type(other) and self.subqueries == other.subqueries
 
     def __hash__(self):
-        return hash(type(self)) ^ hash(self.q)
+        return hash(type(self)) ^ hash(self._q)
 
     def is_leaf(self):
         return False
 
     def apply(self, fn):
-        return self.__class__([fn(sq) for sq in self.subqs])
+        return self.__class__([fn(sq) for sq in self.subqueries])
 
     def matcher(self, searcher, context=None):
-        matchers = [q.matcher(searcher, context) for q in self.subqs]
+        matchers = [q.matcher(searcher, context) for q in self.subqueries]
         return make_binary_tree(SpanOr.SpanOrMatcher, matchers)
 
     class SpanOrMatcher(SpanBiMatcher):
@@ -657,6 +658,9 @@ class SpanBiQuery(SpanQuery):
     def __hash__(self):
         return hash(type(self)) ^ hash(self.a) ^ hash(self.b)
 
+    def estimate_size(self, reader: 'readers.IndexReader') -> int:
+        return self._q.estimate_size(reader)
+
     def is_leaf(self):
         return False
 
@@ -694,7 +698,7 @@ class SpanNot(SpanBiQuery):
         from whoosh.query.compound import AndMaybe
 
         super(SpanNot, self).__init__()
-        self.q = AndMaybe(a, b)
+        self._q = AndMaybe(a, b)
         self.a = a
         self.b = b
 
@@ -749,7 +753,7 @@ class SpanContains(SpanBiQuery):
         from whoosh.query.compound import And
 
         super(SpanContains, self).__init__()
-        self.q = And([a, b])
+        self._q = And([a, b])
         self.a = a
         self.b = b
 
@@ -800,7 +804,7 @@ class SpanBefore(SpanBiQuery):
         super(SpanBefore, self).__init__()
         self.a = a
         self.b = b
-        self.q = And([a, b])
+        self._q = And([a, b])
 
     class _Matcher(SpanBiMatcher):
         def __init__(self, a, b):
@@ -835,7 +839,7 @@ class SpanCondition(SpanBiQuery):
         super(SpanCondition, self).__init__()
         self.a = a
         self.b = b
-        self.q = And([a, b])
+        self._q = And([a, b])
 
     class _Matcher(SpanBiMatcher):
         def __init__(self, a, b):

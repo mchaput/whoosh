@@ -282,7 +282,7 @@ def test_custom_tokens():
     q = qp.parse("alfa -bravo NOT charlie")
     assert len(q) == 4
     assert q[1].__class__ == query.Not
-    assert q[1].query.text == "bravo"
+    assert q[1].child.text == "bravo"
     assert q[2].text == "NOT"
 
 
