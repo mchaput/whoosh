@@ -26,10 +26,12 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from abc import abstractmethod
+from typing import Dict, Tuple
 
 import furl
 
 from whoosh import index
+from whoosh.ifaces import codecs
 
 
 # Exceptions
@@ -52,7 +54,7 @@ class TocNotFound(StorageError):
 
 # URL registry
 
-registry = {}
+registry = {}  # type: Dict[str, type]
 
 
 # Class decorator to add a class to the registry
@@ -72,10 +74,22 @@ def url_handler(cls):
     return cls
 
 
-def from_url(url: str) -> 'Storage':
-    scheme = furl.furl(url).scheme
-    cls = registry[scheme]
-    return cls.from_url(url)
+# def get_storage_and_codec(scheme: str) -> Tuple[str, str]:
+#     if "+" in scheme:
+#         storage_name, codec_name = scheme.rsplit("+", 1)
+#     else:
+#         storage_name = scheme
+#         codec_name = None
+#     return storage_name, codec_name
+#
+#
+# def from_url(url: str) -> 'Storage':
+#     url = furl.furl(url)
+#     scheme = url.scheme
+#     storage_name, _ = get_storage_and_codec(scheme)
+#     storage_cls = registry[storage_name]
+#     assert issubclass(storage_cls, Storage)
+#     return storage_cls.from_url(url)
 
 
 # Base classes
@@ -241,6 +255,19 @@ class Storage:
         :param session: the session object to clean up in.
         :param toc: the TOC object to use for the current data. If this is not
             given, the method loads the current TOC.
+        """
+
+        pass
+
+    def clean_segment(self, session: Session, segment: 'codecs.Segment'):
+        """
+        Cleans up any data in the storage associated with a deleted or merged
+        segment.
+
+        :param session: the session object to clean up in.
+        :param segment: represents the deleted segment. Storage implementations
+            must typically have some coupling to the codec and segment
+            implementations to know _how_ to delete segment data from storage.
         """
 
         pass

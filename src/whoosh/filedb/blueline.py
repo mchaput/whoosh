@@ -345,8 +345,7 @@ class KeyValueReader:
 
         raise NotImplementedError(self.__class__.__name__)
 
-    @abstractmethod
-    def item_range(self, start: bytes, end: bytes
+    def item_range(self, start: bytes, end: Optional[bytes]
                    ) -> Iterable[Tuple[bytes, bytes]]:
         """
         Yields all ``(b'key', b'value')`` pairs starting from a certain key.
@@ -355,7 +354,8 @@ class KeyValueReader:
         :param end: the key to yield up to.
         """
 
-        raise NotImplementedError
+        for key in self.key_range(start, end):
+            yield self[key]
 
     @abstractmethod
     def min_key(self):

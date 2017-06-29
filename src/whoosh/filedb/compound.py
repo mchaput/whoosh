@@ -1,10 +1,11 @@
+import copy
 import io
 import logging
 import sys
 import time
 from shutil import copyfileobj
 from struct import Struct
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 try:
     import mmap
@@ -54,7 +55,8 @@ dir_entry = Struct("<Hqqf")
 def assemble_files(from_store: 'filestore.FileStorage',
                    filenames: Iterable[str],
                    to_store: 'filestore.FileStorage', compoundname: str,
-                   delete: bool=False):
+                   delete: bool=False,
+                   extra_files: Optional[Dict[str, bytes]]=None):
     directory = {}
     with to_store.create_file(compoundname) as outfile:
         # Write the magic bytes at the start of the file
@@ -70,6 +72,13 @@ def assemble_files(from_store: 'filestore.FileStorage',
 
             size = outfile.tell() - offset
             directory[name] = offset, size, time.time()
+
+        # Write the "extra files" passed in the argument, if any
+        if extra_files:
+            for fname, fbytes in extra_files.items():
+                offset = outfile.tell()
+                outfile.write(fbytes)
+                directory[fname] = offset, len(fbytes), time.time()
 
         # Remember the start of the directory
         dir_offset = outfile.tell()
@@ -91,12 +100,19 @@ def assemble_files(from_store: 'filestore.FileStorage',
 def assemble_segment(from_store: 'filestore.FileStorage',
                      to_store: 'filestore.FileStorage',
                      segment: 'codecs.FileSegment',
-                     segment_filename: str, delete: bool=False):
+                     segment_filename: str, delete: bool=False,
+                     extra_files: Optional[Dict[str, bytes]]=None):
     names = list(segment.file_names(from_store))
     if not names:
         raise ValueError("No files match this segment")
 
-    assemble_files(from_store, names, to_store, segment_filename, delete=delete)
+    # Include a copy of the segment bytes as an extra file in the assembled
+    # file... this is sometimes useful for debugging
+    extra_files = copy.copy(extra_files) or {}
+    extra_files["SEGMENT"] = segment.to_bytes()
+
+    assemble_files(from_store, names, to_store, segment_filename, delete=delete,
+                   extra_files=extra_files)
 
 
 class CompoundStorage(filestore.FileStorage):

@@ -23,6 +23,7 @@ def test_pickleability():
         columns.BitColumn: (),
         columns.PickleColumn: (columns.VarBytesColumn(),),
         columns.CompressedBytesColumn: (),
+        columns.BlockCompressedColumn: (),
         # columns.StructColumn: ("i", 0),
     }
 
@@ -375,5 +376,125 @@ def test_sparse_readback():
                     _ = long_to_datetime(v)
             # print(now() - t)
 
+
+def test_compressedbytes_random_access():
+    words = (b"alfa bravo charlie delta echo foxtrot golf hotel india juliet"
+             ).split()
+    values = []
+    limit = 10000
+    p = 0
+    for i in range(limit):
+        vs = []
+        while len(vs) < 200:
+            vs.append(words[p])
+            p = (p + 1) % len(words)
+        value = b" ".join(vs)
+        values.append(value)
+
+    order = list(range(limit))
+    random.shuffle(order)
+
+    col = columns.CompressedBytesColumn()
+    with TempStorage() as st:
+        output = st.create_file("test")
+        cw = col.writer(output)
+        for i, value in enumerate(values):
+            cw.add(i, value)
+        cw.finish(limit)
+        length = output.tell()
+        output.close()
+
+        data = st.map_file("test")
+        cr = col.reader(data, 0, length, limit, True)
+        for i in order:
+            assert cr[i] == values[i]
+
+
+def test_block_compressed():
+    words = "alfa bravo charlie delta echo foxtrot golf hotel india".split()
+
+    def make_dict():
+        size = random.randint(4, 6)
+        keys = random.sample(words, size)
+        d = {}
+        for k in keys:
+            length = random.randint(3, 7)
+            d[k] = " ".join(random.choice(words) for _ in range(length))
+        return d
+
+    count = 5000
+    docs = [make_dict() for _ in range(count)]
+
+    col = columns.BlockCompressedColumn()
+    with TempStorage() as st:
+        with st.create_file("test") as f:
+            cw = col.writer(f)
+            for i, doc in enumerate(docs):
+                cw.add(i, doc)
+            cw.finish(count)
+            length = f.tell()
+            # print(length)
+
+        with st.map_file("test") as m:
+            # Random access
+            cr = col.reader(m, 0, length, count, True)
+            order = list(range(count))
+            random.shuffle(order)
+            for docnum in order:
+                stored = cr[docnum]
+                # print("docnum=", docnum, "stored=", stored)
+                assert stored == docs[docnum]
+            cr.close()
+
+            # Iterator
+            cr = col.reader(m, 0, length, count, True)
+            for i, v in enumerate(cr):
+                assert v == docs[i]
+            cr.close()
+
+
+def test_sparse_block_compressed():
+    words = ("alfa bravo charlie delta echo foxtrot golf hotel india juliet"
+             "kilo lima mike november oskar papa quebec romeo sierra tango"
+             "uniform victor whiskey xray yankee zulu"
+             ).split()
+
+    ds = []
+    for w1 in words:
+        for w2 in words:
+            for w3 in words[:5]:
+                ds.append({w1: " ".join((w2, w3))})
+
+    count = 3000
+    docnum = 0
+    docs = []
+    for d in ds:
+        docnum += random.randint(5, 10)
+        docs.append((docnum, d))
+    ddict = dict(docs)
+    maxdoc = docnum
+
+    col = columns.BlockCompressedColumn()
+    with TempStorage() as st:
+        with st.create_file("test") as f:
+            cw = col.writer(f)
+            for docnum, doc in docs:
+                cw.add(docnum, doc)
+            cw.finish(count)
+            length = f.tell()
+
+        with st.map_file("test") as m:
+            cr = col.reader(m, 0, length, count, True)
+
+            for i in range(maxdoc + 10):
+                x = cr[i]
+                y = ddict.get(i)
+                assert x == y
+
+            cr = col.reader(m, 0, length, count, True)
+            vs = list(cr)
+            cr.close()
+            assert len(vs) == maxdoc + 1
+            assert vs == [ddict.get(i) for i in range(maxdoc + 1)]
 
 

@@ -27,7 +27,9 @@
 
 from whoosh import sorting
 from whoosh.ifaces import matchers, queries, readers, searchers
-from whoosh.matching import wrappers
+
+
+__all__ = ("ColumnQuery", )
 
 
 class ColumnQuery(queries.Query):

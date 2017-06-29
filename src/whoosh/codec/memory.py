@@ -165,6 +165,7 @@ class MemorySegment(codecs.Segment):
         return self._deleted > (len(self.docs) // 2)
 
 
+@codecs.register("memory")
 class MemoryCodec(codecs.Codec):
     def __init__(self, store_per_doc: bool=True):
         self._storeperdoc = store_per_doc
@@ -202,7 +203,7 @@ class MemoryCodec(codecs.Codec):
     def new_segment(self, session: 'storage.Session'):
         return MemorySegment(session.indexname, store_per_doc=self._storeperdoc)
 
-    def segment_from_bytes(self, bs: bytes) -> MemorySegment:
+    def segment_from_bytes(self, bs: bytes) -> codecs.Segment:
         return MemorySegment.from_bytes(bs)
 
 

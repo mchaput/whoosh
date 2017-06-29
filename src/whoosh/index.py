@@ -93,26 +93,6 @@ class EmptyIndexError(WhooshIndexError):
 
 # Filename functions
 
-# regex = re.compile(r"""
-#         ^(?P<codec>[A-Za-z0-9]+)
-#         _
-#         (?P<segid>[^_]+_[a-z0-9]+)
-#         _
-#         (?P<name>[^.]*)
-#         [.]
-#         (?P<ext>[A-Za-z0-9_]+)$
-#     """, re.VERBOSE | re.UNICODE)
-
-# These must be valid characters in CASE-INSENSTIVE filenames
-SEGMENT_IDCHARS = "0123456789abcdefghijklmnopqrstuvwxyz"
-SEGMENT_IDSIZE = 16
-
-
-def make_segment_id():
-    return "".join(random.choice(SEGMENT_IDCHARS) for _
-                   in range(SEGMENT_IDSIZE))
-
-
 def make_toc_filename(indexname: str, generation: int, ext: str="toc") -> str:
     name = "_%s_%d.%s" % (indexname, generation, ext)
     assert toc_regex(indexname, ext).match(name)
@@ -653,4 +633,27 @@ def version(store: 'storage.Storage', indexname: str=None
     with store.open(indexname) as session:
         toc = store.load_toc(session)
         return toc.release, toc.toc_version
+
+
+def from_url(url: str):
+    from whoosh.ifaces import codecs, storage
+    import furl
+
+    store = storage.from_url(url)
+    codecs = codecs.from_url(url)
+    index = store.open_index()
+
+
+    url = furl.furl(url)
+    scheme = url.scheme
+    if "+" in scheme:
+        storage_name, codec_name = scheme.rsplit("+", 1)
+        storage = storage.from_url(url)
+    else:
+        storage_name = scheme
+        # codec_name =
+
+    # if url.scheme not in codecs.codec_registry:
+
+
 

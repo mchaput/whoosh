@@ -2,7 +2,7 @@ from __future__ import with_statement
 from itertools import permutations
 from random import randint, choice, sample
 
-from whoosh import fields, matching, qparser, query
+from whoosh import fields, matching, query
 from whoosh.query import And, Term
 from whoosh.util import make_binary_tree
 from whoosh.util.testing import TempIndex
@@ -460,6 +460,7 @@ def test_current_terms():
 
 
 def test_exclusion():
+    from whoosh import qparser
     from datetime import datetime
 
     schema = fields.Schema(id=fields.ID(stored=True), date=fields.DATETIME)
@@ -557,5 +558,18 @@ def test_every_matcher():
             return 0
 
 
-def test_multimatcher():
-    pass
+def test_raw_copy():
+    schema = fields.Schema(text=fields.Text(chars=True))
+    with TempIndex(schema) as ix:
+        with ix.writer() as w:
+            w.add_document(text=u"alfa bravo charlie delta echo foxtrot")
+            w.add_document(text=u"bravo charlie delta echo foxtrot golf")
+            w.add_document(text=u"charlie delta echo foxtrot golf hotel")
+            w.add_document(text=u"delta echo foxtrot golf hotel india")
+
+        with ix.writer() as w:
+            s = w.searcher()
+            m = query.Term("text", "bravo").matcher(s, s.context())
+            pio = w.codec.postings_io()
+            assert m.can_copy_raw_to(pio, w.schema["text"].format)
+

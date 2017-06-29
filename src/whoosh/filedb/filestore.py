@@ -38,12 +38,12 @@ from abc import abstractmethod
 from binascii import crc32
 from io import BytesIO
 from threading import Lock
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, Set
 
 import furl
 
 from whoosh import fields, index
-from whoosh.ifaces import storage
+from whoosh.ifaces import codecs, storage
 from whoosh.filedb import datafile
 from whoosh.metadata import MetaData
 from whoosh.system import IS_LITTLE
@@ -154,20 +154,27 @@ class BaseFileStorage(storage.Storage):
         id_counter = self._read_id_counter(indexname)
         return FileSession(self, indexname, writable, id_counter)
 
-    def cleanup(self, session: 'storage.Session', toc: 'index.Toc'=None):
-        toc = toc or self.load_toc(session)
-
+    def _clean_by_segids(self, session: 'storage.Session', segids: Set[str]):
         indexname = session.indexname
-        segids = set(seg.segment_id() for seg in toc.segments)
+
         regex = index.segment_regex(indexname)
         for filename in self.list():
             match = regex.match(filename)
             if match and match.group("id") not in segids:
                 try:
                     self.delete_file(filename)
-                except:
-                    # Ignore errors
+                except OSError:
+                    # Ignore deletion errors
                     pass
+
+    def cleanup(self, session: 'storage.Session', toc: 'index.Toc'=None):
+        toc = toc or self.load_toc(session)
+        segids = set(seg.segment_id() for seg in toc.segments)
+        self._clean_by_segids(session, segids)
+
+    def clean_segment(self, session: 'storage.Session',
+                      segment: 'codecs.Segment'):
+        self._clean_by_segids(session, set([segment.segment_id()]))
 
     def save_toc(self, session: 'storage.Session', toc: 'index.Toc'):
         # This backend has no concept of a session, we just need the indexname

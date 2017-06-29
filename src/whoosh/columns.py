@@ -1091,7 +1091,7 @@ class SparseIntReader(ColumnReader):
             for delta, v in zip(deltas, values):
                 yield mindoc + delta, v + baseval
 
-    def __iter__(self) -> Iterable[bool]:
+    def __iter__(self) -> Iterable[int]:
         i = 0
         for docnum, value in self._items():
             if docnum > i:
@@ -1357,6 +1357,214 @@ class CompressedBytesReader(VarBytesReader):
 
     def close(self):
         self._sub.close()
+
+
+# Block-compressed bytes
+
+class BlockCompressedColumn(Column):
+    """
+    Compresses blocks of values together at once. Unfortunately this is too slow
+    to use instead of CompressedBytesColumn.
+    """
+
+    def __init__(self, blocksize: int=128*1024, level: int=3,
+                 module: str="zlib"):
+        self._blocksize = blocksize
+        self._level = level
+        self._module = module
+
+    def writer(self, output: OutputFile) -> ColumnWriter:
+        return BlockCompressedWriter(output, self._level, self._module,
+                                     self._blocksize)
+
+    def reader(self, data: Data, basepos: int, length: int, doccount: int,
+               native: bool, reverse: bool = False) -> ColumnReader:
+        assert not reverse
+        return BlockCompressedReader(data, basepos, length, doccount,
+                                     self._module)
+
+    def default_value(self, reverse: bool = False):
+        return None
+
+    # I - offset
+    # I - mindoc
+    # I - maxdoc
+    header = struct.Struct("<III")
+
+
+class BlockCompressedWriter(ColumnWriter):
+    def __init__(self, output: OutputFile, level: int, module: str,
+                 blocksize: int):
+        self._output = output
+        self._level = level
+        self._compress = __import__(module).compress
+        self._blocksize = blocksize
+
+        self._startdoc = None
+        self._basepos = output.tell()
+        self._blockoffset = self._basepos
+        self._bytecount = 0
+        self._values = []
+
+        self._index = []
+        self._docnum = 0
+
+    def add(self, docnum: int, v: bytes):
+        values = self._values
+        if self._startdoc is None:
+            self._startdoc = docnum
+            self._docnum = docnum
+
+        while self._docnum < docnum:
+            values.append(None)
+            self._docnum += 1
+
+        values.append(v)
+        self._docnum += 1
+        self._bytecount += len(v)
+
+        if self._bytecount >= self._blocksize:
+            self._flush_block()
+
+    def _flush_block(self):
+        output = self._output
+        values = self._values
+
+        # Write the compressed block
+        output.write(self._compress(dumps(values, 2), self._level))
+        # Add this block to the index
+        self._index.append((self._blockoffset, self._startdoc,
+                            self._docnum - 1))
+
+        # Reset counters
+        self._blockoffset = output.tell()
+        self._bytecount = 0
+        self._values = []
+        self._startdoc = None
+
+    def finish(self, doccount: int):
+        if self._values:
+            self._flush_block()
+
+        basepos = self._basepos
+        output = self._output
+        header = BlockCompressedColumn.header
+        index = self._index
+        # Write the block index
+        for offset, startdoc, enddoc in index:
+            output.write(header.pack(offset - basepos, startdoc, enddoc))
+        # Write the number of entries in the index at the end of the column
+        output.write_int_le(len(index))
+
+
+class BlockCompressedReader(ColumnReader):
+    def __init__(self, data: Data, basepos: int, length: int, doccount: int,
+                 module: str, default: bytes=None):
+        from collections import deque
+
+        self._data = data
+        self._basepos = basepos
+        self._doccount = doccount
+        self._decompress = __import__(module).decompress
+        self._default = default
+
+        # Read the block index
+        self._index = self._read_index(length)
+        self._blockcount = len(self._index)
+
+        self._cache = {}
+        self._cache_keys = deque()
+        self._cachesize = 16
+
+    def _read_index(self, length) -> List[Tuple[int, int, int]]:
+        data = self._data
+        basepos = self._basepos
+
+        index = []  # type: List[Tuple[int, int, int]]
+        index_end = basepos + length - 4
+        blockcount = data.get_int_le(index_end)
+        header = BlockCompressedColumn.header
+        hsize = header.size
+        index_size = hsize * blockcount
+        pos = index_end - index_size
+        self._content_end = pos
+
+        while pos < index_end:
+            index.append(header.unpack(data[pos:pos + hsize]))
+            pos += hsize
+        assert len(index) == blockcount
+
+        return index
+
+    def _bisect(self, docnum):
+        index = self._index
+        lo = 0
+        hi = len(index)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if docnum < index[mid][1]:
+                hi = mid
+            elif docnum > index[mid][2]:
+                lo = mid+1
+            else:
+                return mid
+        return lo
+
+    def _load(self, blocknum: int, update_cache: bool=True):
+        try:
+            values = self._cache[blocknum]
+        except KeyError:
+            data = self._data
+            cache = self._cache
+            cache_keys = self._cache_keys
+
+            # Find the start and end offsets of the data for this block
+            offset, _, _ = self._index[blocknum]
+            offset += self._basepos
+
+            if blocknum < self._blockcount - 1:
+                nextoffset, _, _ = self._index[blocknum + 1]
+                end = nextoffset + self._basepos
+            else:
+                end = self._content_end
+
+            values = loads(self._decompress(data[offset:end]))
+
+            # Update the cache
+            if update_cache:
+                cache[blocknum] = values
+                cache_keys.append(blocknum)
+                if len(cache_keys) > self._cachesize:
+                    del cache[cache_keys.popleft()]
+
+        return values
+
+    def __getitem__(self, docnum: int) -> bytes:
+        blocknum = self._bisect(docnum)
+        if blocknum >= len(self._index):
+            return self._default
+
+        _, mindoc, maxdoc = self._index[blocknum]
+        if docnum < mindoc or docnum > maxdoc:
+            return self._default
+
+        values = self._load(blocknum)
+        return values[docnum - mindoc]
+
+    def __iter__(self) -> Iterable[bytes]:
+        nextdoc = 0
+        default = self._default
+        for blocknum, (_, startdoc, enddoc) in enumerate(self._index):
+            # If the startdoc > nextdoc, fill in the gap with default values
+            while nextdoc < startdoc:
+                yield default
+                nextdoc += 1
+
+            values = self._load(blocknum, update_cache=False)
+            for value in values:
+                yield value
+
+            nextdoc = enddoc + 1
 
 
 # Utility readers

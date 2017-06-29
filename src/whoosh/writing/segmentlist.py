@@ -143,6 +143,7 @@ class SegmentList:
 
         # Remove the merged segments from the list of current segments
         segids = set(mergeobj.segment_ids())
+        dropped = [s for s in self.segments if s.segment_id() in segids]
         self.segments = [s for s in self.segments
                          if s.segment_id() not in segids]
 
@@ -152,6 +153,11 @@ class SegmentList:
         # Apply queued query deletes to the new segment
         if mergeobj.delete_queries:
             self.buffer_query_deletions(newsegment, mergeobj.delete_queries)
+
+        # Try to delete the merged-out segments from storage
+        store = self.session.store
+        for segment in dropped:
+            store.clean_segment(segment)
 
     @synchronized
     def reader(self, segment: 'codecs.Segment') -> 'readers.IndexReader':

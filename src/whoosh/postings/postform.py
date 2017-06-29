@@ -59,7 +59,13 @@ class Format:
         return r
 
     def __eq__(self, other):
-        return type(self) is type(other) and self.__dict__ == other.__dict__
+        return (type(self) is type(other) and
+                self.has_lengths == other.has_lengths and
+                self.has_weights == other.has_weights and
+                self.has_positions == other.has_positions and
+                self.has_chars == other.has_chars and
+                self.has_payloads == other.has_payloads and
+                self.boost == other.boost)
 
     def __ne__(self, other):
         return not self == other
@@ -74,13 +80,12 @@ class Format:
         }
 
     def can_copy_raw_to(self, fmt: 'Format') -> bool:
-        return (
-            fmt.has_lengths == self.has_lengths and
-            fmt.has_weights == self.has_weights and
-            fmt.has_positions == self.has_positions and
-            fmt.has_chars == self.has_chars and
-            fmt.has_payloads == self.has_payloads
-        )
+        # If the format we want to copy to has a feature this object doesn't
+        # have, then we can't copy the raw data
+        for feature in ("lengths", "weights", "positions", "chars", "payloads"):
+            if fmt.supports(feature) and not self.supports(feature):
+                return False
+        return True
 
     def supports(self, feature: str) -> bool:
         """

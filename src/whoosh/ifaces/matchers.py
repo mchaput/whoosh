@@ -642,7 +642,6 @@ class LeafMatcher(Matcher):
         from_fmt = postform.Format(self.has_lengths(), self.has_weights(),
                                    self.has_positions(), self.has_chars(),
                                    self.has_payloads())
-
         return self._io.can_copy_raw_to(from_fmt, other_io, to_fmt)
 
     def supports(self, feature: str) -> bool:

@@ -337,7 +337,7 @@ class X1Segment(codecs.FileSegment):
 
 # Codec
 
-@codecs.register
+@codecs.register("x1")
 class X1Codec(codecs.Codec):
     # File extensions
     TERMS_EXT = "trm"  # Term index

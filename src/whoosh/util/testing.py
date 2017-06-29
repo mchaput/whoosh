@@ -26,7 +26,7 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 import os.path
-import random
+import re
 import shutil
 import sys
 import tempfile
@@ -129,3 +129,56 @@ def timing(name=None):
     yield
     t = now() - t
     print("%s: %0.06f s" % (name or '', t))
+
+
+class CirrusDumpReader:
+    start_tag = re.compile("<doc ([^>]*)>")
+    end_tag = re.compile("</doc>")
+    attr = re.compile(r'(?P<key>\S+)="(?P<val>[^"]*)"')
+
+    def __init__(self, dirname):
+        self.dirname = dirname
+
+    def documents(self, limit=None, size_limit=None, verbose=False):
+        srcdir = self.dirname
+        start_tag = self.start_tag
+        end_tag = self.end_tag
+        attr = self.attr
+
+        count = 0
+        for dirname in os.listdir(srcdir):
+            if dirname.startswith("."):
+                continue
+
+            subdir = os.path.join(srcdir, dirname)
+            for filename in os.listdir(subdir):
+                if verbose:
+                    print("%s/%s" % (dirname, filename))
+                with open(os.path.join(subdir, filename), encoding="utf8") as f:
+                    content = f.read()
+
+                for match in start_tag.finditer(content):
+                    end_match = end_tag.search(content, match.end())
+                    data = match.group(1)
+                    text = content[match.end():end_match.start()].strip()
+
+                    if size_limit and len(text) > size_limit:
+                        continue
+
+                    doc = {"text": text}
+                    for amatch in attr.finditer(data):
+                        key = amatch.group("key")
+                        if key == "url" or key == "xmlns:x":
+                            continue
+                        val = amatch.group("val")
+                        # print("  %s=%r" % (key, val))
+                        doc[key] = val
+
+                    yield doc
+
+                    count += 1
+                    if limit and count >= limit:
+                        return
+
+
+
