@@ -72,16 +72,12 @@ TermTuple = Tuple[str, bytes]
 codec_registry = {}
 
 
-def register(cls: type):
-    if hasattr(cls, "names"):
-        names = cls.names
-    else:
-        names = ["%s.%s" % (cls.__module__, cls.__name__)]
-
-    for name in names:
+def register(name: str):
+    def _wrapper(cls: type):
         codec_registry[name] = cls
+        return cls
 
-    return cls
+    return _wrapper
 
 
 def codec_by_name(name: str) -> 'Codec':

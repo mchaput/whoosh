@@ -154,18 +154,26 @@ class BaseFileStorage(storage.Storage):
         id_counter = self._read_id_counter(indexname)
         return FileSession(self, indexname, writable, id_counter)
 
-    def _clean_by_segids(self, session: 'storage.Session', segids: Set[str]):
+    def _clean_by_segids(self, session: 'storage.Session', segids: Set[str],
+                         delete_in=False):
         indexname = session.indexname
 
         regex = index.segment_regex(indexname)
         for filename in self.list():
             match = regex.match(filename)
-            if match and match.group("id") not in segids:
-                try:
-                    self.delete_file(filename)
-                except OSError:
-                    # Ignore deletion errors
-                    pass
+            if match:
+                file_id = match.group("id")
+                if delete_in:
+                    should_delete = file_id in segids
+                else:
+                    should_delete = file_id not in segids
+
+                if should_delete:
+                    try:
+                        self.delete_file(filename)
+                    except OSError:
+                        # Ignore deletion errors
+                        pass
 
     def cleanup(self, session: 'storage.Session', toc: 'index.Toc'=None):
         toc = toc or self.load_toc(session)
@@ -174,7 +182,8 @@ class BaseFileStorage(storage.Storage):
 
     def clean_segment(self, session: 'storage.Session',
                       segment: 'codecs.Segment'):
-        self._clean_by_segids(session, set([segment.segment_id()]))
+        self._clean_by_segids(session, set([segment.segment_id()]),
+                              delete_in=True)
 
     def save_toc(self, session: 'storage.Session', toc: 'index.Toc'):
         # This backend has no concept of a session, we just need the indexname

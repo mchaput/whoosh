@@ -553,7 +553,7 @@ class MultiReader(readers.IndexReader):
     @staticmethod
     def _merge_iters(iterlist: List[Iterable[Any]]
                      ) -> Iterable[Any]:
-        # Merge-sorts terms coming from a list of term iterators.
+        # Merge-sorts terms coming from a list of term iterators
 
         # Create a map so we can look up each iterator by its id() value
         itermap = {}
@@ -640,7 +640,7 @@ class MultiReader(readers.IndexReader):
                 include: 'Union[idsets.DocIdSet, Set]'=None,
                 exclude: 'Union[idsets.DocIdSet, Set]'=None
                 ) -> 'matchers.Matcher':
-        from whoosh.matching.wrappers import MultiMatcher
+        from whoosh.matching.wrappers import DocOffsetMatcher, MultiMatcher
 
         rs = self.readers
         doc_offsets = self.doc_offsets
@@ -673,6 +673,8 @@ class MultiReader(readers.IndexReader):
         # so it adds the correct offset, UNLESS the offset is 0
         if len(ms) == 1 and m_offsets[0] == 0:
             return ms[0]
+        elif len(ms) == 1:
+            return DocOffsetMatcher(ms[0], m_offsets[0])
         else:
             return MultiMatcher(ms, m_offsets, scorer)
 

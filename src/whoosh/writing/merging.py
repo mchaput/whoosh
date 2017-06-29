@@ -435,6 +435,7 @@ def _copy_terms(schema: 'fields.Schema', reader: 'readers.IndexReader',
 
     logger.info("Merging term data from %r to %r", reader, fwriter)
     t = now()
+    tt = now()
     termcount = 0
 
     last_fieldname = None
@@ -444,12 +445,14 @@ def _copy_terms(schema: 'fields.Schema', reader: 'readers.IndexReader',
             continue
 
         if fieldname != last_fieldname:
-            logger.info("Merging %s field", fieldname)
             if last_fieldname is not None:
                 fwriter.finish_field()
+                logger.info("Merged %s in %s", last_fieldname, now() - tt)
+            logger.info("Merging %s field", fieldname)
             fieldobj = schema[fieldname]
             fwriter.start_field(fieldname, fieldobj)
             last_fieldname = fieldname
+            tt = now()
 
         # logger.debug("Copying term %s:%s", fieldname, termbytes)
         # tt = now()
@@ -459,8 +462,9 @@ def _copy_terms(schema: 'fields.Schema', reader: 'readers.IndexReader',
         m = reader.matcher(fieldname, termbytes)
 
         to_io = fwriter.postings_io()
-        if m.can_copy_raw_to(to_io, fieldobj.format):
-            logger.debug("Copying posting bytes directly")
+        can_copy_raw = m.can_copy_raw_to(to_io, fieldobj.format)
+        logger.debug("Copying term %r raw=%s", termbytes, can_copy_raw)
+        if can_copy_raw:
             for rp in m.all_raw_postings():
                 docid = post_docid(rp)
                 length = reader.doc_field_length(docid, fieldname)

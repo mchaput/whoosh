@@ -79,6 +79,10 @@ def posting(docid: int=None, termbytes: bytes=None, length: int=None,
     return docid, termbytes, length, weight, positions, chars, payloads
 
 
+def change_docid(post: PostTuple, newdocid: int) -> PostTuple:
+    return newdocid, post[1], post[2], post[3], post[4], post[5], post[6]
+
+
 # Assign names to the members of the posting tuple to make them easier to get
 DOCID = 0
 TERMBYTES = 1

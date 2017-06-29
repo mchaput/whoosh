@@ -55,7 +55,8 @@ class SegmentWriter:
         self._terms = codec.field_writer(session, segment)
         self._pbuffers = defaultdict(list)
 
-        self.count = 0
+        self.doc_count = 0
+        self.post_count = 0
 
     def start_document(self):
         self._perdoc.start_doc(self._docnum)
@@ -99,7 +100,7 @@ class SegmentWriter:
 
         # Update writer state
         self._docnum += 1
-        self.count += 1
+        self.doc_count += 1
 
     def _flush_terms(self):
         schema = self.schema
@@ -166,7 +167,8 @@ class IndexWriter:
                  segments: 'List[codecs.Segment]',
                  schema: 'fields.Schema',
                  generation: int,
-                 doc_limit: int = 10000,
+                 doc_limit: int=10000,
+                 post_limit: int=2000000,
                  merge_strategy: merging.MergeStrategy=None,
                  executor: futures.Executor=None,
                  reporter: reporting.Reporter=None
@@ -177,6 +179,7 @@ class IndexWriter:
         self.generation = generation
 
         self.doc_limit = doc_limit
+        self.post_limit = post_limit
         self.merge_strategy = merge_strategy or merging.default_strategy()
         self.executor = executor
         self.reporter = reporter or reporting.default_reporter()
@@ -348,7 +351,12 @@ class IndexWriter:
         # Tell the SegmentWriter we're done with this document
         segwriter.finish_document()
 
-        if segwriter.count >= self.doc_limit:
+        should_flush = (
+            segwriter.doc_count >= self.doc_limit or
+            segwriter.post_count >= self.post_limit
+        )
+
+        if should_flush:
             self.flush_segment()
 
     @unclosed
@@ -599,7 +607,7 @@ class IndexWriter:
 
         # If there are any documents sitting in the SegmentWriter, flush them
         # out into a new segment
-        if self.segwriter.count:
+        if self.segwriter.doc_count:
             self.flush_segment(merge=merge, optimize=optimize, restart=False)
         elif optimize:
             self._maybe_merge(merge=merge, optimize=optimize,

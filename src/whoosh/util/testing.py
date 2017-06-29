@@ -139,7 +139,8 @@ class CirrusDumpReader:
     def __init__(self, dirname):
         self.dirname = dirname
 
-    def documents(self, limit=None, size_limit=None, verbose=False):
+    def documents(self, limit=None, size_limit=0, truncate_length=0,
+                  verbose=False):
         srcdir = self.dirname
         start_tag = self.start_tag
         end_tag = self.end_tag
@@ -164,6 +165,8 @@ class CirrusDumpReader:
 
                     if size_limit and len(text) > size_limit:
                         continue
+                    elif truncate_length:
+                        text = text[:truncate_length]
 
                     doc = {"text": text}
                     for amatch in attr.finditer(data):

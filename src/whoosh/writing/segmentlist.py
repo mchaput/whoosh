@@ -157,7 +157,8 @@ class SegmentList:
         # Try to delete the merged-out segments from storage
         store = self.session.store
         for segment in dropped:
-            store.clean_segment(segment)
+            logger.info("Deleting merged segment %s", segment)
+            store.clean_segment(self.session, segment)
 
     @synchronized
     def reader(self, segment: 'codecs.Segment') -> 'readers.IndexReader':
