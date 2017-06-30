@@ -927,7 +927,8 @@ class Searcher(object):
 
         # Make q query corrector
         from whoosh import spelling
-        sqc = spelling.SimpleQueryCorrector(correctors, terms, aliases)
+        sqc = spelling.SimpleQueryCorrector(correctors, terms, aliases,
+                                            maxdist=maxdist, prefix=prefix)
         return sqc.correct_query(q, qstring)
 
 
