@@ -92,14 +92,14 @@ class SegmentReader(readers.IndexReader):
 
         # Create a new reading session
         self._codec = use_codec if use_codec else segment.codec()
-        self._main_storage = storage
+        self.storage = storage
 
         # Give the codec a chance to give us a specialized storage object
         # (e.g. for compound segments)
-        self._storage = self._codec.segment_storage(storage, segment)
+        self.segment_storage = self._codec.segment_storage(storage, segment)
         # Open a read-only session
-        self._session = self._storage.open(segment.index_name(),
-                                           writable=False)
+        self._session = self.segment_storage.open(segment.index_name(),
+                                                  writable=False)
 
         # Get sub-readers from codec
         self._terms = self._codec.terms_reader(self._session, segment)
@@ -116,7 +116,7 @@ class SegmentReader(readers.IndexReader):
             self._eol = frozenset(())
 
     def __repr__(self):
-        return "%s(%r, %r)" % (self.__class__.__name__, self._storage,
+        return "%s(%r, %r)" % (self.__class__.__name__, self.segment_storage,
                                self._segment)
 
     def _eol_docs(self) -> Set[int]:

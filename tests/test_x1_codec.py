@@ -65,7 +65,8 @@ def test_terminfo():
             assert ti.offset == -1
             assert ti.inlinebytes
 
-            inline_post = ti.posting_reader(bio).posting_at(0)
+            pdr = bio.doclist_reader(ti.inlinebytes)
+            inline_post = pdr.posting_at(0)
             assert inline_post == ptuples.posting(
                 docid=100, weight=2.5, positions=(1, 9, 30)
             )

@@ -225,6 +225,18 @@ class DocOffsetMatcher(WrappingMatcher):
         docid = ptuples.post_docid(post)
         return ptuples.change_docid(post, docid + self._doc_offset)
 
+    def all_postings(self) -> 'Iterable[postings.PostTuple]':
+        get_id = ptuples.post_docid
+        change_docid = ptuples.change_docid
+        for post in self.child.all_postings():
+            yield change_docid(post, get_id(post) + self._doc_offset)
+
+    def all_raw_postings(self) -> 'Iterable[ptuples.PostTuple]':
+        get_id = ptuples.post_docid
+        change_docid = ptuples.change_docid
+        for post in self.child.all_raw_postings():
+            yield change_docid(post, get_id(post) + self._doc_offset)
+
 
 class MultiMatcher(matchers.Matcher):
     """

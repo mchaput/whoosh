@@ -66,7 +66,7 @@ class PostingReader:
         raise NotImplementedError
 
     @abstractmethod
-    def end_offset(self) -> int:
+    def size_in_bytes(self) -> int:
         raise NotImplementedError
 
     @abstractmethod
@@ -345,18 +345,13 @@ class EmptyVectorReader(VectorReader):
         return 0.0
 
     def raw_bytes(self) -> bytes:
-        raise Exception("You better not be trying to write this!")
+        raise Exception("Virtual reader has no underlying bytes")
 
     def can_copy_raw_to(self, to_io: 'PostingsIO',
                         fmt: 'postform.Format') -> bool:
-        raise Exception("You better not be trying to write this!")
+        raise Exception("Virtual reader cannot be copied")
 
-    def end_offset(self) -> int:
-        raise Exception("You better not be trying to write this!")
-
-
-
-
-
+    def size_in_bytes(self) -> int:
+        raise Exception("Virtual reader has no size")
 
 

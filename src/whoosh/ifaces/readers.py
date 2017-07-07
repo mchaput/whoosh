@@ -42,6 +42,10 @@ from whoosh.support.levenshtein import distance
 from whoosh.util import unclosed
 
 
+__all__ = ("TermNotFound", "NoVectorError", "TermTuple", "TermText", "TermInfo",
+           "IndexReader")
+
+
 # Exceptions
 
 class TermNotFound(Exception):

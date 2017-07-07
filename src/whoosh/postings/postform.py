@@ -70,6 +70,10 @@ class Format:
     def __ne__(self, other):
         return not self == other
 
+    def only_docids(self) -> bool:
+        return not(self.has_lengths or self.has_weights or self.has_positions or
+                   self.has_chars or self.has_payloads)
+
     def json_info(self) -> dict:
         return {
             "has_lengths": self.has_lengths,

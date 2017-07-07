@@ -90,6 +90,9 @@ class SearchContext:
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.__dict__)
 
+    def copy(self):
+        return copy.deepcopy(self)
+
     @classmethod
     def boolean(cls) -> 'SearchContext':
         return cls(weighting=None)
@@ -755,6 +758,9 @@ class Searcher:
 
         # Make q query corrector
         from whoosh import spelling
-        sqc = spelling.SimpleQueryCorrector(correctors, terms)
+        print("correctors=", correctors)
+        print("terms=", terms)
+        sqc = spelling.SimpleQueryCorrector(correctors, terms, prefix=prefix,
+                                            maxdist=maxdist)
         return sqc.correct_query(q, qstring)
 

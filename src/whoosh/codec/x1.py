@@ -166,13 +166,6 @@ class X1TermInfo(readers.TermInfo):
         self.blockcount += 1
         self.add_posting_list_stats(posts)
 
-    def posting_reader(self, postings_io: 'postings.PostingsIO'
-                       ) -> 'postings.DocListReader':
-        if self.inlinebytes is None:
-            raise ValueError("This TermInfo does not have inlined postings")
-
-        return postings_io.doclist_reader(self.inlinebytes)
-
     def to_bytes(self) -> bytes:
         inlinebytes = self.inlinebytes
         isinlined = inlinebytes is not None
@@ -1013,9 +1006,9 @@ class X1TermsReader(codecs.TermsReader):
                               tbytes: bytes, scorer: 'weights.Scorer'=None
                               ) -> 'X1Matcher':
         if ti.inlinebytes:
+            pdr = self._io.doclist_reader(ti.inlinebytes)
             m = matchers.PostReaderMatcher(
-                ti.posting_reader(self._io), fieldname, tbytes, ti, self._io,
-                scorer=scorer
+                pdr, fieldname, tbytes, ti, self._io, scorer=scorer
             )
         else:
             m = X1Matcher(
@@ -1104,7 +1097,7 @@ class X1Matcher(matchers.LeafMatcher):
     def _next_block(self):
         self._blocknum += 1
         if self._blocknum < self._blockcount:
-            self._go(self._posts.end_offset())
+            self._go(self._offset + self._posts.size_in_bytes())
 
     def _skip_while(self, test_fn: Callable[[], bool]) -> int:
         skipped = 0

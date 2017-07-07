@@ -127,13 +127,13 @@ class ListCorrector(Corrector):
         from whoosh.automata.fsa import find_all_matches
 
         seen = set()
-        for i in range(1, maxdist + 1):
-            dfa = levenshtein_automaton(text, maxdist, prefix).to_dfa()
+        for mxd in range(1, maxdist + 1):
+            dfa = levenshtein_automaton(text, mxd, prefix).to_dfa()
             sk = self.Skipper(self.wordlist)
             for sug in find_all_matches(dfa, sk):
                 if sug not in seen:
                     seen.add(sug)
-                    yield (0 - maxdist), sug
+                    yield (0 - mxd), sug
 
     class Skipper:
         def __init__(self, data):

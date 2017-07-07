@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 class SpoolingWriter(SegmentWriter):
     def __init__(self, segment):
         self.segment = segment
-        self.count = 0
+        self.doc_count = 0
+        self.post_count = 0
 
         fd, self.filepath = mkstemp(suffix=".pickle", prefix="multi")
         self._tempfile = os.fdopen(fd, "wb")
@@ -31,7 +32,7 @@ class SpoolingWriter(SegmentWriter):
 
     def finish_document(self):
         pickle.dump(self._arglist, self._tempfile, -1)
-        self.count += 1
+        self.doc_count += 1
 
     def finish_segment(self):
         self._tempfile.close()
@@ -48,7 +49,7 @@ class MultiWriter(IndexWriter):
         self.segwriter = SpoolingWriter(segment)
 
     def _implement_flush(self, merge, optimize, expunge_deleted):
-        count = self.segwriter.count
+        count = self.segwriter.doc_count
         filepath, newsegment = self.segwriter.finish_segment()
 
         logger.info("Submitting parallel segment flush of %r to %r",

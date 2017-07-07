@@ -458,6 +458,7 @@ def test_minmax_length():
 
 def test_formats_equal():
     empty = postform.Format(False, False, False, False, False)
+    assert empty.only_docids()
 
     def do(*flags):
         fmt1 = postform.Format(*flags)
@@ -480,6 +481,21 @@ def test_formats_equal():
 
     fmt3 = postform.Format(has_positions=True, has_chars=True)
     assert fmt1 != fmt3
+
+
+def test_minimal_doc_block():
+    fmt = postform.Format()
+    posts = [pt.posting(docid=2010)]
+
+    bio1 = basic.BasicIO()
+    bbytes1 = bio1.doclist_to_bytes(fmt, posts)
+
+    bio2 = basic.BasicIO()
+    bio2.USE_MIN = False
+    bbytes2 = bio2.doclist_to_bytes(fmt, posts)
+
+    assert len(bbytes1) < len(bbytes2)
+
 
 
 #

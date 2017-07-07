@@ -29,9 +29,12 @@ class FieldType:
     multitoken_query = "default"
     spelling = False
 
-    def __init__(self, fmt: 'postform.Format', stored: bool=False,
-                 unique: bool=False, column: columns.Column=None,
-                 sortable: bool=False, indexed: bool=False,
+    def __init__(self, fmt: 'postform.Format',
+                 stored: bool=False,
+                 unique: bool=False,
+                 column: columns.Column=None,
+                 sortable: bool=False,
+                 indexed: bool=False,
                  field_boost: float=1.0):
         self.format = fmt
         self.stored = stored
@@ -142,8 +145,11 @@ class FieldType:
 
 
 class UnindexedField(FieldType):
-    def __init__(self, stored: bool=False, column: columns.Column=None,
-                 sortable: bool=False, field_boost: float=1.0):
+    def __init__(self,
+                 stored: bool=False,
+                 column: columns.Column=None,
+                 sortable: bool=False,
+                 field_boost: float=1.0):
         super(UnindexedField, self).__init__(
             postform.Format(), stored=stored, column=column, sortable=sortable,
             field_boost=field_boost,
@@ -178,10 +184,15 @@ class Stored(UnindexedField):
 
 
 class TokenizedField(FieldType):
-    def __init__(self, fmt: 'postform.Format', analyzer: 'analysis.Analyzer',
-                 stored: bool=False, unique: bool=False,
-                 column: columns.Column=None, sortable=False,
-                 indexed: bool=True, field_boost: float=1.0):
+    def __init__(self,
+                 fmt: 'postform.Format',
+                 analyzer: 'analysis.Analyzer',
+                 stored: bool=False,
+                 unique: bool=False,
+                 column: columns.Column=None,
+                 sortable=False,
+                 indexed: bool=True,
+                 field_boost: float=1.0):
         super(TokenizedField, self).__init__(
             fmt, stored=stored, unique=unique, column=column, sortable=sortable,
             field_boost=field_boost,
@@ -266,10 +277,14 @@ class TokenizedField(FieldType):
 
 
 class Id(TokenizedField):
-    def __init__(self, analyzer: analysis.Analyzer=None, lowercase: bool=False,
-                 stored: bool=False, unique: bool=False,
-                 column: columns.Column=None, sortable: bool=False,
-                 indexed: bool=True, field_boost: float=1.0):
+    def __init__(self, analyzer: analysis.Analyzer=None,
+                 lowercase: bool=False,
+                 stored: bool=False,
+                 unique: bool=False,
+                 column: columns.Column=None,
+                 sortable: bool=False,
+                 indexed: bool=True,
+                 field_boost: float=1.0):
         fmt = postform.Format()
         analyzer = analyzer or analyzers.IDAnalyzer(lowercase)
         super(Id, self).__init__(
@@ -279,12 +294,15 @@ class Id(TokenizedField):
 
 
 class Text(TokenizedField):
-    def __init__(self, analyzer: analysis.Analyzer=None, phrase: bool=True,
+    def __init__(self, analyzer: analysis.Analyzer=None,
+                 phrase: bool=True,
                  spelling: bool=False,
-                 vector: 'Union[bool, postform.Format]'=False,
+                 vector: 'Union[bool,postform.Format]'=False,
                  stored: bool=False,
-                 column: columns.Column=None, sortable: bool=False,
-                 chars: bool=False, field_boost: float=1.0):
+                 column: columns.Column=None,
+                 sortable: bool=False,
+                 chars: bool=False,
+                 field_boost: float=1.0):
         fmt = postform.Format(has_weights=True, has_positions=phrase,
                               has_chars=chars)
         super(Text, self).__init__(
@@ -326,10 +344,14 @@ class SpellField(TokenizedField):
 
 
 class Keyword(TokenizedField):
-    def __init__(self, analyzer: analysis.Analyzer=None, stored: bool=False,
-                 lowercase: bool=True, commas: bool=False,
-                 unique: bool=False, scorable: bool=False,
-                 column: columns.Column=None, sortable: bool=False,
+    def __init__(self, analyzer: analysis.Analyzer=None,
+                 stored: bool=False,
+                 lowercase: bool=True,
+                 commas: bool=False,
+                 unique: bool=False,
+                 scorable: bool=False,
+                 column: columns.Column=None,
+                 sortable: bool=False,
                  vector: 'Union[bool, postform.Format]'=False,
                  field_boost: float=1.0):
         if not analyzer:
@@ -345,8 +367,10 @@ class Keyword(TokenizedField):
 
 
 class Ngram(TokenizedField):
-    def __init__(self, minsize: int=2, maxsize: int=4, stored: bool=False,
-                 column: columns.Column=None, sortable: bool=False,
+    def __init__(self, minsize: int=2, maxsize: int=4,
+                 stored: bool=False,
+                 column: columns.Column=None,
+                 sortable: bool=False,
                  phrase: bool=False):
         super(Ngram, self).__init__(
             postform.Format(has_weights=True, has_positions=phrase),
@@ -369,7 +393,8 @@ class NgramWords(TokenizedField):
     def __init__(self, tokenizer: analysis.Tokenizer=None,
                  minsize: int=2, maxsize: int=4, at=None,
                  stored: bool=False,
-                 column: columns.Column=None, sortable: bool=False,
+                 column: columns.Column=None,
+                 sortable: bool=False,
                  field_boost: float=1.0):
         super(NgramWords, self).__init__(
             postform.Format(has_weights=True),
@@ -438,11 +463,15 @@ class Boolean(FieldType):
 
 class Numeric(TokenizedField):
     def __init__(self, numtype: Union[type, str]="int", bits: int=32,
-                 signed: bool=True, stored: bool=False, unique: bool=False,
-                 decimal_places: int=0, shift_step: int=4,
+                 signed: bool=True,
+                 stored: bool=False,
+                 unique: bool=False,
+                 decimal_places: int=0,
+                 shift_step: int=4,
                  column: Union[columns.Column, bool]=None,
                  sortable=False, default: float=0,
-                 indexed: bool=True, analyzer: 'analysis.Analyzer'=None,
+                 indexed: bool=True,
+                 analyzer: 'analysis.Analyzer'=None,
                  field_boost: float=1.0):
         if numtype == "int":
             numtype = int
@@ -651,8 +680,11 @@ class Numeric(TokenizedField):
 
 
 class DateTime(Numeric):
-    def __init__(self, stored: bool=False, unique: bool=False,
-                 sortable: bool=False, indexed: bool=True,
+    def __init__(self,
+                 stored: bool=False,
+                 unique: bool=False,
+                 sortable: bool=False,
+                 indexed: bool=True,
                  field_boost: float=1.0):
         super(DateTime, self).__init__(
             int, 64, signed=False, stored=stored, unique=unique,

@@ -8,19 +8,19 @@ from whoosh.support.levenshtein import levenshtein
 from whoosh.util.testing import TempIndex
 
 
-_wordlist = sorted((u"render animation animate shader shading zebra koala"
-                     "ready kismet reaction page delete quick fox jumped"
-                     "over lazy dog wicked erase red team yellow under interest"
-                     "open print acrid sear deaf feed grow heal jolly kilt"
-                     "low zone xylophone crown vale brown neat meat reduction"
+_wordlist = sorted((u"render animation animate shader shading zebra koala "
+                     "ready kismet reaction page delete quick fox jumped "
+                     "over lazy dog wicked erase red team yellow under interest "
+                     "open print acrid sear deaf feed grow heal jolly kilt "
+                     "low zone xylophone crown vale brown neat meat reduction "
                      "blunder preaction lamppost").split())
 
 
 def test_list_corrector():
     corr = spelling.ListCorrector(_wordlist)
     typo = "reoction"
-    sugs = list(corr.suggest(typo, maxdist=2))
-    target = [w for w in _wordlist if levenshtein(typo, w) <= 2]
+    sugs = sorted(corr.suggest(typo, maxdist=2))
+    target = sorted(w for w in _wordlist if levenshtein(typo, w) <= 2)
     assert sugs == target
 
 
@@ -298,6 +298,53 @@ def test_very_long_words():
             for string in strings2:
                 w.add_document(text=string)
             w.optimize = True
+
+
+# def test_word_list():
+#     import os.path
+#     from whoosh.spelling import ListCorrector
+#
+#     # Make a corrector that pulls from a list of words
+#     if not os.path.exists("/usr/share/dict/words"):
+#         assert False
+#
+#     with open("/usr/share/dict/words", encoding="utf8") as wordfile:
+#         wordlist = wordfile.read().strip().split()
+#     corrector = ListCorrector(wordlist)
+#
+#     schema = fields.Schema(title=fields.TEXT(stored=True),
+#                            path=fields.ID(stored=True),
+#                            content=fields.TEXT)
+#
+#     print(corrector.suggest("frm", maxdist=2, prefix=1))
+#
+#     with TempIndex(schema) as ix:
+#         with ix.writer() as w:
+#             w.add_document(title=u"First document", path=u"/a",
+#                            content=u"This is the first document we've added!")
+#             w.add_document(title=u"Second document", path=u"/b",
+#                            content=u"The second one is even more interesting!")
+#
+#         with ix.searcher() as searcher:
+#             qstring = "frm indea wroking for campany"
+#             q = query.And([
+#                 query.Term("content", "frm"),
+#                 query.Term("content", "indea"),
+#                 query.Term("content", "wroking"),
+#                 query.Term("content", "for"),
+#                 query.Term("content", "campany")
+#             ])
+#
+#             # Make a dictionary associating fields with any custom corrector you
+#             # want to use to check that field
+#             field_correctors = {
+#                 "title": corrector,
+#                 "content": corrector
+#             }
+#
+#             corrected = searcher.correct_query(q, qstring, prefix=1,
+#                                                correctors=field_correctors)
+#             print(corrected.string)
 
 
 # def test_add_spelling():

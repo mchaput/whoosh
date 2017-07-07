@@ -55,6 +55,11 @@ HAS_POSITIONS = 1 << 2
 HAS_CHARS = 1 << 3
 HAS_PAYLOADS = 1 << 4
 
+# When the "flags" byte is this value, it means the post block has only one
+# piece of information -- a single Doc ID. We use a special minimal byte
+# representation and reader for this case.
+MIN_POSTS_FLAG = 128
+
 
 def make_flags(has_lengths=False, has_weights=False, has_positions=False,
                has_chars=False, has_payloads=False) -> int:
@@ -88,6 +93,11 @@ class BasicIO(postings.PostingsIO):
     # ii  - Min/max length
     # iii - positions, characters, payloads data lengths
     doc_header = struct.Struct("<BH2ciiiii")
+
+    # B   - Flags (has_*)
+    # I   - Document number
+    min_doc_header = struct.Struct("<BI")
+    USE_MIN = True
 
     # B   - Flags (has_*)
     # H   - Number of terms in vector
@@ -151,7 +161,14 @@ class BasicIO(postings.PostingsIO):
             from_fmt.can_copy_raw_to(to_fmt)
         )
 
-    def doclist_reader(self, src: bytes, offset: int=0) -> 'BasicDocListReader':
+    def doclist_reader(self, src: bytes, offset: int=0
+                       ) -> 'postings.DocListReader':
+        if self.USE_MIN:
+            min_head = self.min_doc_header
+            flag_byte, docid = min_head.unpack(src[offset:offset + min_head.size])
+            if flag_byte == MIN_POSTS_FLAG:
+                return MinimalDocListReader(docid)
+
         return BasicDocListReader(src, offset)
 
     def vector_reader(self, src: bytes, offset: int=0) -> 'BasicVectorReader':
@@ -161,6 +178,9 @@ class BasicIO(postings.PostingsIO):
                          posts: Sequence[RawPost]) -> bytes:
         if not posts:
             raise ValueError("Empty document postings list")
+
+        if self.USE_MIN and len(posts) == 1 and fmt.only_docids():
+            return self.min_doc_header.pack(MIN_POSTS_FLAG, posts[0][DOCID])
 
         flags = make_flags(fmt.has_lengths, fmt.has_weights, fmt.has_positions,
                            fmt.has_chars, fmt.has_payloads)
@@ -535,8 +555,8 @@ class BasicPostingReader(postings.PostingReader):
     def raw_bytes(self) -> bytes:
         return self._src[self._offset: self._end_offset]
 
-    def end_offset(self) -> int:
-        return self._end_offset
+    def size_in_bytes(self) -> int:
+        return self._end_offset - self._offset
 
     def _get_weights(self) -> Sequence[float]:
         if self._weights is None:
@@ -634,11 +654,11 @@ class BasicDocListReader(BasicPostingReader, postings.DocListReader):
          h_end) = BasicIO.unpack_doc_header(src, offset)
 
         # Copy feature flags from flags
-        self.has_lengths = flags & HAS_LENGTHS
-        self.has_weights = flags & HAS_WEIGHTS
-        self.has_positions = flags & HAS_POSITIONS
-        self.has_chars = flags & HAS_CHARS
-        self.has_payloads = flags & HAS_PAYLOADS
+        self.has_lengths = bool(flags & HAS_LENGTHS)
+        self.has_weights = bool(flags & HAS_WEIGHTS)
+        self.has_positions = bool(flags & HAS_POSITIONS)
+        self.has_chars = bool(flags & HAS_CHARS)
+        self.has_payloads = bool(flags & HAS_PAYLOADS)
 
         # Read the IDs
         offset, self._ids = BasicIO.decode_docids(src, h_end, ids_tc,
@@ -707,6 +727,13 @@ class BasicDocListReader(BasicPostingReader, postings.DocListReader):
 
         return docid, None, length, weight, posbytes, charbytes, paybytes
 
+    def can_copy_raw_to(self, to_io: 'postings.PostingsIO',
+                        to_fmt: 'postform.Format') -> bool:
+        fmt = postform.Format(self.has_lengths, self.has_weights,
+                              self.has_positions, self.has_chars,
+                              self.has_payloads)
+        return BasicIO().can_copy_raw_to(fmt, to_io, to_fmt)
+
 
 class BasicVectorReader(BasicPostingReader, postings.VectorReader):
     def __init__(self, src: bytes, offset: int=0):
@@ -760,3 +787,112 @@ class BasicVectorReader(BasicPostingReader, postings.VectorReader):
                                    self.has_positions, self.has_chars,
                                    self.has_payloads)
         return BasicIO().can_copy_raw_to(from_fmt, to_io, to_fmt)
+
+
+class MinimalDocListReader(postings.DocListReader):
+    def __init__(self, docid: int):
+        self._docid = docid
+        self.has_lengths = False
+        self.has_weights = False
+        self.has_positions = False
+        self.has_chars = False
+        self.has_payloads = False
+
+    def __len__(self) -> int:
+        return 1
+
+    def can_copy_raw_to(self, to_io: 'postings.PostingsIO',
+                        to_fmt: 'postform.Format') -> bool:
+        return BasicIO().can_copy_raw_to(postform.Format(), to_io, to_fmt)
+
+    def id(self, n: int) -> int:
+        if n == 0:
+            return self._docid
+        else:
+            raise IndexError(n)
+
+    def id_slice(self, start: int, end: int) -> Sequence[int]:
+        if start == 0 and end == 1:
+            return [self._docid]
+        else:
+            raise IndexError((start, end))
+
+    def min_id(self):
+        return self._docid
+
+    def max_id(self):
+        return self._docid
+
+    def all_ids(self) -> Iterable[int]:
+        return (self._docid,)
+
+    def posting_at(self, i, termbytes: bytes = None) -> PostTuple:
+        return self.raw_posting_at(i)
+
+    def raw_posting_at(self, i) -> RawPost:
+        from whoosh.postings.ptuples import posting
+
+        if i == 0:
+            return posting(docid=self._docid)
+        else:
+            raise IndexError(i)
+
+    def postings(self, termbytes: bytes = None) -> Iterable[PostTuple]:
+        from whoosh.postings.ptuples import posting
+
+        return (posting(docid=self._docid), )
+
+    def raw_postings(self) -> Iterable[RawPost]:
+        return (self.raw_posting_at(0), )
+
+    def raw_bytes(self) -> bytes:
+        return BasicIO.min_doc_header.pack(MIN_POSTS_FLAG, self._docid)
+
+    @staticmethod
+    def size_in_bytes() -> int:
+        return BasicIO.min_doc_header.size
+
+    @staticmethod
+    def length(n: int) -> int:
+        if n == 0:
+            return 1
+        else:
+            raise IndexError(n)
+
+    @staticmethod
+    def min_length() -> float:
+        return 1.0
+
+    @staticmethod
+    def max_length(self):
+        return 1.0
+
+    @staticmethod
+    def weight(n: int) -> float:
+        return 1.0
+
+    @staticmethod
+    def total_weight() -> float:
+        return 1.0
+
+    @staticmethod
+    def max_weight() -> float:
+        return 1.0
+
+    @staticmethod
+    def positions(n: int) -> List[int]:
+        return []
+
+    @staticmethod
+    def chars(n: int) -> List[Tuple[int, int]]:
+        return []
+
+    @staticmethod
+    def payloads(n: int) -> List[bytes]:
+        return [b'']
+
+    @staticmethod
+    def supports(feature: str) -> bool:
+        return False
+
+
