@@ -681,20 +681,6 @@ class MultiReader(readers.IndexReader):
     def cursor(self, fieldname: str) -> 'codecs.TermCursor':
         return codecs.MultiCursor([r.cursor(fieldname) for r in self.readers])
 
-    def first_id(self, fieldname, text) -> int:
-        for i, r in enumerate(self.readers):
-            try:
-                docid = r.first_id(fieldname, text)
-            except (KeyError, readers.TermNotFound):
-                pass
-            else:
-                if docid is None:
-                    raise readers.TermNotFound((fieldname, text))
-                else:
-                    return self.doc_offsets[i] + docid
-
-        raise readers.TermNotFound((fieldname, text))
-
     # Deletion methods
 
     def has_deletions(self) -> bool:

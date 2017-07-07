@@ -212,42 +212,6 @@ def test_all_stored_fields():
             assert sfs == [("alfa", "bravo"), ("alpaca", "beagle")]
 
 
-def test_first_id():
-    schema = fields.Schema(path=fields.ID(stored=True))
-    with TempIndex(schema) as ix:
-        with ix.writer() as w:
-            w.add_document(path=u"/a")
-            w.add_document(path=u"/b")
-            w.add_document(path=u"/c")
-
-        with ix.reader() as r:
-            docid = r.first_id("path", u"/b")
-            assert r.stored_fields(docid) == {"path": "/b"}
-
-    with TempIndex(schema) as ix:
-        with ix.writer() as w:
-            w.add_document(path=u"/a")
-            w.add_document(path=u"/b")
-            w.add_document(path=u"/c")
-
-        with ix.writer() as w:
-            w.merge = False
-            w.add_document(path=u"/d")
-            w.add_document(path=u"/e")
-            w.add_document(path=u"/f")
-
-        with ix.writer() as w:
-            w.merge = False
-            w.add_document(path=u"/g")
-            w.add_document(path=u"/h")
-            w.add_document(path=u"/i")
-
-        with ix.reader() as r:
-            assert r.__class__ == reading.MultiReader
-            docid = r.first_id("path", u"/e")
-            assert r.stored_fields(docid) == {"path": "/e"}
-
-
 class RecoverReader(threading.Thread):
     def __init__(self, ix):
         threading.Thread.__init__(self)

@@ -549,23 +549,6 @@ class IndexReader:
 
         raise NotImplementedError(self.__class__)
 
-    # TODO: fix this to grab the ID out of the terminfo if it's there
-    def first_id(self, fieldname: str, termbytes: TermText) -> int:
-        """
-        Returns the first ID in the posting list for the given term. This
-        may be optimized in certain backends.
-
-        :param fieldname: the name of the field containing the term.
-        :param termbytes: the term byte string.
-        """
-
-        # The default implementation just uses a matcher
-        termbytes = self._text_to_bytes(fieldname, termbytes)
-        p = self.matcher(fieldname, termbytes)
-        if p.is_active():
-            return p.id()
-        raise TermNotFound((fieldname, termbytes))
-
     @abstractmethod
     def matcher(self, fieldname: str, termbytes: TermText,
                 scorer: weights.Scorer=None,
