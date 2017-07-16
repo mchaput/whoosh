@@ -58,7 +58,10 @@ HAS_PAYLOADS = 1 << 4
 # When the "flags" byte is this value, it means the post block has only one
 # piece of information -- a single Doc ID. We use a special minimal byte
 # representation and reader for this case.
-MIN_POSTS_FLAG = 128
+MIN_POSTS_FLAG = 0b10000000
+MIN_TYPE_MASK = 0b01100000
+MIN_LENGTH_MASK = 0b00011111
+MIN_TYPE_CODES = ("B", "H", "I", "q")
 
 
 def make_flags(has_lengths=False, has_weights=False, has_positions=False,
@@ -96,7 +99,7 @@ class BasicIO(postings.PostingsIO):
 
     # B   - Flags (has_*)
     # I   - Document number
-    min_doc_header = struct.Struct("<BI")
+    min_byte = struct.Struct("B")
     USE_MIN = True
 
     # B   - Flags (has_*)
@@ -164,24 +167,55 @@ class BasicIO(postings.PostingsIO):
     def doclist_reader(self, src: bytes, offset: int=0
                        ) -> 'postings.DocListReader':
         if self.USE_MIN:
-            min_head = self.min_doc_header
-            flag_byte, docid = min_head.unpack(src[offset:offset + min_head.size])
-            if flag_byte == MIN_POSTS_FLAG:
-                return postings.MinimalDocListReader(docid)
+            flag_byte = self.min_byte.unpack(src[offset:offset + 1])[0]
+            # If the high bit is set, this block was minimal encoded
+            if flag_byte & MIN_POSTS_FLAG:
+                # Pull a 2-bit number representing the array type from the flags
+                typenum = (flag_byte & MIN_TYPE_MASK) >> 5
+                # Convert it to a typecode string
+                typecode = MIN_TYPE_CODES[typenum]
+                # Pull the block length from the flags
+                length = (flag_byte & MIN_LENGTH_MASK) + 1
+                # Create a struct to unpoack the docids
+                s = struct.Struct("<" + (typecode * length))
+                docids = s.unpack(src[offset + 1:offset + s.size + 1])
+                # Return a minimal reader that only knows about doc IDs
+                return postings.MinimalDocListReader(docids)
 
         return BasicDocListReader(src, offset)
 
     def vector_reader(self, src: bytes, offset: int=0) -> 'BasicVectorReader':
         return BasicVectorReader(src, offset)
 
+    @staticmethod
+    def _minimal_doclist_bytes(posts: Sequence[RawPost]) -> bytes:
+        assert posts
+        # Pull the IDs from the postings
+        docids = [p[DOCID] for p in posts]
+        # Figure out the smallest array typecode we can use
+        typecode = min_array_code(max(docids))
+        # Convert that into a 2-bit number
+        typenum = MIN_TYPE_CODES.index(typecode)
+        length = len(docids)
+        # Enocde the "minimal" marker, the typecode, and the block length
+        # in a single byte
+        flags = MIN_POSTS_FLAG | (typenum << 5) | (length - 1)
+        # Enocde the whole thing as bytes using
+        s = struct.Struct("<B" + (typecode * length))
+        return s.pack(flags, *docids)
+
     def doclist_to_bytes(self, fmt: postform.Format,
                          posts: Sequence[RawPost]) -> bytes:
         if not posts:
             raise ValueError("Empty document postings list")
 
-        if self.USE_MIN and len(posts) == 1 and fmt.only_docids():
-            return self.min_doc_header.pack(MIN_POSTS_FLAG, posts[0][DOCID])
+        # If the format has no features and the block only has a few posts,
+        # we can special-case a minimal format that only stores the doc IDs
+        if self.USE_MIN and fmt.only_docids() and 0 < len(posts) <= 32:
+            return self._minimal_doclist_bytes(posts)
 
+        # Otherwise, build up the bytes using a flags byte, the header,
+        # and the encoded information
         flags = make_flags(fmt.has_lengths, fmt.has_weights, fmt.has_positions,
                            fmt.has_chars, fmt.has_payloads)
         ids_code, ids_bytes = self.encode_docids([p[DOCID] for p in posts])

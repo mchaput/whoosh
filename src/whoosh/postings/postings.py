@@ -360,8 +360,9 @@ class MinimalDocListReader(DocListReader):
 
     """
 
-    def __init__(self, docid: int, raw_bytes: bytes=b''):
-        self._docid = docid
+    def __init__(self, docids: Sequence[int], raw_bytes: bytes=b''):
+        assert docids
+        self._docids = docids
         self._raw_bytes = raw_bytes
         self.has_lengths = False
         self.has_weights = False
@@ -370,51 +371,37 @@ class MinimalDocListReader(DocListReader):
         self.has_payloads = False
 
     def __len__(self) -> int:
-        return 1
+        return len(self._docids)
+
+    def __repr__(self):
+        return "<MDR %r>" % (self._docids, )
 
     def can_copy_raw_to(self, to_io: 'PostingsIO',
                         to_fmt: 'postform.Format') -> bool:
         return True
 
     def id(self, n: int) -> int:
-        if n == 0:
-            return self._docid
-        else:
-            raise IndexError(n)
+        return self._docids[n]
 
     def id_slice(self, start: int, end: int) -> Sequence[int]:
-        if start == 0 and end == 1:
-            return [self._docid]
-        else:
-            raise IndexError((start, end))
+        return self._docids[start:end]
 
     def min_id(self):
-        return self._docid
+        return self._docids[0]
 
     def max_id(self):
-        return self._docid
+        return self._docids[-1]
 
     def all_ids(self) -> Iterable[int]:
-        return (self._docid,)
+        return iter(self._docids)
 
     def posting_at(self, i, termbytes: bytes = None) -> PostTuple:
-        return self.raw_posting_at(i)
+        from whoosh.postings.ptuples import posting
+        return posting(docid=self._docids[i], termbytes=termbytes)
 
     def raw_posting_at(self, i) -> RawPost:
         from whoosh.postings.ptuples import posting
-
-        if i == 0:
-            return posting(docid=self._docid)
-        else:
-            raise IndexError(i)
-
-    def postings(self, termbytes: bytes = None) -> Iterable[PostTuple]:
-        from whoosh.postings.ptuples import posting
-
-        return (posting(docid=self._docid), )
-
-    def raw_postings(self) -> Iterable[RawPost]:
-        return (self.raw_posting_at(0), )
+        return posting(docid=self._docids[i])
 
     def raw_bytes(self) -> bytes:
         return self._raw_bytes

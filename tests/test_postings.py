@@ -496,6 +496,29 @@ def test_minimal_doc_block():
 
     assert len(bbytes1) < len(bbytes2)
 
+    r1 = bio1.doclist_reader(bbytes1)
+    r2 = bio2.doclist_reader(bbytes2)
+    assert r1.id(0) == r2.id(0)
+
+
+def test_minimal_multipost():
+    fmt = postform.Format()
+    posts = [pt.posting(docid=10), pt.posting(docid=20), pt.posting(docid=40),
+             pt.posting(docid=80), pt.posting(docid=160)]
+    bio1 = basic.BasicIO()
+    bbytes1 = bio1.doclist_to_bytes(fmt, posts)
+
+    bio2 = basic.BasicIO()
+    bio2.USE_MIN = False
+    bbytes2 = bio2.doclist_to_bytes(fmt, posts)
+
+    assert len(bbytes1) < len(bbytes2)
+
+    r1 = bio1.doclist_reader(bbytes1)
+    r2 = bio2.doclist_reader(bbytes2)
+    assert list(r1.all_ids()) == list(r2.all_ids())
+
+
 
 
 #

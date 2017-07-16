@@ -477,6 +477,7 @@ def test_boolean_find_deleted():
                 w.merge = False
                 for c in domain:
                     w.add_document(i=count, b=(c == "1"))
+                    count += 1
 
         # Delete documents where "b" is True
         with ix.writer() as w:

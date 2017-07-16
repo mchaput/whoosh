@@ -1018,7 +1018,7 @@ class X1TermsReader(codecs.TermsReader):
                    ti.min_id() == ti.max_id())
         if is_mini:
             from whoosh.postings.postings import MinimalDocListReader
-            pdr = MinimalDocListReader(ti.min_id())
+            pdr = MinimalDocListReader([ti.min_id()])
             m = matchers.PostReaderMatcher(pdr, fieldname, tbytes, ti, self._io,
                                            scorer=scorer)
         elif ti.inlinebytes:
