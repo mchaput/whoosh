@@ -769,6 +769,7 @@ class X1FieldWriter(codecs.FieldWriter):
 
     def finish_term(self):
         ti = self._terminfo
+        fmt = self._format
         postbuf = self._postbuf
 
         if self._blockcount == 0 and 0 < len(postbuf) <= self._inlinelimit:
@@ -776,7 +777,14 @@ class X1FieldWriter(codecs.FieldWriter):
             # in the buffer is within the inline limit, so include the post(s)
             # inline with the term info
             ti.add_posting_list_stats(postbuf)
-            ti.inlinebytes = self._io.doclist_to_bytes(self._format, postbuf)
+
+            if fmt.only_docids() and len(postbuf) == 1:
+                assert ti.doc_frequency() == 1 and ti.min_id() == ti.max_id()
+                tibytes = b''
+            else:
+                tibytes = self._io.doclist_to_bytes(self._format, postbuf)
+            ti.inlinebytes = tibytes
+
         elif len(postbuf):
             # There's postings left in the buffer, flush them to disk
             self._flush_postings()
@@ -1002,24 +1010,25 @@ class X1TermsReader(codecs.TermsReader):
 
         return X1TermInfo.decode_doc_freq(data, 0)
 
-    def matcher_from_terminfo(self, ti: X1TermInfo, fieldname: str,
-                              tbytes: bytes, scorer: 'weights.Scorer'=None
-                              ) -> 'X1Matcher':
-        if ti.inlinebytes:
-            pdr = self._io.doclist_reader(ti.inlinebytes)
-            m = matchers.PostReaderMatcher(
-                pdr, fieldname, tbytes, ti, self._io, scorer=scorer
-            )
-        else:
-            m = X1Matcher(
-                self._postsdata, fieldname, tbytes, ti, self._io, scorer=scorer
-            )
-        return m
-
     def matcher(self, fieldname: str, tbytes: bytes, format_: 'postform.Format',
                 scorer: 'weights.Scorer'=None) -> 'X1Matcher':
         ti = self.term_info(fieldname, tbytes)
-        return self.matcher_from_terminfo(ti, fieldname, tbytes, scorer=scorer)
+
+        is_mini = (format_.only_docids() and ti.doc_frequency() == 1 and
+                   ti.min_id() == ti.max_id())
+        if is_mini:
+            from whoosh.postings.postings import MinimalDocListReader
+            pdr = MinimalDocListReader(ti.min_id())
+            m = matchers.PostReaderMatcher(pdr, fieldname, tbytes, ti, self._io,
+                                           scorer=scorer)
+        elif ti.inlinebytes:
+            pdr = self._io.doclist_reader(ti.inlinebytes)
+            m = matchers.PostReaderMatcher(pdr, fieldname, tbytes, ti, self._io,
+                                           scorer=scorer)
+        else:
+            m = X1Matcher(self._postsdata, fieldname, tbytes, ti, self._io,
+                          scorer=scorer)
+        return m
 
     def close(self):
         self._kv.close()

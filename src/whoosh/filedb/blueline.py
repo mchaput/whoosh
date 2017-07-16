@@ -65,21 +65,26 @@ class InvalidCursor(Exception):
 # Region reference
 
 class Ref:
-    __slots__ = ("offset", "count", "minkey", "maxkey", "end_offset")
+    __slots__ = ("offset", "count", "minkey", "maxkey", "end_offset", "flags")
 
+    # B - marker
+    # B - flags
     # I - offset
     # H - count (number of items in the region)
     # i - minkey length
     # i - maxkey length
-    header = Struct("<IHii")
+    header = Struct("<BBIHii")
+
+    MARKER = 114
 
     def __init__(self, offset: int, count: int, minkey: bytes, maxkey: bytes,
-                 end_offset: int=None):
+                 end_offset: int=None, flags: int=0):
         self.offset = offset
         self.count = count
         self.minkey = minkey
         self.maxkey = maxkey
         self.end_offset = end_offset
+        self.flags = flags
 
     def __eq__(self, other):
         return (type(self) == type(other) and
@@ -92,17 +97,16 @@ class Ref:
         return not self == other
 
     def __repr__(self):
-        return "<Ref @%d %d %r-%r>" % (self.offset, self.count, self.minkey,
-                                       self.maxkey)
+        return "<Ref @%d %d %r-%r %d>" % (self.offset, self.count, self.minkey,
+                                          self.maxkey, self.flags)
 
     def __len__(self):
         return self.count
 
     def to_bytes(self) -> bytes:
-        return (self.header.pack(self.offset, self.count,
+        return (self.header.pack(114, self.flags, self.offset, self.count,
                                  len(self.minkey), len(self.maxkey)) +
-                self.minkey +
-                self.maxkey
+                self.minkey + self.maxkey
                 )
 
     @classmethod
@@ -117,11 +121,12 @@ class Ref:
 
         h = cls.header
         end = offset + h.size
-        offset, count, minklen, maxklen = h.unpack(bs[offset:end])
+        mrk, flags, offset, count, minklen, maxklen = h.unpack(bs[offset:end])
+        assert mrk == cls.MARKER
         minkey = bytes(bs[end:end + minklen])
         last = end + minklen + maxklen
         maxkey = bytes(bs[end + minklen:last])
-        return cls(offset, count, minkey, maxkey, last)
+        return cls(offset, count, minkey, maxkey, last, flags)
 
 
 # Region header
@@ -194,7 +199,7 @@ def write_region(output: OutputFile, items: List[Tuple[bytes, bytes]]
     values = []
     for key, value in items:
         if keys and key <= keys[-1]:
-            raise Exception("Keys out of order")
+            raise Exception("Keys out of order: %r .. %r" % (key, keys[-1]))
 
         keys.append(key)
         values.append(value)

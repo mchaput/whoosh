@@ -167,7 +167,7 @@ class BasicIO(postings.PostingsIO):
             min_head = self.min_doc_header
             flag_byte, docid = min_head.unpack(src[offset:offset + min_head.size])
             if flag_byte == MIN_POSTS_FLAG:
-                return MinimalDocListReader(docid)
+                return postings.MinimalDocListReader(docid)
 
         return BasicDocListReader(src, offset)
 
@@ -787,112 +787,5 @@ class BasicVectorReader(BasicPostingReader, postings.VectorReader):
                                    self.has_positions, self.has_chars,
                                    self.has_payloads)
         return BasicIO().can_copy_raw_to(from_fmt, to_io, to_fmt)
-
-
-class MinimalDocListReader(postings.DocListReader):
-    def __init__(self, docid: int):
-        self._docid = docid
-        self.has_lengths = False
-        self.has_weights = False
-        self.has_positions = False
-        self.has_chars = False
-        self.has_payloads = False
-
-    def __len__(self) -> int:
-        return 1
-
-    def can_copy_raw_to(self, to_io: 'postings.PostingsIO',
-                        to_fmt: 'postform.Format') -> bool:
-        return BasicIO().can_copy_raw_to(postform.Format(), to_io, to_fmt)
-
-    def id(self, n: int) -> int:
-        if n == 0:
-            return self._docid
-        else:
-            raise IndexError(n)
-
-    def id_slice(self, start: int, end: int) -> Sequence[int]:
-        if start == 0 and end == 1:
-            return [self._docid]
-        else:
-            raise IndexError((start, end))
-
-    def min_id(self):
-        return self._docid
-
-    def max_id(self):
-        return self._docid
-
-    def all_ids(self) -> Iterable[int]:
-        return (self._docid,)
-
-    def posting_at(self, i, termbytes: bytes = None) -> PostTuple:
-        return self.raw_posting_at(i)
-
-    def raw_posting_at(self, i) -> RawPost:
-        from whoosh.postings.ptuples import posting
-
-        if i == 0:
-            return posting(docid=self._docid)
-        else:
-            raise IndexError(i)
-
-    def postings(self, termbytes: bytes = None) -> Iterable[PostTuple]:
-        from whoosh.postings.ptuples import posting
-
-        return (posting(docid=self._docid), )
-
-    def raw_postings(self) -> Iterable[RawPost]:
-        return (self.raw_posting_at(0), )
-
-    def raw_bytes(self) -> bytes:
-        return BasicIO.min_doc_header.pack(MIN_POSTS_FLAG, self._docid)
-
-    @staticmethod
-    def size_in_bytes() -> int:
-        return BasicIO.min_doc_header.size
-
-    @staticmethod
-    def length(n: int) -> int:
-        if n == 0:
-            return 1
-        else:
-            raise IndexError(n)
-
-    @staticmethod
-    def min_length() -> float:
-        return 1.0
-
-    @staticmethod
-    def max_length(self):
-        return 1.0
-
-    @staticmethod
-    def weight(n: int) -> float:
-        return 1.0
-
-    @staticmethod
-    def total_weight() -> float:
-        return 1.0
-
-    @staticmethod
-    def max_weight() -> float:
-        return 1.0
-
-    @staticmethod
-    def positions(n: int) -> List[int]:
-        return []
-
-    @staticmethod
-    def chars(n: int) -> List[Tuple[int, int]]:
-        return []
-
-    @staticmethod
-    def payloads(n: int) -> List[bytes]:
-        return [b'']
-
-    @staticmethod
-    def supports(feature: str) -> bool:
-        return False
 
 

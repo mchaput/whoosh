@@ -355,3 +355,114 @@ class EmptyVectorReader(VectorReader):
         raise Exception("Virtual reader has no size")
 
 
+class MinimalDocListReader(DocListReader):
+    """
+
+    """
+
+    def __init__(self, docid: int, raw_bytes: bytes=b''):
+        self._docid = docid
+        self._raw_bytes = raw_bytes
+        self.has_lengths = False
+        self.has_weights = False
+        self.has_positions = False
+        self.has_chars = False
+        self.has_payloads = False
+
+    def __len__(self) -> int:
+        return 1
+
+    def can_copy_raw_to(self, to_io: 'PostingsIO',
+                        to_fmt: 'postform.Format') -> bool:
+        return True
+
+    def id(self, n: int) -> int:
+        if n == 0:
+            return self._docid
+        else:
+            raise IndexError(n)
+
+    def id_slice(self, start: int, end: int) -> Sequence[int]:
+        if start == 0 and end == 1:
+            return [self._docid]
+        else:
+            raise IndexError((start, end))
+
+    def min_id(self):
+        return self._docid
+
+    def max_id(self):
+        return self._docid
+
+    def all_ids(self) -> Iterable[int]:
+        return (self._docid,)
+
+    def posting_at(self, i, termbytes: bytes = None) -> PostTuple:
+        return self.raw_posting_at(i)
+
+    def raw_posting_at(self, i) -> RawPost:
+        from whoosh.postings.ptuples import posting
+
+        if i == 0:
+            return posting(docid=self._docid)
+        else:
+            raise IndexError(i)
+
+    def postings(self, termbytes: bytes = None) -> Iterable[PostTuple]:
+        from whoosh.postings.ptuples import posting
+
+        return (posting(docid=self._docid), )
+
+    def raw_postings(self) -> Iterable[RawPost]:
+        return (self.raw_posting_at(0), )
+
+    def raw_bytes(self) -> bytes:
+        return self._raw_bytes
+
+    def size_in_bytes(self) -> int:
+        return len(self._raw_bytes)
+
+    @staticmethod
+    def length(n: int) -> int:
+        if n == 0:
+            return 1
+        else:
+            raise IndexError(n)
+
+    @staticmethod
+    def min_length() -> float:
+        return 1.0
+
+    @staticmethod
+    def max_length(self):
+        return 1.0
+
+    @staticmethod
+    def weight(n: int) -> float:
+        return 1.0
+
+    @staticmethod
+    def total_weight() -> float:
+        return 1.0
+
+    @staticmethod
+    def max_weight() -> float:
+        return 1.0
+
+    @staticmethod
+    def positions(n: int) -> List[int]:
+        return []
+
+    @staticmethod
+    def chars(n: int) -> List[Tuple[int, int]]:
+        return []
+
+    @staticmethod
+    def payloads(n: int) -> List[bytes]:
+        return [b'']
+
+    @staticmethod
+    def supports(feature: str) -> bool:
+        return False
+
+
