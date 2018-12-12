@@ -44,12 +44,7 @@ class FSA(object):
             return False
         st = self.transitions
         ot = other.transitions
-        if list(st) != list(ot):
-            return False
-        for key in st:
-            if st[key] != ot[key]:
-                return False
-        return True
+        return st == ot
 
     def all_states(self):
         stateset = set(self.transitions)

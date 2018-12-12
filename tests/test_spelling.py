@@ -20,7 +20,12 @@ def test_list_corrector():
     corr = spelling.ListCorrector(_wordlist)
     typo = "reoction"
     sugs = list(corr.suggest(typo, maxdist=2))
-    target = [w for w in _wordlist if levenshtein(typo, w) <= 2]
+    target = []
+    for lev_dist in range(1, 3):
+        # sugs will return suggest first ordered by levenshtein distance
+        # then second order by dictionary order
+        target += [w for w in _wordlist
+                   if levenshtein(typo, w) <= lev_dist and w not in target]
     assert sugs == target
 
 
