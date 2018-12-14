@@ -550,6 +550,10 @@ class CoordMatcher(WrappingMatcher):
         termcount = self._termcount  # Number of terms in this tree
         scale = self._scale  # Scaling factor
 
+        # Gracefully handle no terms
+        if termcount == 0 or termcount == scale:
+            return 0
+
         sqr = ((score + ((matching - 1) / (termcount - scale) ** 2)) *
                ((termcount - 1) / termcount))
         return sqr
