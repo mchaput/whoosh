@@ -152,7 +152,7 @@ class Fragment(object):
         return max(ec, fec) - min(sc, fsc)
 
     def __lt__(self, other):
-        return id(self) < id(other)
+        return self.startchar < other.startchar
 
 
 # Tokenizing
