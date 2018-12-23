@@ -286,7 +286,7 @@ class UnionMatcher(AdditiveBiMatcher):
         skipped = 0
         aq = a.block_quality()
         bq = b.block_quality()
-        while a.is_active() and b.is_active() and aq + bq <= minquality:
+        while a.is_active() and b.is_active() and aq + bq < minquality:
             if aq < bq:
                 skipped += a.skip_to_quality(minquality - bq)
                 aq = a.block_quality()
@@ -516,7 +516,7 @@ class IntersectionMatcher(AdditiveBiMatcher):
         skipped = 0
         aq = a.block_quality()
         bq = b.block_quality()
-        while a.is_active() and b.is_active() and aq + bq <= minquality:
+        while a.is_active() and b.is_active() and aq + bq < minquality:
             if aq < bq:
                 # If the block quality of A is less than B, skip A ahead until
                 # it can contribute at least the balance of the required min
@@ -771,7 +771,7 @@ class AndMaybeMatcher(AdditiveBiMatcher):
         skipped = 0
         aq = a.block_quality()
         bq = b.block_quality()
-        while a.is_active() and b.is_active() and aq + bq <= minquality:
+        while a.is_active() and b.is_active() and aq + bq < minquality:
             if aq < bq:
                 skipped += a.skip_to_quality(minquality - bq)
                 aq = a.block_quality()
