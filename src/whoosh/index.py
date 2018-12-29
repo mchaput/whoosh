@@ -30,15 +30,17 @@ an index.
 """
 
 from __future__ import division
-import os.path, re, sys
+
+import os.path
+import re
+import sys
 from time import time, sleep
 
 from whoosh import __version__
-from whoosh.legacy import toc_loaders
 from whoosh.compat import pickle, string_type
 from whoosh.fields import ensure_schema
+from whoosh.legacy import toc_loaders
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE, _LONG_SIZE
-
 
 _DEF_INDEX_NAME = "MAIN"
 _CURRENT_TOC_VERSION = -111
@@ -497,6 +499,12 @@ class FileIndex(Index):
         # opened readers
         from whoosh.reading import SegmentReader, MultiReader, EmptyReader
 
+        if reuse:
+            if hasattr(reuse, 'readers'):
+                segments = [s.segment() for s in reuse.readers if s.segment() is not None]
+            elif reuse.segment() is not None:
+                segments = [reuse.segment()]
+
         reusable = {}
         try:
             if len(segments) == 0:
@@ -505,10 +513,9 @@ class FileIndex(Index):
                 return EmptyReader(schema)
 
             if reuse:
-                # Put all atomic readers in a dictionary keyed by their
-                # generation, so we can re-use them if them if possible
+                # Put all atomic readers in a dictionary
                 readers = [r for r, _ in reuse.leaf_readers()]
-                reusable = dict((r.generation(), r) for r in readers)
+                reusable = dict((r.segment().segment_id(), r) for r in readers if r.segment() is not None)
 
             # Make a function to open readers, which reuses reusable readers.
             # It removes any readers it reuses from the "reusable" dictionary,
@@ -707,4 +714,3 @@ class TOC(object):
 
         # Rename temporary file to the proper filename
         storage.rename_file(tempfilename, tocfilename, safe=True)
-
