@@ -169,7 +169,7 @@ def test_daterange_empty_field():
     writer.commit()
 
     with ix.searcher() as s:
-        q = query.DateRange("test", datetime.fromtimestamp(0),
+        q = query.DateRange("test", datetime.fromtimestamp(86400),
                             datetime.today())
         r = s.search(q)
         assert len(r) == 0
