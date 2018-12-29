@@ -500,10 +500,8 @@ class FileIndex(Index):
         from whoosh.reading import SegmentReader, MultiReader, EmptyReader
 
         if reuse:
-            if hasattr(reuse, 'readers'):
-                segments = [s.segment() for s in reuse.readers if s.segment() is not None]
-            elif reuse.segment() is not None:
-                segments = [reuse.segment()]
+            # Merge segments with reuse segments
+            segments.extend([segment for segment in reuse.segments() if segment not in segments])
 
         reusable = {}
         try:
@@ -515,16 +513,15 @@ class FileIndex(Index):
             if reuse:
                 # Put all atomic readers in a dictionary
                 readers = [r for r, _ in reuse.leaf_readers()]
-                reusable = dict((r.segment().segment_id(), r) for r in readers if r.segment() is not None)
+                reusable = dict((r.segment(), r) for r in readers if r.segment() is not None)
 
             # Make a function to open readers, which reuses reusable readers.
             # It removes any readers it reuses from the "reusable" dictionary,
             # so later we can close any readers left in the dictionary.
             def segreader(segment):
-                segid = segment.segment_id()
-                if segid in reusable:
-                    r = reusable[segid]
-                    del reusable[segid]
+                if segment in reusable:
+                    r = reusable[segment]
+                    del reusable[segment]
                     return r
                 else:
                     return SegmentReader(storage, schema, segment,
