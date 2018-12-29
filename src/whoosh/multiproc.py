@@ -26,12 +26,11 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import with_statement
-import os
 from multiprocessing import Process, Queue, cpu_count
 
-from whoosh.compat import queue, xrange, iteritems, pickle
+from whoosh.compat import queue, xrange, pickle
 from whoosh.codec import base
-from whoosh.writing import PostingPool, SegmentWriter
+from whoosh.writing import SegmentWriter
 from whoosh.externalsort import imerge
 from whoosh.util import random_name
 

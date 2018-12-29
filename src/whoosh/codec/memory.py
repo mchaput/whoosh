@@ -27,7 +27,7 @@
 
 from __future__ import with_statement
 from bisect import bisect_left
-from threading import Lock, RLock
+from threading import Lock
 
 from whoosh.compat import xrange
 from whoosh.codec import base

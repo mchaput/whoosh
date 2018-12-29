@@ -38,7 +38,7 @@ from whoosh.compat import with_metaclass
 from whoosh.compat import itervalues, xrange
 from whoosh.compat import bytes_type, string_type, text_type
 from whoosh.system import emptybytes
-from whoosh.system import pack_byte, unpack_byte
+from whoosh.system import pack_byte
 from whoosh.util.numeric import to_sortable, from_sortable
 from whoosh.util.numeric import typecode_max, NaN
 from whoosh.util.text import utf8encode, utf8decode
@@ -1567,7 +1567,7 @@ class SchemaClass(with_metaclass(MetaSchema, Schema)):
     >>> s = MySchema()
     >>> type(s)
     <class 'whoosh.fields.Schema'>
-    
+
     """
 
     def __new__(cls, *args, **kwargs):

@@ -9,7 +9,6 @@ from whoosh.compat import u, b, text_type
 from whoosh.compat import array_tobytes, xrange
 from whoosh.codec import default_codec
 from whoosh.filedb.filestore import RamStorage
-from whoosh.util.numeric import byte_to_length, length_to_byte
 from whoosh.util.testing import TempStorage
 
 

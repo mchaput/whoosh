@@ -1,6 +1,5 @@
 from __future__ import with_statement
 import os.path, random, string
-import sqlite3 as sqlite
 
 from whoosh import fields, formats, index, query, sorting
 from whoosh.util import now

@@ -29,7 +29,6 @@ from __future__ import division
 import copy
 import fnmatch
 import re
-from collections import defaultdict
 
 from whoosh import matching
 from whoosh.analysis import Token

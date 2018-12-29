@@ -5,8 +5,8 @@ from datetime import datetime
 
 import pytest
 
-from whoosh import analysis, fields, index, qparser, query
-from whoosh.compat import b, u, xrange, text_type, PY3, permutations
+from whoosh import analysis, fields, index, qparser, query, __version__
+from whoosh.compat import b, u, xrange, text_type, permutations
 from whoosh.filedb.filestore import RamStorage
 from whoosh.writing import IndexingError
 from whoosh.util.numeric import length_to_byte, byte_to_length
@@ -49,8 +49,6 @@ def test_empty_commit():
 
 
 def test_version_in():
-    from whoosh import __version__
-    from whoosh import index
 
     with TempStorage("versionin") as st:
         assert not index.exists(st)

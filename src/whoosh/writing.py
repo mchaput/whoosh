@@ -35,7 +35,6 @@ from whoosh.compat import abstractmethod, bytes_type
 from whoosh.externalsort import SortingPool
 from whoosh.fields import UnknownFieldError
 from whoosh.index import LockError
-from whoosh.system import emptybytes
 from whoosh.util import fib, random_name
 from whoosh.util.filelock import try_for
 from whoosh.util.text import utf8encode
@@ -92,7 +91,7 @@ def MERGE_SMALL(writer, segments):
             unchanged_segments.append(seg)
         else:  # look for a merge point
             segments_to_merge.append((seg, i)) # merge every segment up to the merge point
-            if i > 3 and total_docs < fib(i + 5):  
+            if i > 3 and total_docs < fib(i + 5):
                 merge_point_found = True
 
     if merge_point_found and len(segments_to_merge) > 1:

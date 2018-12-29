@@ -29,7 +29,7 @@ from __future__ import division
 from array import array
 
 from whoosh import matching
-from whoosh.compat import text_type, u, xrange
+from whoosh.compat import text_type, u
 from whoosh.query import qcore
 
 

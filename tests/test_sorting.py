@@ -1,10 +1,9 @@
 from __future__ import with_statement
 from datetime import datetime, timedelta
 import random
-import gc
 
-from whoosh import fields, query, sorting
-from whoosh.compat import b, u
+from whoosh import fields, query, sorting, columns
+from whoosh.compat import u
 from whoosh.compat import permutations, xrange
 from whoosh.filedb.filestore import RamStorage
 from whoosh.util.testing import TempIndex
@@ -327,8 +326,6 @@ def test_missing_overlap():
 
 
 def test_date_facet():
-    from whoosh import columns
-
     schema = fields.Schema(id=fields.STORED, date=fields.DATETIME)
     dc = schema["date"].default_column()
     assert isinstance(dc, columns.NumericColumn)
@@ -876,7 +873,6 @@ def test_filtered_grouped():
 
 
 def test_add_sortable():
-    from whoosh import columns
 
     st = RamStorage()
     schema = fields.Schema(chapter=fields.ID(stored=True), price=fields.NUMERIC)

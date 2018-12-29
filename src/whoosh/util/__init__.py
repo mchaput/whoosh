@@ -27,7 +27,7 @@
 
 from __future__ import with_statement
 import random, sys, time
-from bisect import insort, bisect_left
+from bisect import insort
 from functools import wraps
 
 from whoosh.compat import xrange

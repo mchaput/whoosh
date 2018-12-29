@@ -2,7 +2,7 @@
 from __future__ import with_statement
 import random, threading, time
 
-from whoosh import analysis, fields, formats, reading
+from whoosh import fields, formats, reading
 from whoosh.compat import b, u, xrange
 from whoosh.reading import SegmentReader
 from whoosh.filedb.filestore import RamStorage

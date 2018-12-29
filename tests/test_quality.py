@@ -2,7 +2,7 @@ from __future__ import with_statement
 import random
 
 from whoosh import fields, matching, scoring
-from whoosh.compat import b, u, xrange
+from whoosh.compat import u, xrange
 from whoosh.filedb.filestore import RamStorage
 from whoosh.util.numeric import length_to_byte, byte_to_length
 

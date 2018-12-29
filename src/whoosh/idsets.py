@@ -4,9 +4,9 @@ An implementation of an object that acts like a collection of on/off bits.
 
 import operator
 from array import array
-from bisect import bisect_left, bisect_right, insort
+from bisect import bisect_left, bisect_right
 
-from whoosh.compat import integer_types, izip, izip_longest, next, xrange
+from whoosh.compat import izip, izip_longest, next, xrange
 from whoosh.util.numeric import bytes_for_bits
 
 
