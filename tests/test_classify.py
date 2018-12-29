@@ -1,6 +1,6 @@
 from __future__ import with_statement
 
-from whoosh import analysis, classify, fields, formats, query
+from whoosh import analysis, classify, fields, formats, query, reading
 from whoosh.compat import u, text_type
 from whoosh.filedb.filestore import RamStorage
 from whoosh.util.testing import TempIndex
@@ -23,45 +23,53 @@ def create_index():
     vector_format = formats.Frequency()
     schema = fields.Schema(path=fields.ID(stored=True),
                            content=fields.TEXT(analyzer=analyzer,
-                                               vector=vector_format))
+                                               vector=vector_format),
+                           extra=fields.TEXT(stored=True))
 
     ix = RamStorage().create_index(schema)
 
     w = ix.writer()
     from string import ascii_lowercase
     for letter, content in zip(ascii_lowercase, domain):
-        w.add_document(path=u("/%s") % letter, content=content)
+        w.add_document(path=u("/%s") % letter, content=content, extra=u(''))
     w.commit()
 
     return ix
 
 
-def test_add_text():
+def test_add_text(model=classify.Bo1Model):
     ix = create_index()
     with ix.reader() as r:
-        exp = classify.Expander(r, "content")
+        exp = classify.Expander(r, "content", model=model)
         exp.add_text(text)
-        assert ([t[0] for t in exp.expanded_terms(3)]
-                == ["particles", "velocity", "field"])
+        assert (set([t[0] for t in exp.expanded_terms(3)])
+                == set(["particles", "velocity", "field"]))
+        exp = classify.Expander(r, "extra", model=model)
+        exp.add_text(text)
+        assert exp.expanded_terms(3) == []
 
 
-def test_keyterms():
+def test_keyterms(model=classify.Bo1Model):
     ix = create_index()
     with ix.searcher() as s:
         docnum = s.document_number(path="/a")
-        keys = list(s.key_terms([docnum], "content", numterms=3))
+        keys = list(s.key_terms([docnum], "content", numterms=3, model=model))
         assert ([t[0] for t in keys]
                 == [u("collision"), u("calculations"), u("damped")])
+        keys = list(s.key_terms([docnum], "extra", numterms=3, model=model))
+        assert keys == []
 
 
-def test_keyterms_from_text():
+def test_keyterms_from_text(model=classify.Bo2Model):
     ix = create_index()
     with ix.searcher() as s:
-        keys = list(s.key_terms_from_text("content", text))
-        assert [t[0] for t in keys] == ["particles", "velocity", "field"]
+        keys = list(s.key_terms_from_text("content", text, model=model))
+        assert set([t[0] for t in keys]) == set(["particles", "velocity", "field"])
+        keys = list(s.key_terms_from_text("extra", text, model=model))
+        assert keys == []
 
 
-def test_more_like_this():
+def test_more_like_this(model=classify.Bo2Model):
     docs = [u("alfa bravo charlie delta echo foxtrot golf"),
             u("delta echo foxtrot golf hotel india juliet"),
             u("echo foxtrot golf hotel india juliet kilo"),
@@ -77,7 +85,7 @@ def test_more_like_this():
 
         with ix.searcher() as s:
             docnum = s.document_number(id=u("1"))
-            r = s.more_like(docnum, "text", **kwargs)
+            r = s.more_like(docnum, "text", model=model, **kwargs)
             assert [hit["id"] for hit in r] == ["6", "2", "3"]
 
     schema = fields.Schema(id=fields.ID(stored=True),
@@ -94,7 +102,7 @@ def test_more_like_this():
     _check(schema, text=docs[0])
 
 
-def test_more_like():
+def test_more_like(model=classify.Bo2Model):
     schema = fields.Schema(id=fields.ID(stored=True),
                            text=fields.TEXT(stored=True))
     with TempIndex(schema, "morelike") as ix:
@@ -109,11 +117,11 @@ def test_more_like():
 
         with ix.searcher() as s:
             docnum = s.document_number(id="3")
-            r = s.more_like(docnum, "text")
+            r = s.more_like(docnum, "text", model=model)
             assert [hit["id"] for hit in r] == ["5", "4"]
 
 
-def test_empty_more_like():
+def test_empty_more_like(model=classify.Bo1Model):
     schema = fields.Schema(text=fields.TEXT)
     with TempIndex(schema, "emptymore") as ix:
         with ix.searcher() as s:
@@ -121,12 +129,34 @@ def test_empty_more_like():
             q = query.Term("a", u("b"))
             r = s.search(q)
             assert r.scored_length() == 0
-            assert r.key_terms("text") == []
+            assert r.key_terms("text", model=model) == []
 
-            ex = classify.Expander(s.reader(), "text")
+            ex = classify.Expander(s.reader(), "text", model=model)
             assert ex.expanded_terms(1) == []
 
 
+def test_fake_more_like(model=classify.Bo1Model):
+    schema = fields.Schema(text=fields.TEXT)
+    reader = reading.EmptyReader(schema)
+    ex = classify.Expander(reader, "text", model=model)
+    assert ex.expanded_terms(1) == []
 
 
+def test_bo2model():
+    test_empty_more_like(classify.Bo2Model)
+    test_add_text(classify.Bo2Model)
+    test_keyterms_from_text(classify.Bo2Model)
+    test_more_like_this(classify.Bo2Model)
+    test_more_like(classify.Bo2Model)
+    test_keyterms(classify.Bo2Model)
+    test_fake_more_like(classify.Bo2Model)
 
+
+def test_klmodel():
+    test_empty_more_like(classify.KLModel)
+    test_add_text(classify.KLModel)
+    test_keyterms_from_text(classify.KLModel)
+    test_more_like_this(classify.KLModel)
+    test_more_like(classify.KLModel)
+    test_keyterms(classify.KLModel)
+    test_fake_more_like(classify.KLModel)
