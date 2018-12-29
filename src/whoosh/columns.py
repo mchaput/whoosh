@@ -62,7 +62,6 @@ from whoosh.compat import dumps, loads
 from whoosh.filedb.structfile import StructFile
 from whoosh.idsets import BitSet, OnDiskBitSet
 from whoosh.system import emptybytes
-from whoosh.util.cache import lru_cache
 from whoosh.util.numeric import typecode_max, typecode_min
 from whoosh.util.numlists import GrowableArray
 from whoosh.util.varints import varint, read_varint

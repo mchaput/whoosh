@@ -38,7 +38,6 @@ from whoosh import classify, highlight, query, scoring
 from whoosh.compat import iteritems, itervalues, iterkeys, xrange
 from whoosh.idsets import DocIdSet, BitSet
 from whoosh.reading import TermNotFound
-from whoosh.util.cache import lru_cache
 
 
 class NoTermsException(Exception):

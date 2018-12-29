@@ -98,35 +98,6 @@ def test_length_byte():
     assert source == result
 
 
-def test_clockface_lru():
-    from whoosh.util.cache import clockface_lru_cache
-
-    @clockface_lru_cache(5)
-    def test(n):
-        return n * 2
-
-    result = [test(n) for n in (1, 2, 3, 4, 5, 4, 3, 2, 10, 1)]
-    assert result == [2, 4, 6, 8, 10, 8, 6, 4, 20, 2]
-    assert test.cache_info() == (3, 7, 5, 5)
-    test.cache_clear()
-    assert test.cache_info() == (0, 0, 5, 0)
-
-
-def test_double_barrel_lru():
-    from whoosh.util.cache import lru_cache
-
-    @lru_cache(5)
-    def test(n):
-        return n * 2
-
-    result = [test(n) for n in (1, 2, 3, 4, 5, 4, 3, 2, 10, 1)]
-    assert result == [2, 4, 6, 8, 10, 8, 6, 4, 20, 2]
-    # # hits, misses, maxsize and currsize
-    # assert test.cache_info() == (4, 6, 5, 5)
-    test.cache_clear()
-    # assert test.cache_info() == (0, 0, 5, 0)
-
-
 def test_version_object():
     from whoosh.util.versions import SimpleVersion as sv
 
