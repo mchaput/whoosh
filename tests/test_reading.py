@@ -2,6 +2,8 @@
 from __future__ import with_statement
 import random, threading, time
 
+import pytest
+
 from whoosh import analysis, fields, formats, reading
 from whoosh.compat import b, u, xrange
 from whoosh.reading import SegmentReader
@@ -272,6 +274,9 @@ def test_first_id():
     assert r.__class__ == reading.MultiReader
     docid = r.first_id("path", u("/e"))
     assert r.stored_fields(docid) == {"path": "/e"}
+
+    with pytest.raises(NotImplementedError):
+        r.cursor("path")
 
 
 class RecoverReader(threading.Thread):
