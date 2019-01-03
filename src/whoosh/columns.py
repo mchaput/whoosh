@@ -62,65 +62,9 @@ from whoosh.compat import dumps, loads
 from whoosh.filedb.structfile import StructFile
 from whoosh.idsets import BitSet, OnDiskBitSet
 from whoosh.system import emptybytes
-from whoosh.util.cache import lru_cache
 from whoosh.util.numeric import typecode_max, typecode_min
 from whoosh.util.numlists import GrowableArray
 from whoosh.util.varints import varint, read_varint
-
-
-# Utility functions
-
-def _mintype(maxn):
-    if maxn < 2 ** 8:
-        typecode = "B"
-    elif maxn < 2 ** 16:
-        typecode = "H"
-    elif maxn < 2 ** 31:
-        typecode = "i"
-    else:
-        typecode = "I"
-
-    return typecode
-
-
-# Python does not support arrays of long long see Issue 1172711
-# These functions help write/read a simulated an array of q/Q using lists
-
-def write_qsafe_array(typecode, arry, dbfile):
-    if typecode == "q":
-        for num in arry:
-            dbfile.write_long(num)
-    elif typecode == "Q":
-        for num in arry:
-            dbfile.write_ulong(num)
-    else:
-        dbfile.write_array(arry)
-
-
-def read_qsafe_array(typecode, size, dbfile):
-    if typecode == "q":
-        arry = [dbfile.read_long() for _ in xrange(size)]
-    elif typecode == "Q":
-        arry = [dbfile.read_ulong() for _ in xrange(size)]
-    else:
-        arry = dbfile.read_array(typecode, size)
-
-    return arry
-
-
-def make_array(typecode, size=0, default=None):
-    if typecode.lower() == "q":
-        # Python does not support arrays of long long see Issue 1172711
-        if default is not None and size:
-            arry = [default] * size
-        else:
-            arry = []
-    else:
-        if default is not None and size:
-            arry = array(typecode, (default for _ in xrange(size)))
-        else:
-            arry = array(typecode)
-    return arry
 
 
 # Base classes

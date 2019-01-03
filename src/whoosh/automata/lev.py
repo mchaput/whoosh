@@ -1,7 +1,7 @@
 from __future__ import print_function
 
-from whoosh.compat import unichr, xrange
-from whoosh.automata.fsa import ANY, EPSILON, NFA, unull
+from whoosh.compat import xrange
+from whoosh.automata.fsa import ANY, EPSILON, NFA
 
 
 def levenshtein_automaton(term, k, prefix=0):

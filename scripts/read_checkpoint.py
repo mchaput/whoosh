@@ -4,7 +4,6 @@
 
 from __future__ import print_function, with_statement
 import sys
-from datetime import datetime
 
 from whoosh import index, query
 from whoosh.compat import u

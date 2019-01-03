@@ -27,7 +27,6 @@
 
 from __future__ import division
 
-from whoosh.compat import xrange
 from whoosh.matching import mcore
 
 

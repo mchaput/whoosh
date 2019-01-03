@@ -29,7 +29,6 @@ from __future__ import division
 
 from whoosh import matching
 from whoosh.compat import text_type, u
-from whoosh.compat import xrange
 from whoosh.query import qcore
 from whoosh.util import make_binary_tree, make_weighted_tree
 
@@ -391,8 +390,6 @@ class SplitOr(Or):
     SPLIT_DOC_LIMIT = 8000
 
     def matcher(self, searcher, context=None):
-        from whoosh import collectors
-
         # Get the subqueries
         subs = self.subqueries
         if not subs:

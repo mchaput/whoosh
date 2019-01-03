@@ -32,7 +32,6 @@ D. J. Bernstein's CDB format (http://cr.yp.to/cdb.html).
 
 import os, struct
 from binascii import crc32
-from bisect import bisect_left
 from hashlib import md5  # @UnresolvedImport
 
 from whoosh.compat import b, bytes_type

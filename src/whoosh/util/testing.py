@@ -26,7 +26,6 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 import os.path
-import random
 import shutil
 import sys
 import tempfile

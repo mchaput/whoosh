@@ -3,7 +3,7 @@ from __future__ import with_statement
 import pytest
 
 from whoosh import collectors, fields, query, searching
-from whoosh.compat import b, u, xrange
+from whoosh.compat import u, xrange
 from whoosh.filedb.filestore import RamStorage
 from whoosh.util.testing import TempIndex
 
@@ -181,7 +181,7 @@ def test_termdocs():
         w.add_document(key=u"antimatter", city=u"roma")
         w.add_document(key=u"angora", city=u"london")
         w.add_document(key=u"angels", city=u"roma")
-    
+
     with ix.searcher() as s:
         cond_q = query.Term("city", u"london")
         pref_q = query.Prefix("key", u"an")

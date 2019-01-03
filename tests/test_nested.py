@@ -1,6 +1,6 @@
 from __future__ import with_statement
 
-from whoosh import fields, qparser, query, sorting
+from whoosh import fields, query, sorting
 from whoosh.compat import u
 from whoosh.filedb.filestore import RamStorage
 from whoosh.util.testing import TempIndex

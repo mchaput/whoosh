@@ -1,5 +1,3 @@
-import pytest
-
 from whoosh import analysis, fields, query
 from whoosh.compat import u, text_type
 from whoosh.qparser import default, plugins

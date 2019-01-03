@@ -1,7 +1,7 @@
 from __future__ import with_statement
 
 from whoosh import analysis, fields
-from whoosh.compat import xrange, u
+from whoosh.compat import u
 from whoosh.codec import default_codec
 from whoosh.formats import Existence, Frequency
 from whoosh.formats import Positions, PositionBoosts

@@ -325,7 +325,6 @@ class ZcatalogModule(Module):
         from ZODB.FileStorage import FileStorage  # @UnresolvedImport
         from ZODB.DB import DB  # @UnresolvedImport
         from zcatalog import catalog  # @UnresolvedImport
-        from zcatalog import indexes  # @UnresolvedImport
         import transaction  # @UnresolvedImport
 
         dir = os.path.join(self.options.dir, "%s_zcatalog"
@@ -364,9 +363,6 @@ class ZcatalogModule(Module):
     def searcher(self):
         from ZODB.FileStorage import FileStorage  # @UnresolvedImport
         from ZODB.DB import DB  # @UnresolvedImport
-        from zcatalog import catalog  # @UnresolvedImport
-        from zcatalog import indexes  # @UnresolvedImport
-        import transaction  # @UnresolvedImport
 
         path = os.path.join(self.options.dir, "%s_zcatalog"
                             % self.options.indexname, "index")

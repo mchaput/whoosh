@@ -10,7 +10,7 @@ except ImportError:
     pytest = None
 
 sys.path.insert(0, os.path.abspath("src"))
-from whoosh import __version__, versionstring
+from whoosh import versionstring
 
 
 class PyTest(TestCommand):

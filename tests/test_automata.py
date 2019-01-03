@@ -2,13 +2,10 @@ import gzip
 import os.path
 from bisect import bisect_left
 
-import pytest
-
 from whoosh.compat import permutations
 from whoosh.compat import xrange
-from whoosh.automata import fsa, glob, lev, reg
+from whoosh.automata import fsa, glob, lev
 from whoosh.support.levenshtein import levenshtein
-from whoosh.util import random_bytes
 
 
 def test_nfa():

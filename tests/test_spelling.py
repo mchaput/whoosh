@@ -2,7 +2,7 @@ from __future__ import with_statement
 import gzip
 
 from whoosh import analysis, fields, highlight, query, spelling
-from whoosh.compat import b, u, permutations
+from whoosh.compat import u
 from whoosh.qparser import QueryParser
 from whoosh.support.levenshtein import levenshtein
 from whoosh.util.testing import TempIndex
