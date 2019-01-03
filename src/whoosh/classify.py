@@ -58,6 +58,8 @@ class ExpansionModel(object):
 
 class Bo1Model(ExpansionModel):
     def normalizer(self, maxweight, top_total):
+        if not maxweight:
+            return maxweight
         f = maxweight / self.N
         return (maxweight * log((1.0 + f) / f) + log(1.0 + f)) / log(2.0)
 
@@ -68,6 +70,8 @@ class Bo1Model(ExpansionModel):
 
 class Bo2Model(ExpansionModel):
     def normalizer(self, maxweight, top_total):
+        if not self.collection_total:
+            return maxweight
         f = maxweight * self.N / self.collection_total
         return maxweight * log((1.0 + f) / f, 2) + log(1.0 + f, 2)
 
@@ -78,6 +82,8 @@ class Bo2Model(ExpansionModel):
 
 class KLModel(ExpansionModel):
     def normalizer(self, maxweight, top_total):
+        if not self.collection_total:
+            return maxweight
         return (maxweight * log(self.collection_total / top_total) / log(2.0)
                 * top_total)
 
