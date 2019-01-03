@@ -2,6 +2,7 @@
 from __future__ import with_statement
 import random, threading, time
 
+import pytest
 from whoosh import fields, formats, reading
 
 from whoosh.compat import b, u, xrange
