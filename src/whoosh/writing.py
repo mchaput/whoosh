@@ -547,7 +547,12 @@ class SegmentWriter(IndexWriter):
         self.mergetype = None
 
     def __repr__(self):
-        return "<%s %r>" % (self.__class__.__name__, self.newsegment)
+        # Author: Ronald Evers
+        # Origin bitbucket issue: https://bitbucket.org/mchaput/whoosh/issues/483
+        # newsegment might not be set due to LockError
+        # so use getattr to be safe
+        return "<%s %r>" % (self.__class__.__name__,
+                            getattr(self, 'newsegment', None))
 
     def _check_state(self):
         if self.is_closed:
