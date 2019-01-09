@@ -1590,6 +1590,23 @@ def test_groupedby_with_terms():
         assert r.matched_terms() == set([('content', b('ipfstd1'))])
 
 
+def test_buffered_refresh():
+    from whoosh import writing
+
+    schema = fields.Schema(foo=fields.ID())
+    ix = RamStorage().create_index(schema)
+
+    with writing.BufferedWriter(ix, period=1000) as writer:
+        writer.add_document(foo=u('1'))
+        writer.add_document(foo=u('2'))
+
+        with writer.searcher() as searcher:
+            assert searcher.doc_count() == 2
+            assert not searcher.up_to_date()
+            searcher = searcher.refresh()
+            assert searcher.doc_count() == 2
+
+
 def test_score_length():
     schema = fields.Schema(a=fields.TEXT, b=fields.TEXT)
     ix = RamStorage().create_index(schema)

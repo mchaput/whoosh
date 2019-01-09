@@ -169,6 +169,12 @@ class IndexReader(object):
 
         return None
 
+    def segments(self):
+        """Returns a list of :class:`whoosh.index.Segment` objects used by this reader.
+        """
+
+        return None
+
     def storage(self):
         """Returns the :class:`whoosh.filedb.filestore.Storage` object used by
         this reader to read its files. If the reader is not atomic,
@@ -626,6 +632,9 @@ class SegmentReader(IndexReader):
     def segment(self):
         return self._segment
 
+    def segments(self):
+        return [self.segment()]
+
     def storage(self):
         return self._storage
 
@@ -897,6 +906,9 @@ class EmptyReader(IndexReader):
     def __iter__(self):
         return iter([])
 
+    def segments(self):
+        return None
+
     def cursor(self, fieldname):
         from whoosh.codec.base import EmptyCursor
 
@@ -1006,6 +1018,9 @@ class MultiReader(IndexReader):
 
     def cursor(self, fieldname):
         return MultiCursor([r.cursor(fieldname) for r in self.readers])
+
+    def segments(self):
+        return [reader.segment() for reader in self.readers if reader.segment() is not None]
 
     def is_atomic(self):
         return False

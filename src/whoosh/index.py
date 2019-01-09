@@ -30,15 +30,17 @@ an index.
 """
 
 from __future__ import division
-import os.path, re, sys
+
+import os.path
+import re
+import sys
 from time import time, sleep
 
 from whoosh import __version__
-from whoosh.legacy import toc_loaders
 from whoosh.compat import pickle, string_type
 from whoosh.fields import ensure_schema
+from whoosh.legacy import toc_loaders
 from whoosh.system import _INT_SIZE, _FLOAT_SIZE, _LONG_SIZE
-
 
 _DEF_INDEX_NAME = "MAIN"
 _CURRENT_TOC_VERSION = -111
@@ -497,6 +499,10 @@ class FileIndex(Index):
         # opened readers
         from whoosh.reading import SegmentReader, MultiReader, EmptyReader
 
+        if reuse:
+            # Merge segments with reuse segments
+            segments.extend([segment for segment in reuse.segments() if segment not in segments])
+
         reusable = {}
         try:
             if len(segments) == 0:
@@ -505,19 +511,17 @@ class FileIndex(Index):
                 return EmptyReader(schema)
 
             if reuse:
-                # Put all atomic readers in a dictionary keyed by their
-                # generation, so we can re-use them if them if possible
+                # Put all atomic readers in a dictionary
                 readers = [r for r, _ in reuse.leaf_readers()]
-                reusable = dict((r.generation(), r) for r in readers)
+                reusable = dict((r.segment(), r) for r in readers if r.segment() is not None)
 
             # Make a function to open readers, which reuses reusable readers.
             # It removes any readers it reuses from the "reusable" dictionary,
             # so later we can close any readers left in the dictionary.
             def segreader(segment):
-                segid = segment.segment_id()
-                if segid in reusable:
-                    r = reusable[segid]
-                    del reusable[segid]
+                if segment in reusable:
+                    r = reusable[segment]
+                    del reusable[segment]
                     return r
                 else:
                     return SegmentReader(storage, schema, segment,
@@ -707,4 +711,3 @@ class TOC(object):
 
         # Rename temporary file to the proper filename
         storage.rename_file(tempfilename, tocfilename, safe=True)
-

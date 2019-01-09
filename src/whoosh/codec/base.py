@@ -510,6 +510,12 @@ class Segment(object):
     def __repr__(self):
         return "<%s %s>" % (self.__class__.__name__, self.segment_id())
 
+    def __eq__(self, other):
+        return isinstance(other, type(self)) and self.segment_id() == other.segment_id()
+
+    def __hash__(self):
+        return hash(self.segment_id())
+
     def codec(self):
         raise NotImplementedError
 
