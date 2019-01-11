@@ -1414,7 +1414,7 @@ class Hit(object):
             raise NoTermsException
         return self.results.docterms.get(self.docnum, [])
 
-    def highlights(self, fieldname, text=None, top=3, minscore=1):
+    def highlights(self, fieldname, text=None, top=3, minscore=1, strict_phrase=False):
         """Returns highlighted snippets from the given field::
 
             r = searcher.search(myquery)
@@ -1450,7 +1450,7 @@ class Hit(object):
 
         hliter = self.results.highlighter
         return hliter.highlight_hit(self, fieldname, text=text, top=top,
-                                    minscore=minscore)
+                                    minscore=minscore, strict_phrase=strict_phrase)
 
     def more_like_this(self, fieldname, text=None, top=10, numterms=5,
                        model=classify.Bo1Model, normalize=True, filter=None):

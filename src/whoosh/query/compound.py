@@ -191,7 +191,7 @@ class CompoundQuery(qcore.Query):
         subs = self.subqueries
         if subs:
             q = self.__class__([subq.simplify(ixreader) for subq in subs],
-                                boost=self.boost).normalize()
+                               boost=self.boost).normalize()
         else:
             q = qcore.NullQuery
         return q
@@ -339,10 +339,10 @@ class Or(CompoundQuery):
         if matcher_type == self.AUTO_MATCHER:
             dc = searcher.doc_count_all()
             if (len(subs) < self.TOO_MANY_CLAUSES
-                and (needs_current
-                     or self.scale
-                     or len(subs) == 2
-                     or dc > 5000)):
+                    and (needs_current
+                         or self.scale
+                         or len(subs) == 2
+                         or dc > 5000)):
                 # If the parent matcher needs the current match, or there's just
                 # two sub-matchers, use the standard binary tree of Unions
                 matcher_type = self.DEFAULT_MATCHER

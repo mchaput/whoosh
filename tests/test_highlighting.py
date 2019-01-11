@@ -9,7 +9,6 @@ from whoosh.compat import u
 from whoosh.filedb.filestore import RamStorage
 from whoosh.util.testing import TempIndex
 
-
 _doc = u("alfa bravo charlie delta echo foxtrot golf hotel india juliet " +
          "kilo lima")
 
@@ -21,6 +20,57 @@ def test_null_fragment():
     uc = highlight.UppercaseFormatter()
     htext = highlight.highlight(_doc, terms, sa, nf, uc)
     assert htext == "alfa BRAVO charlie delta echo foxtrot golf hotel INDIA juliet kilo lima"
+
+
+def test_phrase_strict():
+    def search(searcher, query_string):
+        parser = qparser.QueryParser("title", schema=ix.schema)
+        q = parser.parse(u(query_string))
+        result = searcher.search(q, terms=True)
+        result.fragmenter = highlight.ContextFragmenter()
+        result.formatter = highlight.UppercaseFormatter()
+        return result
+
+    schema = fields.Schema(id=fields.ID(stored=True),
+                           title=fields.TEXT(stored=True))
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id=u("1"), title=u("strict phrase highlights phrase terms but not individual terms"))
+    w.commit()
+
+    with ix.searcher() as s:
+        # Phrase
+        r = search(s, "\"phrase terms\"")
+
+        # Non-strict
+        outputs = [hit.highlights("title", strict_phrase=False) for hit in r]
+        assert outputs == ["strict PHRASE highlights PHRASE TERMS but not individual...TERMS"]
+
+        # Strict
+        outputs = [hit.highlights("title", strict_phrase=True) for hit in r]
+        assert outputs == ["phrase highlights PHRASE TERMS but not individual"]
+
+        # Phrase with slop
+        r = search(s, "\"strict highlights terms\"~2")
+
+        # Non-strict
+        outputs = [hit.highlights("title", strict_phrase=False) for hit in r]
+        assert outputs == ["STRICT phrase HIGHLIGHTS phrase TERMS but not individual...TERMS"]
+
+        # Strict
+        outputs = [hit.highlights("title", strict_phrase=True) for hit in r]
+        assert outputs == ["STRICT phrase HIGHLIGHTS phrase TERMS but not individual"]
+
+        # Phrase with individual terms
+        r = search(s, "individual AND \"phrase terms\"")
+
+        # Non-strict
+        outputs = [hit.highlights("title", strict_phrase=False) for hit in r]
+        assert outputs == ["strict PHRASE highlights PHRASE TERMS but not INDIVIDUAL TERMS"]
+
+        # Strict
+        outputs = [hit.highlights("title", strict_phrase=True) for hit in r]
+        assert outputs == ["phrase highlights PHRASE TERMS but not INDIVIDUAL terms"]
 
 
 def test_sentence_fragment():
