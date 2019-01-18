@@ -49,13 +49,13 @@ See :doc:`/highlight` for more information.
 """
 
 from __future__ import division
+
 from collections import deque
 from heapq import nlargest
 from itertools import groupby
 
-from whoosh.compat import htmlescape
 from whoosh.analysis import Token
-
+from whoosh.compat import htmlescape
 
 # The default value for the maximum chars to examine when fragmenting
 DEFAULT_CHARLIMIT = 2 ** 15
@@ -106,7 +106,7 @@ class Fragment(object):
         available).
     """
 
-    def __init__(self, text, matches, startchar=0, endchar= -1):
+    def __init__(self, text, matches, startchar=0, endchar=-1):
         """
         :param text: the source text of the fragment.
         :param matches: a list of objects which have ``startchar`` and
@@ -158,8 +158,104 @@ class Fragment(object):
 # Tokenizing
 
 def set_matched_filter(tokens, termset):
+    """
+    Mark tokens to be highlighted as matched.
+    Phrase agnostic: highlights all matching tokens individually,
+                     even if the terms are part of a phrase
+
+    :param tokens: Result tokens to scan for matched terms to highlight
+    :param termset: Query terms
+    :return: yield each token with t.matched = True / False, indicating if the
+             token should be highlighted
+    """
     for t in tokens:
         t.matched = t.text in termset
+        yield t
+
+
+def set_matched_filter_phrases(tokens, text, terms, phrases):
+    """
+    Mark tokens to be highlighted as matched. Used for Strict Phrase highlighting.
+    Phrase-aware: highlights only individual matches for individual query terms
+                  and phrase matches for phrase terms.
+
+    :param tokens:  Result tokens
+    :param text:    Result text to scan for matched terms to highlight
+    :param terms:   Individual query terms
+    :param phrases: Query Phrases
+    :return: yield each token with t.matched = True / False, indicating if the
+             token should be highlighted
+    """
+
+    """
+    Implementation note: Because the Token object follows a Singleton pattern,
+    we can only read each one once. Because phrase matching requires rescanning,
+    we require a rendered token list (the text parameter) instead. The function must 
+    still yield Token objects at the end, so the text list is used as a way to build a list
+    of Token indices (the matches set). The yield loop at the end uses this
+    to properly set .matched on the yielded Token objects.
+    """
+    text = text.split()
+    matches = set()
+
+    # Match phrases
+    for phrase in phrases:
+        i = 0
+        n_phrase_words = len(phrase.words)
+        slop = phrase.slop
+        while i < len(text):
+            if phrase.words[0] == text[i]:  # If first word matched
+                if slop == 1:
+                    # Simple substring match
+                    if text[i + 1:i + n_phrase_words] == phrase.words[1:]:  # If rest of phrase matches
+                        any(map(matches.add, range(i, i + n_phrase_words)))  # Collect matching indices
+                        # Advance past match area.
+                        # Choosing to ignore possible overlapping matches for efficiency due to low probability.
+                        i += n_phrase_words
+                    else:
+                        i += 1
+                else:
+                    # Slop match
+                    current_word_index = first_slop_match = last_slop_match = i
+                    slop_matches = [first_slop_match]
+                    for word in phrase.words[1:]:
+                        try:
+                            """
+                            Find the *last* occurrence of word in the slop substring by reversing it and mapping the index back.
+                            If multiple tokens match in the substring, picking the first one can overlook valid matches.
+                            For example, phrase is: 'one two three'~2
+                            Target substring is:    'one two two six three', which is a valid match.
+                                                     [0] [1] [2] [3] [4]
+                            
+                            Looking for the first match will find [0], then [1] then fail since [3] is more than ~2 words away
+                            Looking for the last match will find [0], then, given a choice between [1] or [2], will pick [2],
+                            making [4] visible from there
+                            """
+                            text_sub = text[current_word_index + 1:current_word_index + 1 + slop][::-1]  # Substring to scan (reversed)
+                            len_sub = len(text_sub)
+                            next_word_index = len_sub - text_sub.index(word) - 1  # Map index back to unreversed list
+                            last_slop_match = current_word_index + next_word_index + 1
+                            slop_matches.append(last_slop_match)
+                            current_word_index = last_slop_match
+                        except ValueError:
+                            # word not found in substring
+                            i += 1
+                            break
+                    else:
+                        i = last_slop_match
+                        any(map(matches.add, slop_matches))  # Collect matching indices
+            else:
+                i += 1
+
+    # Match individual terms
+    for i, word in enumerate(text):
+        for term in terms:
+            if term.text == word:
+                matches.add(i)
+                break
+
+    for i, t in enumerate(tokens):
+        t.matched = i in matches
         yield t
 
 
@@ -791,7 +887,6 @@ def top_fragments(fragments, count, scorer, order, minscore=1):
 
 def highlight(text, terms, analyzer, fragmenter, formatter, top=3,
               scorer=None, minscore=1, order=FIRST, mode="query"):
-
     if scorer is None:
         scorer = BasicFragmentScorer()
 
@@ -881,7 +976,7 @@ class Highlighter(object):
                 token = t.copy()
             elif t.startchar <= token.endchar:
                 if t.endchar > token.endchar:
-                    token.text += t.text[token.endchar-t.endchar:]
+                    token.text += t.text[token.endchar - t.endchar:]
                     token.endchar = t.endchar
             else:
                 yield token
@@ -892,7 +987,7 @@ class Highlighter(object):
         if token is not None:
             yield token
 
-    def highlight_hit(self, hitobj, fieldname, text=None, top=3, minscore=1):
+    def highlight_hit(self, hitobj, fieldname, text=None, top=3, minscore=1, strict_phrase=False):
         results = hitobj.results
         schema = results.searcher.schema
         field = schema[fieldname]
@@ -943,8 +1038,13 @@ class Highlighter(object):
             analyzer = results.searcher.schema[fieldname].analyzer
             tokens = analyzer(text, positions=True, chars=True, mode="index",
                               removestops=False)
+
             # Set Token.matched attribute for tokens that match a query term
-            tokens = set_matched_filter(tokens, words)
+            if strict_phrase:
+                terms, phrases = results.q.phrases()
+                tokens = set_matched_filter_phrases(tokens, text, terms, phrases)
+            else:
+                tokens = set_matched_filter(tokens, words)
             tokens = self._merge_matched_tokens(tokens)
             fragments = self.fragmenter.fragment_tokens(text, tokens)
 

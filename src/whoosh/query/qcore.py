@@ -374,6 +374,29 @@ class Query(object):
                         termset.add((fieldname, btext))
         return termset
 
+    def phrases(self):
+        """
+        Recursively get all individual terms and phrases that are part of this Query
+        """
+
+        from whoosh.query.positional import Phrase
+        from whoosh.query.terms import Term
+
+        terms = []
+        phrases = []
+
+        if isinstance(self, Phrase):
+            phrases.append(self)
+        else:
+            for query in self.children():
+                if isinstance(query, Term):
+                    terms.append(query)
+                else:
+                    t, p = query.phrases()
+                    phrases.extend(p)
+                    terms.extend(t)
+        return terms, phrases
+
     def leaves(self):
         """Returns an iterator of all the leaf queries in this query tree as a
         flat series.
