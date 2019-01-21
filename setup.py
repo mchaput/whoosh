@@ -43,6 +43,7 @@ if __name__ == "__main__":
         url="http://bitbucket.org/mchaput/whoosh",
 
         zip_safe=True,
+        require=['cached-property'],
         tests_require=['pytest'],
         cmdclass={'test': PyTest},
 

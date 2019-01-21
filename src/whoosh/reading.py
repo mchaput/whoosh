@@ -32,6 +32,8 @@ from math import log
 from bisect import bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
 
+from cached_property import cached_property
+
 from whoosh import columns
 from whoosh.compat import abstractmethod
 from whoosh.compat import xrange, zip_, next, iteritems
@@ -815,6 +817,10 @@ class SegmentReader(IndexReader):
         except KeyError:
             return 0
 
+    @cached_property
+    def deleted_docs_set(self):
+        return frozenset(self._perdoc.deleted_docs())
+
     def postings(self, fieldname, text, scorer=None):
         from whoosh.matching.wrappers import FilterMatcher
 
@@ -825,7 +831,7 @@ class SegmentReader(IndexReader):
         text = self._text_to_bytes(fieldname, text)
         format_ = self.schema[fieldname].format
         matcher = self._terms.matcher(fieldname, text, format_, scorer=scorer)
-        deleted = frozenset(self._perdoc.deleted_docs())
+        deleted = self.deleted_docs_set
         if deleted:
             matcher = FilterMatcher(matcher, deleted, exclude=True)
         return matcher
