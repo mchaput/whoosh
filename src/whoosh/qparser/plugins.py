@@ -1116,6 +1116,8 @@ class GtLtPlugin(TaggingPlugin):
                         newgroup.append(self.make_range(nextnode, node.rel))
                         # Skip the next node
                         i += 1
+            elif isinstance(node, syntax.GroupNode):
+                newgroup.append(self.do_gtlt(parser, node))
             else:
                 # If it's not a GtLtNode, add it to the filtered group
                 newgroup.append(node)

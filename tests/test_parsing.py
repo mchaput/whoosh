@@ -59,6 +59,22 @@ def test_groups():
     assert repr(ns) == "<AndGroup <None:'a'>, <AndGroup <AndGroup <None:'b'>, <None:'c'>>, <None:'d'>>, <None:'e'>>"
 
 
+def test_groups_with_range():
+    p = default.QueryParser("t", None, [plugins.FieldsPlugin(),
+                                        plugins.GtLtPlugin(),
+                                        plugins.GroupPlugin(),
+                                        plugins.OperatorsPlugin(),
+                                        plugins.PhrasePlugin(),
+                                        plugins.RangePlugin(),
+                                        plugins.RegexPlugin()])
+
+    ns = p.process('a:b OR e:>=5 g:<6')
+    assert repr(ns) == "<AndGroup <OrGroup <'a':'b'>, <'e':['5' None]>>, <'g':[None '6'}>>"
+
+    ns = p.process('a:b OR (e:>=5 g:<6)')
+    assert repr(ns) == "<AndGroup <OrGroup <'a':'b'>, <AndGroup <'e':['5' None]>, <'g':[None '6'}>>>>"
+
+
 def test_fieldnames():
     p = default.QueryParser("t", None, [plugins.WhitespacePlugin(),
                                         plugins.FieldsPlugin(),
