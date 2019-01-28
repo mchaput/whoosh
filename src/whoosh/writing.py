@@ -684,7 +684,8 @@ class SegmentWriter(IndexWriter):
                 docmap[docnum] = self.docnum
 
             pdw.start_doc(self.docnum)
-            for fieldname in fieldnames:
+            # Set disjunction includes dynamic fields (can be different for each document)
+            for fieldname in fieldnames | set(s for s in stored if s in self.schema):
                 fieldobj = schema[fieldname]
                 length = reader.doc_field_length(docnum, fieldname)
                 pdw.add_field(fieldname, fieldobj,
