@@ -4,7 +4,7 @@ import random
 
 from whoosh import fields
 from whoosh.compat import xrange, text_type, u
-from whoosh.support.testing import TempIndex
+from whoosh.util.testing import TempIndex
 from whoosh.util import now
 
 

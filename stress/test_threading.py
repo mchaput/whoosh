@@ -3,7 +3,7 @@ import random, threading, time
 
 from whoosh import fields, query
 from whoosh.compat import xrange, u, text_type
-from whoosh.support.testing import TempStorage
+from whoosh.util.testing import TempStorage
 
 
 def test_readwrite():

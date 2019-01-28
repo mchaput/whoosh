@@ -6,7 +6,7 @@ from nose.tools import assert_equal  #@UnresolvedImport
 
 from whoosh.compat import xrange, iteritems
 from whoosh.filedb.filetables import HashWriter, HashReader
-from whoosh.support.testing import TempStorage
+from whoosh.util.testing import TempStorage
 
 
 def test_bigtable():

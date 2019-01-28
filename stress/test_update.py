@@ -5,7 +5,7 @@ from nose.tools import assert_equal  #@UnresolvedImport
 
 from whoosh import fields, query
 from whoosh.compat import xrange, text_type
-from whoosh.support.testing import TempIndex
+from whoosh.util.testing import TempIndex
 
 
 def test_many_updates():
