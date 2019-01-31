@@ -679,6 +679,30 @@ def test_globfield_length_merge():
             assert paths == ["/a", "/b"]
 
 
+def test_glob_optimize():
+    # Issue 472: Stored dynamic field deleted after commit with optimize
+
+    schema = fields.Schema()
+    schema.add("f*", fields.STORED, glob=True)
+
+    with TempIndex(schema, "globoptimize") as ix:
+        writer = ix.writer()
+
+        # Create document with dynamic fields
+        writer.add_document(f1=1, f2=2)
+        writer.commit()
+
+        # Read back fields
+        assert list(ix.reader().all_stored_fields()) == [{'f1': 1, 'f2': 2}]
+
+        # Optimize
+        writer = ix.writer()
+        writer.commit(optimize=True)
+
+        # Read fields again
+        assert list(ix.reader().all_stored_fields()) == [{'f1': 1, 'f2': 2}]
+
+
 def test_index_decimals():
     from decimal import Decimal
 
