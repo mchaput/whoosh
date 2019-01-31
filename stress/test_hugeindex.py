@@ -6,7 +6,7 @@ from nose.tools import assert_equal  #@UnresolvedImport
 from whoosh import formats
 from whoosh.compat import xrange
 from whoosh.filedb.filepostings import FilePostingReader, FilePostingWriter
-from whoosh.support.testing import TempStorage
+from whoosh.util.testing import TempStorage
 
 
 def test_huge_postfile():
