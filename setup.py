@@ -36,7 +36,7 @@ if __name__ == "__main__":
         author_email="matt@whoosh.ca",
 
         description="Fast, pure-Python full text indexing, search, and spell checking library.",
-        long_description=open("README.txt").read(),
+        long_description=open("README.md").read(),
 
         license="Two-clause BSD license",
         keywords="index search text spell",
