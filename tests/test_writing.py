@@ -454,3 +454,42 @@ def test_delete_by_term_has_del():
         with ix.reader() as r:
             assert not r.has_deletions()
 
+
+def test_add_fail_with_absorbed_exception():
+    """
+    Issue #375 https://github.com/whoosh-community/whoosh/issues/375
+    Test that a failed document add with absorbed exceptions does not leave
+    an unfinished document state for the next document to be added.
+
+    Test Case:
+    1. Add a bad document (in this case using integer ID)
+    2. Absorb exceptions when doing so
+
+    Client code is now unaware of previous error and OK with it
+
+    3. Attempt to add a new document, also invalid but without absorbing exceptions
+
+    Expected behavior: Appropriate exception for second document failure
+    Behavior prior to fix: Cryptic "Called start_doc when already in a doc"
+
+    This is because the first document had left the perDocWriter in an unfinished state.
+    The fix cleaned up the writer when aborting from a bad addition, allowing the
+    exception for the actual problem with the second document to bubble up.
+    In this case: "2 is not unicode or sequence"
+    """
+    schema = fields.Schema(id=fields.ID())
+    st = RamStorage()
+    ix = st.create_index(schema)
+
+    with ix.writer() as w:
+        try:
+            # Integer value is invalid, but absorbed exception causes silent failure
+            w.add_document(id=1)
+        except:
+            pass
+        with pytest.raises(Exception) as ex:
+            w.add_document(id=2)
+
+        # Assert that correct exception is raised, not the cryptic one
+        assert 'already' not in ex.value.args[0]
+        assert 'unicode' in ex.value.args[0]
