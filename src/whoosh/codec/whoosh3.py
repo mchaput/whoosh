@@ -251,6 +251,10 @@ class W3PerDocWriter(base.PerDocWriterWithColumns):
             sf.clear()
         self._indoc = False
 
+    def cancel_doc(self):
+        self._doccount -= 1
+        self._indoc = False
+
     def _column_filename(self, fieldname):
         return W3Codec.column_filename(self._segment, fieldname)
 
