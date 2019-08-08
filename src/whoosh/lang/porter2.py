@@ -64,7 +64,7 @@ def remove_initial_apostrophe(word):
 def capitalize_consonant_ys(word):
     if word.startswith('y'):
         word = 'Y' + word[1:]
-    return ccy_exp.sub('\g<1>Y', word)
+    return ccy_exp.sub('\1Y', word)
 
 
 def step_0(word):
