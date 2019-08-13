@@ -175,10 +175,18 @@ class BaseFileStorage(storage.Storage):
                         # Ignore deletion errors
                         pass
 
-    def cleanup(self, session: 'storage.Session', toc: 'index.Toc'=None):
+    def cleanup(self, session: 'storage.Session', toc: 'index.Toc'=None,
+                all_tocs: bool=False):
         toc = toc or self.load_toc(session)
         segids = set(seg.segment_id() for seg in toc.segments)
         self._clean_by_segids(session, segids)
+
+        if all_tocs:
+            regex = index.toc_regex(session.indexname)
+            for filename in self.list():
+                match = regex.match(filename)
+                if match:
+                    self.delete_file(filename)
 
     def clean_segment(self, session: 'storage.Session',
                       segment: 'codecs.Segment'):

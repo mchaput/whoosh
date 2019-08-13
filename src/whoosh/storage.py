@@ -246,13 +246,16 @@ class Storage:
 
         raise NotImplementedError
 
-    def cleanup(self, session: Session, toc: 'index.Toc'=None):
+    def cleanup(self, session: Session, toc: 'index.Toc'=None,
+                all_tocs: bool=False):
         """
         Cleans up any old data in the storage.
 
         :param session: the session object to clean up in.
         :param toc: the TOC object to use for the current data. If this is not
             given, the method loads the current TOC.
+        :param all_tocs: clean all TOC information for this index from the
+            storage as well.
         """
 
         pass
@@ -374,11 +377,23 @@ class Storage:
 
         # Write the TOC to disk
         with self.open(indexname, writable=True) as session:
-            self.cleanup(session, toc)
+            self.cleanup(session, toc, all_tocs=True)
+            print("Post-cleanup=", self.list())
             self.save_toc(session, toc)
 
         # Return an Index with the new TOC
         return index.Index(self, indexname, schema)
 
-    def copy_index(self, to_storage: "Storage", indexname: str):
-        raise NotImplementedError
+    def copy_index(self, to_storage: "Storage", from_name: str=None,
+                   to_name: str=None, to_schema=None, writer_kwargs=None):
+        from_ix = self.open_index(from_name)
+        with from_ix.reader() as reader:
+            to_name = to_name or from_name
+            to_schema = to_schema or from_ix.schema
+            to_ix = to_storage.create_index(to_schema, to_name)
+
+            writer_kwargs = writer_kwargs or {}
+            with to_ix.writer(**writer_kwargs) as writer:
+                writer.add_reader(reader)
+
+
