@@ -27,12 +27,18 @@
 
 from __future__ import division
 import copy
+import typing
 from typing import Iterable, List, Tuple
 
 from whoosh import collectors
 from whoosh.compat import string_type, text_type
-from whoosh.ifaces import analysis, matchers, queries, readers, searchers
-from whoosh.query import terms, compound
+from whoosh.matching import matchers
+from whoosh.analysis import analysis
+from whoosh.query import terms, compound, queries
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import reading, searching
 
 
 __all__ = ("Sequence", "Ordered", "Phrase")
@@ -92,18 +98,18 @@ class Sequence(compound.CompoundQuery):
     def _and_query(self) -> queries.Query:
         return compound.And(self.subqueries)
 
-    def estimate_size(self, ixreader: 'readers.IndexReader') -> int:
+    def estimate_size(self, ixreader: 'reading.IndexReader') -> int:
         return self._and_query().estimate_size(ixreader)
 
-    def simplify(self, reader: 'readers.IndexReader') -> queries.Query:
+    def simplify(self, reader: 'reading.IndexReader') -> queries.Query:
         # Rewrite the sequence as a SpanNear query
         from whoosh.query import SpanNear
 
         return SpanNear(self.subqueries, slop=self.slop, ordered=self.ordered,
                         mindist=0)
 
-    def matcher(self, searcher: 'searchers.Searcher',
-                context: 'searchers.SearchContext') -> 'matchers.Matcher':
+    def matcher(self, searcher: 'searching.Searcher',
+                context: 'searching.SearchContext') -> 'matchers.Matcher':
         from whoosh.matching.wrappers import WrappingMatcher
 
         q = self.simplify(searcher.reader())
@@ -122,8 +128,8 @@ class Ordered(Sequence):
 
     JOINT = " BEFORE "
 
-    def matcher(self, searcher: 'searchers.Searcher',
-                context: 'searchers.SearchContext') -> 'matchers.Matcher':
+    def matcher(self, searcher: 'searching.Searcher',
+                context: 'searching.SearchContext') -> 'matchers.Matcher':
         from whoosh.matching.wrappers import WrappingMatcher
         from whoosh.query.spans import SpanBefore
 
@@ -200,7 +206,7 @@ class Phrase(queries.Query):
     def has_terms(self):
         return True
 
-    def _terms(self, reader: 'readers.IndexReader'=None,
+    def _terms(self, reader: 'reading.IndexReader'=None,
                phrases: bool=True) -> Iterable[Tuple[str, text_type]]:
         fieldname = self.field()
         if not (phrases and fieldname):
@@ -215,7 +221,7 @@ class Phrase(queries.Query):
 
             yield fieldname, word
 
-    def _tokens(self, reader: 'readers.IndexReader'=None, phrases: bool=True,
+    def _tokens(self, reader: 'reading.IndexReader'=None, phrases: bool=True,
                 boost=1.0) -> 'Iterable[analysis.Token]':
         fieldname = self.field()
         if not (phrases and fieldname):
@@ -250,7 +256,7 @@ class Phrase(queries.Query):
         return self.__class__(self.fieldname, words, slop=self.slop,
                               boost=self.boost, char_ranges=self.char_ranges)
 
-    def simplify(self, reader: 'readers.IndexReader') -> queries.Query:
+    def simplify(self, reader: 'reading.IndexReader') -> queries.Query:
         # Rewrite the phrase as a SpanNear query
         from whoosh.query import Term, SpanNear
 
@@ -290,11 +296,11 @@ class Phrase(queries.Query):
         return compound.And([terms.Term(self.fieldname, word)
                              for word in self.words])
 
-    def estimate_size(self, ixreader: 'readers.IndexReader') -> int:
+    def estimate_size(self, ixreader: 'reading.IndexReader') -> int:
         return self._and_query().estimate_size(ixreader)
 
-    def matcher(self, searcher: 'searchers.Searcher',
-                context: 'searchers.SearchContext'=None) -> 'matchers.Matcher':
+    def matcher(self, searcher: 'searching.Searcher',
+                context: 'searching.SearchContext'=None) -> 'matchers.Matcher':
         from whoosh.matching.wrappers import WrappingMatcher
 
         q = self.simplify(searcher.reader())

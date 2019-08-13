@@ -26,12 +26,10 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from abc import abstractmethod
-from typing import Dict, Tuple
-
-import furl
+from typing import Dict
 
 from whoosh import index, metadata
-from whoosh.ifaces import codecs
+from whoosh.codec import codecs
 
 
 # Exceptions

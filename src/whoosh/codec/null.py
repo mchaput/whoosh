@@ -28,7 +28,7 @@
 from typing import Any, Dict, Sequence, Set
 
 from whoosh import columns, fields
-from whoosh.ifaces import codecs
+from whoosh.codec import codecs
 from whoosh.postings import basic, postings, ptuples
 
 

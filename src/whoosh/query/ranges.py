@@ -26,13 +26,18 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import division
+import typing
 from typing import Iterable, Tuple
 
-from whoosh import collectors, searching
+from whoosh import collectors
 from whoosh.compat import text_type
-from whoosh.ifaces import matchers, queries, readers, searchers
-from whoosh.query import terms, compound, wrappers
+from whoosh.matching import matchers
+from whoosh.query import terms, compound, wrappers, queries
 from whoosh.util.times import datetime_to_long
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import reading, searching
 
 
 __all__ = ("Range", "TermRange", "NumericRange", "DateRange", "Every")
@@ -122,7 +127,7 @@ class Range(terms.MultiTerm):
     def is_range(self):
         return True
 
-    def terms(self, reader: 'readers.IndexReader'=None, phrases: bool=True
+    def terms(self, reader: 'reading.IndexReader'=None, phrases: bool=True
               ) -> Iterable[Tuple[str, text_type]]:
         return self.simplify(reader).terms(reader, phrases)
 
@@ -276,7 +281,7 @@ class TermRange(Range):
     #            q.end = newtext
     #    return q
 
-    def _btexts(self, ixreader: 'readers.IndexReader') -> Iterable[bytes]:
+    def _btexts(self, ixreader: 'reading.IndexReader') -> Iterable[bytes]:
         fieldname = self.fieldname
         field = ixreader.schema[fieldname]
         startexcl = self.startexcl
@@ -330,12 +335,12 @@ class NumericRange(Range):
     def estimate_min_size(self, ixreader):
         return self.simplify(ixreader).estimate_min_size(ixreader)
 
-    def docs(self, searcher: 'searchers.Searcher',
+    def docs(self, searcher: 'searching.Searcher',
              deleting: bool=False) -> Iterable[int]:
         reader = searcher.reader()
         return self.simplify(reader).docs(searcher, deleting)
 
-    def simplify(self, ixreader: 'readers.IndexReader') -> queries.Query:
+    def simplify(self, ixreader: 'reading.IndexReader') -> queries.Query:
         from whoosh.fields import Numeric
         from whoosh.util.numeric import split_ranges, to_sortable
 
@@ -482,11 +487,11 @@ class Every(queries.Query):
     def is_total(self) -> bool:
         return self.fieldname in (None, "", "*")
 
-    def estimate_size(self, reader: 'readers.IndexReader'):
+    def estimate_size(self, reader: 'reading.IndexReader'):
         return reader.doc_count()
 
-    def matcher(self, searcher: 'searchers.Searcher',
-                context: 'searchers.SearchContext') -> 'matchers.Matcher':
+    def matcher(self, searcher: 'searching.Searcher',
+                context: 'searching.SearchContext') -> 'matchers.Matcher':
         reader = searcher.reader()
         include = context.include if context else None
         exclude = context.exclude if context else None

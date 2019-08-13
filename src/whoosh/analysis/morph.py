@@ -27,7 +27,7 @@
 
 from typing import Callable, Iterable, Sequence, Set, Union
 
-from whoosh.ifaces import analysis
+from whoosh.analysis import analysis
 from whoosh.lang.dmetaphone import double_metaphone
 from whoosh.lang.porter import stem
 from whoosh.util.cache import lfu_cache, unbound_cache

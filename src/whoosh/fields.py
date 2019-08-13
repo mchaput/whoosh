@@ -1,8 +1,8 @@
-import copy
 import fnmatch
 import pickle
 import re
 import sys
+import typing
 from abc import abstractmethod
 from datetime import datetime
 from decimal import Decimal
@@ -11,14 +11,17 @@ from typing import (Any, Callable, Dict, Iterable, List, Optional, Sequence,
                     Tuple, Union, cast)
 
 from whoosh import columns
-from whoosh.ifaces import analysis, readers
-from whoosh.analysis import analyzers, ngrams, tokenizers
+from whoosh.analysis import analyzers, ngrams, tokenizers, analysis
 from whoosh.compat import string_type, text_type
-from whoosh.ifaces import queries
+from whoosh.query import queries
 from whoosh.postings import postform, ptuples
 from whoosh.system import pack_byte
 from whoosh.util import times
 from whoosh.util.numeric import to_sortable, from_sortable
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import reading
 
 
 class FieldConfigurationError(Exception):
@@ -109,7 +112,7 @@ class FieldType:
                     boost: float=1.0) -> 'queries.Query':
         raise Exception("This field is not self parsing")
 
-    def sortable_terms(self, reader: 'readers.IndexReader',
+    def sortable_terms(self, reader: 'reading.IndexReader',
                        fieldname: str) -> Iterable[bytes]:
         """
         Returns an iterator of the "sortable" tokens in the given reader and

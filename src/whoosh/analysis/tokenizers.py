@@ -27,8 +27,7 @@
 
 from typing import Iterable
 
-from whoosh.ifaces import analysis
-from whoosh.analysis import filters
+from whoosh.analysis import filters, analysis
 from whoosh.util.text import rcompile
 
 

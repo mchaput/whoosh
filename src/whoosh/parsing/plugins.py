@@ -880,8 +880,8 @@ class PostfixOpPlugin(OperatorPlugin):
 class PlusMinusPlugin(Plugin):
     name = "plus_minus"
 
-    def __init__(self, plus="(^|(?<=(\s|[()])))\\+",
-                 minus="(^|(?<=(\s|[()])))-"):
+    def __init__(self, plus=r"(^|(?<=(\s|[()])))\+",
+                 minus=r"(^|(?<=(\s|[()])))-"):
         self.plus = plus
         self.minus = minus
 
@@ -981,7 +981,7 @@ class EveryPlugin(Plugin):
 
 class FunctionPlugin(Plugin):
     name = "function"
-    name_pattern = "\w+"
+    name_pattern = r"\w+"
 
     def __init__(self, name: str, fn, fn_name: str=None, takes_query: bool=True):
         self.name = name

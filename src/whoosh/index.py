@@ -31,21 +31,25 @@ an index.
 
 from __future__ import division, absolute_import
 
-import random
 import re
 import struct
 import sys
+import typing
 from concurrent import futures
 from datetime import datetime
 from time import sleep
 from typing import Dict, Sequence, Tuple
 from typing.re import Pattern
 
-from whoosh import __version__
+from whoosh import __version__, storage
 from whoosh import fields, writing
-from whoosh.ifaces import codecs, readers, storage, searchers
+from whoosh.codec import codecs
 from whoosh.metadata import MetaData
 from whoosh.util.times import datetime_to_long, long_to_datetime
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import reading, searching
 
 
 # Constants
@@ -110,7 +114,7 @@ def make_segment_filename(indexname: str, segid: str, ext: str) -> str:
 
 
 def segment_regex(indexname: str) -> Pattern:
-    return re.compile("^%s_(?P<id>\d+)[.](?P<ext>[A-Za-z0-9_.]+)$" %
+    return re.compile("^%s_(?P<id>\\d+)[.](?P<ext>[A-Za-z0-9_.]+)$" %
                       (indexname,))
 
 
@@ -367,7 +371,7 @@ class Index:
         with self.writer() as w:
             w.optimize = True
 
-    def searcher(self, **kwargs) -> 'searchers.Searcher':
+    def searcher(self, **kwargs) -> 'searching.Searcher':
         """
         Returns a Searcher object for this index. Keyword arguments are
         passed to the Searcher object's constructor.
@@ -375,14 +379,14 @@ class Index:
         :rtype: :class:`whoosh.searching.Searcher`
         """
 
-        from whoosh.searching import ConcreteSearcher
+        from whoosh.searching import Searcher
 
         reader = self.reader()
-        return ConcreteSearcher(reader, fromindex=self, **kwargs)
+        return Searcher(reader, fromindex=self, **kwargs)
 
     def _reader(self, schema: 'fields.Schema',
                 segments: 'Sequence[codecs.Segment]',
-                generation: int, reuse: 'readers.IndexReader'):
+                generation: int, reuse: 'reading.IndexReader'):
         # Returns a reader for the given segments, possibly reusing already
         # opened readers
         from whoosh.reading import EmptyReader, SegmentReader, MultiReader
@@ -392,7 +396,7 @@ class Index:
                 reuse.close()
             return EmptyReader(schema)
 
-        reusable = {}  # type: Dict[str, readers.IndexReader]
+        reusable = {}  # type: Dict[str, reading.IndexReader]
         try:
             # Put all atomic readers in a dictionary keyed by their segment ID,
             # so we can re-use them if possible
@@ -426,14 +430,14 @@ class Index:
                 r.close()
 
     def reader_for(self, segment: 'codecs.Segment',
-                   schema: 'fields.Schema'=None) -> 'readers.IndexReader':
+                   schema: 'fields.Schema'=None) -> 'reading.IndexReader':
         from whoosh.reading import SegmentReader
 
         schema = schema or self.schema
         return SegmentReader(self.store, schema, segment)
 
-    def reader(self, reuse: 'readers.IndexReader'=None
-               ) -> 'readers.IndexReader':
+    def reader(self, reuse: 'reading.IndexReader'=None
+               ) -> 'reading.IndexReader':
         """
         Returns an IndexReader object for this index.
 
@@ -636,8 +640,9 @@ def version(store: 'storage.Storage', indexname: str=None
 
 
 def from_url(url: str):
-    from whoosh.ifaces import codecs, storage
     import furl
+    from whoosh import storage
+    from whoosh.codec import codecs
 
     store = storage.from_url(url)
     codecs = codecs.from_url(url)

@@ -25,12 +25,16 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+import typing
 from typing import Callable, Iterable, Sequence
 
 from whoosh import collectors
-from whoosh.ifaces import matchers, queries, searchers
-from whoosh.matching import wrappers as mwrappers
-from whoosh.query import wrappers as qwrappers
+from whoosh.matching import wrappers as mwrappers, matchers
+from whoosh.query import wrappers as qwrappers, queries
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import searching
 
 
 __all__ = ("NestedParent", "NestedChildren")
@@ -126,8 +130,8 @@ class NestedParent(NestedBase):
         self.per_parent_limit = per_parent_limit
         self.score_fn = score_fn
 
-    def matcher(self, searcher: 'searchers.Searcher',
-                context: 'searchers.SearchContext'=None) -> 'matchers.Matcher':
+    def matcher(self, searcher: 'searching.Searcher',
+                context: 'searching.SearchContext'=None) -> 'matchers.Matcher':
         bits = searcher.to_comb(self.parents)
         if not bits:
             return matchers.NullMatcher
@@ -139,7 +143,7 @@ class NestedParent(NestedBase):
         return NestedParentMatcher(bits, m, self.per_parent_limit,
                                    searcher.doc_count_all())
 
-    def docs(self, searcher: 'searchers.Searcher',
+    def docs(self, searcher: 'searching.Searcher',
              deleting: bool=False) -> Iterable[int]:
         if deleting:
             bits = searcher.to_comb(self.parents)

@@ -29,9 +29,7 @@ from __future__ import division
 from array import array
 from typing import Any, Sequence
 
-from whoosh.ifaces import matchers
-from whoosh.matching import binary
-
+from whoosh.matching import binary, matchers
 
 __all__ = ("ArrayUnionMatcher", )
 

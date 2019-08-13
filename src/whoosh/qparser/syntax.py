@@ -28,7 +28,7 @@
 import sys, weakref
 
 from whoosh import query
-from whoosh.qparser.common import get_single_text, QueryParserError, attach
+from whoosh.qparser.common import get_single_text, attach
 
 
 class SyntaxNode:
@@ -476,7 +476,7 @@ class RangeNode(SyntaxNode):
                     )
                     if q is not None:
                         return attach(q, self)
-                except QueryParserError:
+                except query.QueryParserError:
                     e = sys.exc_info()[1]
                     return attach(query.ErrorQuery(e), self)
 

@@ -1,12 +1,17 @@
 import logging
+import typing
 from functools import wraps
 from threading import RLock
 from typing import Dict, Iterable, List, Sequence, Set
 
-from whoosh import fields
-from whoosh.ifaces import codecs, queries, readers, storage
+from whoosh import fields, storage
+from whoosh.query import queries
+from whoosh.codec import codecs
 from whoosh.writing import merging
-from whoosh.writing.reporting import Reporter
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import reading
 
 
 logger = logging.getLogger(__name__)
@@ -49,7 +54,7 @@ class SegmentList:
         # Ongoing merges, keyed by the merge ID
         self._current_merges = {}  # type: Dict[str, merging.Merge]
         # Cache readers for the segments for computing deletions
-        self._cached_readers = {}  # type: Dict[str, readers.IndexReader]
+        self._cached_readers = {}  # type: Dict[str, reading.IndexReader]
 
         # Buffer deletes in memory before applying them to the segment, to
         # "batch up" changes to the segment instead of doing them one document
@@ -161,7 +166,7 @@ class SegmentList:
             store.clean_segment(self.session, segment)
 
     @synchronized
-    def reader(self, segment: 'codecs.Segment') -> 'readers.IndexReader':
+    def reader(self, segment: 'codecs.Segment') -> 'reading.IndexReader':
         # Apply any pending deletions to the segment before we open a reader
         # for it, so the reader reflects the changes
         self.save_buffered_deletes(segment)
@@ -176,7 +181,7 @@ class SegmentList:
 
     @synchronized
     def multireader(self, segments: 'Sequence[codecs.Segment]'=None,
-                    ) -> 'readers.IndexReader':
+                    ) -> 'reading.IndexReader':
         from whoosh import reading
 
         segments = segments or self.segments  # type: Sequence[codecs.Segment]
@@ -194,9 +199,9 @@ class SegmentList:
     def buffer_query_deletions(self, segment: 'codecs.Segment',
                                qs: 'Iterable[queries.Query]'):
         # Create a searcher around the given segment
-        from whoosh.searching import ConcreteSearcher
+        from whoosh.searching import Searcher
         r = self.reader(segment)
-        s = ConcreteSearcher(r)
+        s = Searcher(r)
 
         # Iterate through the given queries, find the corresponding documents,
         # and add them to the buffered deletions

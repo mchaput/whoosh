@@ -32,7 +32,7 @@ from math import ceil
 from operator import itemgetter
 from typing import Sequence, Iterable, List, Set, Tuple, Union
 
-from whoosh.ifaces import codecs
+from whoosh.codec import codecs
 from whoosh.util import random_name
 
 

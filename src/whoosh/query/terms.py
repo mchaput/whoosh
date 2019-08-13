@@ -29,12 +29,20 @@ from __future__ import division
 import copy
 import fnmatch
 import re
+import typing
 from typing import Iterable, Tuple
 
+import whoosh.searching
 from whoosh import collectors
 from whoosh.compat import bytes_type, text_type
-from whoosh.ifaces import analysis, matchers, queries, readers, searchers
+from whoosh.query import queries
+from whoosh.matching import matchers
+from whoosh.analysis import analysis
 from whoosh.lang.morph_en import variations
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import reading, searching
 
 
 __all__ = ("Term", "MultiTerm", "PatternQuery", "Prefix", "Wildcard", "Regex",
@@ -95,7 +103,7 @@ class Term(queries.Query):
     def has_terms(self) -> bool:
         return True
 
-    def _terms(self, reader: 'readers.IndexReader'=None,
+    def _terms(self, reader: 'reading.IndexReader'=None,
                phrases: bool=True) -> Iterable[Tuple[str, text_type]]:
         fieldname = self.field()
         if not fieldname:
@@ -110,7 +118,7 @@ class Term(queries.Query):
 
         yield fieldname, text
 
-    def _tokens(self, reader: 'readers.IndexReader'=None, phrases: bool=True,
+    def _tokens(self, reader: 'reading.IndexReader'=None, phrases: bool=True,
                 boost=1.0) -> 'Iterable[analysis.Token]':
         fieldname = self.field()
         if not fieldname:
@@ -120,17 +128,17 @@ class Term(queries.Query):
                              boost=boost * self.boost, startchar=self.startchar,
                              endchar=self.endchar, chars=True)
 
-    def estimate_size(self, ixreader: 'readers.IndexReader') -> int:
+    def estimate_size(self, ixreader: 'reading.IndexReader') -> int:
         fieldname = self.fieldname
         if fieldname not in ixreader.schema:
             return 0
         return ixreader.doc_frequency(fieldname, self.text)
 
-    def matcher(self, searcher: 'searchers.Searcher',
-                context: 'searchers.SearchContext'=None) -> 'matchers.Matcher':
+    def matcher(self, searcher: 'searching.Searcher',
+                context: 'searching.SearchContext'=None) -> 'matchers.Matcher':
         from whoosh.matching.wrappers import WrappingMatcher
 
-        assert isinstance(searcher, searchers.Searcher)
+        assert isinstance(searcher, whoosh.searching.Searcher)
         fieldname = self.fieldname
         if fieldname not in searcher.schema:
             return matchers.NullMatcher()
@@ -180,14 +188,14 @@ class MultiTerm(queries.Query):
     def _btexts(self, ixreader):
         raise NotImplementedError(self.__class__.__name__)
 
-    def _terms(self, reader: 'readers.IndexReader'=None,
+    def _terms(self, reader: 'reading.IndexReader'=None,
                phrases: bool=True) -> Iterable[Tuple[str, text_type]]:
         fieldname = self.field()
         if reader and fieldname:
             for btext in self._btexts(reader):
                 yield fieldname, btext
 
-    def _tokens(self, reader: 'readers.IndexReader'=None, phrases: bool=True,
+    def _tokens(self, reader: 'reading.IndexReader'=None, phrases: bool=True,
                 boost=1.0) -> 'Iterable[analysis.Token]':
         fieldname = self.field()
         if not fieldname:
@@ -206,7 +214,7 @@ class MultiTerm(queries.Query):
                                  startchar=self.startchar, endchar=self.endchar,
                                  chars=True)
 
-    def estimate_size(self, ixreader: 'readers.IndexReader') -> int:
+    def estimate_size(self, ixreader: 'reading.IndexReader') -> int:
         fieldname = self.field()
         return sum(ixreader.doc_frequency(fieldname, btext)
                    for btext in self._btexts(ixreader))
@@ -216,7 +224,7 @@ class MultiTerm(queries.Query):
         return min(ixreader.doc_frequency(fieldname, text)
                    for text in self._btexts(ixreader))
 
-    def simplify(self, reader: 'readers.IndexReader') -> queries.Query:
+    def simplify(self, reader: 'reading.IndexReader') -> queries.Query:
         from whoosh.query.compound import Or
 
         fieldname = self.field()
@@ -433,7 +441,7 @@ class ExpandingTerm(MultiTerm):
     def has_terms(self):
         return True
 
-    def _terms(self, reader: 'readers.IndexReader'=None,
+    def _terms(self, reader: 'reading.IndexReader'=None,
                phrases: bool=True) -> Iterable[Tuple[str, text_type]]:
         fieldname = self.field()
         if fieldname:

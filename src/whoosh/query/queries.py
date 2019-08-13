@@ -26,12 +26,19 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 import copy
+import typing
 from abc import abstractmethod
 from bisect import insort
-from typing import Callable, Dict, Iterable, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, Iterable, Optional, Sequence, Tuple
 
+from whoosh import reading, searching
 from whoosh.compat import text_type
-from whoosh.ifaces import analysis, matchers, readers, searchers
+from whoosh.matching import matchers
+from whoosh.analysis import analysis
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    import whoosh.matching.matchers as wmm
 
 
 __all__ = ("QueryError", "QueryParserError", "Query", "NullQuery", "ErrorQuery",
@@ -263,7 +270,7 @@ class Query:
 
         return False
 
-    def terms(self, reader: 'readers.IndexReader'=None, phrases: bool=True
+    def terms(self, reader: 'reading.IndexReader'=None, phrases: bool=True
               ) -> Iterable[Tuple[str, text_type]]:
         """
         Returns an iterator of any terms searched for by this query.
@@ -280,11 +287,11 @@ class Query:
             for term in child.terms(reader, phrases=phrases):
                 yield term
 
-    def _terms(self, reader: 'readers.IndexReader'=None,
+    def _terms(self, reader: 'reading.IndexReader'=None,
                phrases: bool=True) -> Iterable[Tuple[str, text_type]]:
         return iter(())
 
-    def tokens(self, reader: 'readers.IndexReader'=None, phrases: bool=True,
+    def tokens(self, reader: 'reading.IndexReader'=None, phrases: bool=True,
                 boost=1.0) -> 'Iterable[analysis.Token]':
         """
         Yields zero or more :class:`analysis.Token` objects corresponding to
@@ -313,7 +320,7 @@ class Query:
             for token in child.tokens(reader, phrases=phrases, boost=boost):
                 yield token
 
-    def _tokens(self, reader: 'readers.IndexReader'=None, phrases: bool=True,
+    def _tokens(self, reader: 'reading.IndexReader'=None, phrases: bool=True,
                 boost=1.0) -> 'Iterable[analysis.Token]':
         return iter(())
 
@@ -334,7 +341,7 @@ class Query:
         return False
 
     @abstractmethod
-    def estimate_size(self, reader: 'readers.IndexReader') -> int:
+    def estimate_size(self, reader: 'reading.IndexReader') -> int:
         """
         Returns an estimate of how many documents this query could
         potentially match (for example, the estimated size of a simple term
@@ -368,10 +375,10 @@ class Query:
         """
 
         try:
-            context = searchers.SearchContext.boolean()
+            context = searching.SearchContext.boolean()
             m = self.matcher(searcher, context)
             return m.all_ids()
-        except readers.TermNotFound:
+        except reading.TermNotFound:
             return iter(())
 
     def can_merge_with(self, other: 'Query'):
@@ -406,7 +413,7 @@ class Query:
 
         return self
 
-    def simplify(self, reader: 'readers.IndexReader') -> 'Query':
+    def simplify(self, reader: 'reading.IndexReader') -> 'Query':
         """
         Returns a recursively simplified form of this query, where
         "second-order" queries (such as Prefix and Variations) are re-written
@@ -474,15 +481,15 @@ class NullQuery(Query):
     def with_fieldname(self, fieldname: str) -> 'NullQuery':
         return self
 
-    def estimate_size(self, reader: 'readers.IndexReader') -> int:
+    def estimate_size(self, reader: 'reading.IndexReader') -> int:
         return 0
 
-    def docs(self, searcher: 'searchers.Searcher',
+    def docs(self, searcher: 'searching.Searcher',
              deleting: bool=False) -> Iterable[int]:
         return iter(())
 
-    def matcher(self, searcher: 'searchers.Searcher',
-                context: 'searchers.SearchContext') -> 'matchers.Matcher':
+    def matcher(self, searcher: 'searching.Searcher',
+                context: 'searching.SearchContext') -> 'matchers.Matcher':
         return matchers.NullMatcher()
 
 
@@ -502,9 +509,9 @@ class IgnoreQuery(NullQuery):
 
 # Utility functions
 
-def make_binary_tree(mcls: 'type(matchers.Matcher)',
-                     matchers: 'Sequence[matchers.Matcher]',
-                     kwargs: Dict) -> 'matchers.Matcher':
+def make_binary_tree(mcls: 'type(wmm.Matcher)',
+                     matchers: 'Sequence[wmm.Matcher]',
+                     kwargs: Dict) -> 'wmm.Matcher':
     """
     Returns a binary tree of matchers from a linear list.
 
@@ -524,9 +531,9 @@ def make_binary_tree(mcls: 'type(matchers.Matcher)',
     return mcls(left, right, **kwargs)
 
 
-def make_weighted_tree(mcls: 'type(matchers.Matcher)',
-                       matchers: 'Sequence[Tuple[float, matchers.Matcher]]',
-                       kwargs: Dict) -> 'matchers.Matcher':
+def make_weighted_tree(mcls: 'type(wmm.Matcher)',
+                       matchers: 'Sequence[Tuple[float, wmm.Matcher]]',
+                       kwargs: Dict) -> 'wmm.Matcher':
     """
     Returns a weighted binary tree of matchers from a linear list.
 

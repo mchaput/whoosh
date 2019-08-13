@@ -28,8 +28,7 @@
 from typing import Iterable
 
 from whoosh.compat import text_type
-from whoosh.ifaces import analysis
-from whoosh.analysis import filters, tokenizers
+from whoosh.analysis import filters, tokenizers, analysis
 
 
 # Tokenizer

@@ -27,12 +27,17 @@
 
 from __future__ import division
 import copy
+import typing
 from typing import Callable, Iterable, Optional, Sequence
 
 from whoosh import collectors
 from whoosh.compat import text_type
-from whoosh.ifaces import matchers, queries, readers, searchers
-from whoosh.query import ranges
+from whoosh.matching import matchers
+from whoosh.query import ranges, queries
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import reading, searching
 
 
 __all__ = ("CompoundQuery", "And", "Or", "DisjunctionMax", "BinaryQuery",
@@ -222,7 +227,7 @@ class CompoundQuery(queries.Query):
         newq.set_children(subqs)
         return newq
 
-    def simplify(self, ixreader: 'readers.IndexReader'):
+    def simplify(self, ixreader: 'reading.IndexReader'):
         subs = [s.simplify(ixreader) for s in self.subqueries]
         if all(isinstance(s, queries.NullQuery) for s in subs):
             return queries.NullQuery()
@@ -283,11 +288,11 @@ class And(CompoundQuery):
     # When merging ranges inside ANDs, take the intersection
     intersect_merge = True
 
-    def estimate_size(self, ixreader: 'readers.IndexReader') -> int:
+    def estimate_size(self, ixreader: 'reading.IndexReader') -> int:
         return min(q.estimate_size(ixreader) for q in self.subqueries)
 
-    def matcher(self, searcher: 'searchers.Searcher',
-                context: 'searchers.SearchContext'=None) -> 'matchers.Matcher':
+    def matcher(self, searcher: 'searching.Searcher',
+                context: 'searching.SearchContext'=None) -> 'matchers.Matcher':
         from whoosh.matching.binary import IntersectionMatcher
 
         r = searcher.reader()
@@ -350,8 +355,8 @@ class Or(CompoundQuery):
             norm.scale = self.scale
         return norm
 
-    def matcher(self, searcher: 'searchers.Searcher',
-                context: 'searchers.SearchContext'=None) -> 'matchers.Matcher':
+    def matcher(self, searcher: 'searching.Searcher',
+                context: 'searching.SearchContext'=None) -> 'matchers.Matcher':
         from whoosh.matching.binary import UnionMatcher
         from whoosh.matching.wrappers import CoordMatcher
 
@@ -410,8 +415,8 @@ class DisjunctionMax(CompoundQuery):
             norm.tiebreak = self.tiebreak
         return norm
 
-    def matcher(self, searcher: 'searchers.Searcher',
-                context: 'searchers.SearchContext'=None) -> 'matchers.Matcher':
+    def matcher(self, searcher: 'searching.Searcher',
+                context: 'searching.SearchContext'=None) -> 'matchers.Matcher':
         from whoosh.matching.binary import DisjunctionMaxMatcher
 
         r = searcher.reader()
@@ -567,7 +572,7 @@ class Require(BinaryQuery):
             return queries.NullQuery()
         return self.__class__(a, b)
 
-    def docs(self, searcher: 'searchers.Searcher',
+    def docs(self, searcher: 'searching.Searcher',
              deleting: bool=False) -> Iterable[int]:
         return And(self.subqueries).docs(searcher, deleting)
 
@@ -601,7 +606,7 @@ class AndMaybe(BinaryQuery):
     def estimate_min_size(self, ixreader):
         return self.subqueries[0].estimate_min_size(ixreader)
 
-    def docs(self, searcher: 'searchers.Searcher',
+    def docs(self, searcher: 'searching.Searcher',
              deleting: bool=False) -> Iterable[int]:
         return self.subqueries[0].docs(searcher, deleting)
 

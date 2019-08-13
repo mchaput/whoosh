@@ -5,14 +5,14 @@ import sys
 import time
 from shutil import copyfileobj
 from struct import Struct
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 try:
     import mmap
 except ImportError:
     mmap = None
 
-from whoosh.ifaces import codecs, storage
+from whoosh import storage
 from whoosh.filedb import datafile, filestore
 from whoosh.metadata import MetaData
 from whoosh.system import IS_LITTLE

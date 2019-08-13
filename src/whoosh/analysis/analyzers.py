@@ -27,8 +27,7 @@
 
 from typing import Callable, Sequence, Set, Union
 
-from whoosh.ifaces import analysis
-from whoosh.analysis import tokenizers, filters, morph, intraword
+from whoosh.analysis import tokenizers, filters, morph, intraword, analysis
 from whoosh.lang.porter import stem
 
 

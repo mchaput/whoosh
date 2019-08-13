@@ -26,13 +26,18 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import division
+import typing
 from typing import (
     Any, Callable, Iterable, Optional, Sequence, Set, Tuple, Union,
 )
 
 from whoosh import idsets
-from whoosh.ifaces import matchers, weights
+from whoosh.matching import matchers
 from whoosh.postings import postform, postings, ptuples
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import scoring
 
 
 __all__ = ("WrappingMatcher", "ConstantScoreMatcher", "MultiMatcher",
@@ -244,7 +249,7 @@ class MultiMatcher(matchers.Matcher):
     """
 
     def __init__(self, matchers: Sequence[matchers.Matcher],
-                 idoffsets: Sequence[int], scorer: 'weights.Scorer'=None,
+                 idoffsets: Sequence[int], scorer: 'scoring.Scorer'=None,
                  current: int=0):
         """
         :param matchers: a list of Matcher objects.

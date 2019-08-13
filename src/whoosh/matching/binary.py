@@ -27,8 +27,7 @@
 
 from typing import Any, Sequence, Tuple
 
-from whoosh.ifaces import matchers
-
+from whoosh.matching import matchers
 
 __all__ = ("BiMatcher", "AdditiveBiMatcher", "UnionMatcher",
            "DisjunctionMaxMatcher", "IntersectionMatcher", "RequireMatcher")

@@ -29,7 +29,7 @@ import re
 from collections import deque
 from typing import Iterable
 
-from whoosh.ifaces import analysis
+from whoosh.analysis import analysis
 from whoosh.compat import text_type
 
 
@@ -49,7 +49,7 @@ class CompoundWordFilter(analysis.Filter):
     >>> from whoosh.analysis.tokenizers import RegexTokenizer
     >>> wordset = set("green eggs".split())
     >>> cwf = CompoundWordFilter(wordset, keep_compound=True)
-    >>> analyzer = RegexTokenizer(r"\S+") | cwf
+    >>> analyzer = RegexTokenizer(r"\\S+") | cwf
     >>> [t.text for t in analyzer("I do not like greeneggs and ham")
     ["I", "do", "not", "like", "greeneggs", "green", "eggs", "and", "ham"]
     >>> cwf.keep_compound = False
@@ -284,7 +284,7 @@ class IntraWordFilter(analysis.Filter):
     >>> iwf_i = IntraWordFilter(mergewords=True, mergenums=True)
     >>> iwf_q = IntraWordFilter(mergewords=False, mergenums=False)
     >>> iwf = MultiFilter(index=iwf_i, query=iwf_q)
-    >>> analyzer = RegexTokenizer(r"\S+") | iwf | LowercaseFilter()
+    >>> analyzer = RegexTokenizer(r"\\S+") | iwf | LowercaseFilter()
 
     (See :class:`MultiFilter`.)
     """
@@ -294,7 +294,7 @@ class IntraWordFilter(analysis.Filter):
     __inittypes__ = dict(delims=text_type, splitwords=bool, splitnums=bool,
                          mergewords=bool, mergenums=bool)
 
-    def __init__(self, delims=u"-_'\"()!@#$%^&*[]{}<>\|;:,./?`~=+",
+    def __init__(self, delims=u"-_'\"()!@#$%^&*[]{}<>\\|;:,./?`~=+",
                  splitwords=True, splitnums=True,
                  mergewords=False, mergenums=False):
         """

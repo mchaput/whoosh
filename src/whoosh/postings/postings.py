@@ -1,14 +1,15 @@
 import logging
+import typing
 from abc import abstractmethod
-from typing import Any, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Any, Iterable, List, Sequence, Tuple, Union
 
-from whoosh.ifaces import analysis
+from whoosh.analysis import analysis
 from whoosh.compat import text_type
 from whoosh.postings import postform
 from whoosh.postings.ptuples import PostTuple, RawPost
 
 
-if False:
+if typing.TYPE_CHECKING:
     from whoosh.postings.postform import Format
 
 

@@ -34,11 +34,10 @@ from abc import abstractmethod
 from bisect import bisect_right
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-from whoosh import columns, fields
+from whoosh import columns, fields, reading, storage
 from whoosh.automata import lev
 from whoosh.automata.fsa import DFA
 from whoosh.compat import text_type
-from whoosh.ifaces import readers, storage
 from whoosh.postings import postform, postings, ptuples
 from whoosh.system import IS_LITTLE
 from whoosh.util.loading import find_object
@@ -500,7 +499,7 @@ class TermCursor:
         return self.field.from_bytes(self.termbytes())
 
     @abstractmethod
-    def term_info(self) -> 'readers.TermInfo':
+    def term_info(self) -> 'reading.TermInfo':
         raise NotImplementedError
 
 
@@ -588,9 +587,9 @@ class MultiCursor(TermCursor):
                                 [c.text() for c in low])
         return text
 
-    def term_info(self) -> 'readers.TermInfo':
+    def term_info(self) -> 'reading.TermInfo':
         tis = [c.term_info() for c in self._low]
-        return readers.TermInfo.combine(tis) if tis else None
+        return reading.TermInfo.combine(tis) if tis else None
 
 
 # Reader classes
@@ -621,7 +620,7 @@ class TermsReader:
             cur.next()
 
     @abstractmethod
-    def items(self) -> 'Iterable[Tuple[TermTuple, readers.TermInfo]]':
+    def items(self) -> 'Iterable[Tuple[TermTuple, reading.TermInfo]]':
         raise NotImplementedError
 
     # @abstractmethod
@@ -630,7 +629,7 @@ class TermsReader:
     #     raise NotImplementedError
 
     @abstractmethod
-    def term_info(self, fieldname: str, termbytes: bytes) -> 'readers.TermInfo':
+    def term_info(self, fieldname: str, termbytes: bytes) -> 'reading.TermInfo':
         raise NotImplementedError
 
     def weight(self, fieldname: str, termbytes: bytes) -> float:

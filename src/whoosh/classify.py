@@ -30,14 +30,19 @@ documents.
 """
 
 from __future__ import division
+import typing
 from collections import defaultdict
 from math import log
 from typing import Sequence, Set, Tuple, Union
 
 from whoosh import idsets, results
 from whoosh.compat import text_type
-from whoosh.ifaces import queries, searchers
+from whoosh.query import queries
 from whoosh.postings import ptuples
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import searching
 
 
 # Expansion models
@@ -106,7 +111,7 @@ class KLModel(ExpansionModel):
 # "More like this" object
 
 class MoreLike:
-    def __init__(self, searcher: 'searchers.Searcher', fieldname: str,
+    def __init__(self, searcher: 'searching.Searcher', fieldname: str,
                  modelclass: ExpansionModel=None, minweight: float=0.0,
                  maxterms: int=25):
         self.searcher = searcher

@@ -28,4 +28,4 @@
 from whoosh.matching.binary import *
 from whoosh.matching.wrappers import *
 from whoosh.matching.combo import *
-from whoosh.ifaces.matchers import *
+from whoosh.matching.matchers import *

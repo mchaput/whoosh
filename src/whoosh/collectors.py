@@ -1,12 +1,15 @@
-import copy
-from abc import abstractmethod
+import typing
 from collections import defaultdict, namedtuple
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from whoosh import results, sorting
-from whoosh.compat import text_type
-from whoosh.ifaces import matchers, queries, searchers, weights
+from whoosh.query import queries
+from whoosh.matching import matchers
 from whoosh.util import now
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import scoring, searching
 
 
 # Typing aliases
@@ -39,7 +42,7 @@ def register(name, compound=False):
 
 
 def as_query(obj):
-    from whoosh.ifaces import queries
+    from whoosh.query import queries
 
     if isinstance(obj, queries.Query):
         return obj
@@ -54,15 +57,15 @@ def as_query(obj):
 class Collector:
     collector_priority = 0
 
-    def __init__(self, searcher: 'searchers.Searcher', q: 'queries.Query'):
+    def __init__(self, searcher: 'searching.Searcher', q: 'queries.Query'):
         self._searcher = searcher
         self._query = q
 
         self._items = None  # type: List[MatchTuple]
         self._current_data = None  # type: Dict[str, Any]
-        self._current_searcher = None  # type: searchers.Searcher
+        self._current_searcher = None  # type: searching.Searcher
         self._current_offset = 0
-        self._current_context = None  # type: searchers.SearchContext
+        self._current_context = None  # type: searching.SearchContext
         self._current_docset = None  # type: Optional[Set]
         self._current_matcher = None  # type: matchers.Matcher
         self._current_minscore = 0.0
@@ -83,7 +86,7 @@ class Collector:
 
         for prefix in compound_prefixes:
             if name.startswith(prefix):
-                from whoosh.ifaces import queries
+                from whoosh.query import queries
 
                 rest = name[len(prefix):]
                 comp_cls = registry[prefix].cls
@@ -107,7 +110,7 @@ class Collector:
                           ) -> 'Collector':
         raise Exception("%s can't combine" % cls.__name__)
 
-    def searcher(self) -> 'searchers.Searcher':
+    def searcher(self) -> 'searching.Searcher':
         return self._searcher
 
     def with_query(self, newq: 'queries.Query'):
@@ -139,7 +142,7 @@ class Collector:
     def query(self) -> 'queries.Query':
         return self._query
 
-    def current_context(self) -> 'searchers.SearchContext':
+    def current_context(self) -> 'searching.SearchContext':
         return self._current_context
 
     def init_docset(self):
@@ -180,7 +183,7 @@ class Collector:
 
     # Collecting
 
-    def results(self, context: 'searchers.SearchContext'=None
+    def results(self, context: 'searching.SearchContext'=None
                 ) -> 'results.Results':
         searcher = self.searcher()
 
@@ -197,7 +200,7 @@ class Collector:
                             docset=docset, collector=self, data=data)
         return r
 
-    def set_context(self, context: 'searchers.SearchContext'):
+    def set_context(self, context: 'searching.SearchContext'):
         self._current_context = context
 
     def start(self):
@@ -212,7 +215,7 @@ class Collector:
     def finish(self):
         self._current_matcher.close()
 
-    def set_subsearcher(self, subsearcher: 'searchers.Searcher', offset: int):
+    def set_subsearcher(self, subsearcher: 'searching.Searcher', offset: int):
         self._current_searcher = subsearcher
         self._current_offset = offset
 
@@ -352,7 +355,7 @@ class WrappingCollector(Collector):
 
     # Getters and setters
 
-    def searcher(self) -> 'searchers.Searcher':
+    def searcher(self) -> 'searching.Searcher':
         return self.child.searcher()
 
     def set_query(self, q: 'queries.Query'):
@@ -361,7 +364,7 @@ class WrappingCollector(Collector):
     def query(self) -> 'queries.Query':
         return self.child.query()
 
-    def current_context(self) -> 'searchers.SearchContext':
+    def current_context(self) -> 'searching.SearchContext':
         return self.child.current_context()
 
     def init_docset(self):
@@ -387,7 +390,7 @@ class WrappingCollector(Collector):
 
     # Collecting
 
-    def set_context(self, context: 'searchers.SearchContext'):
+    def set_context(self, context: 'searching.SearchContext'):
         self.child.set_context(context)
 
     def start(self):
@@ -396,7 +399,7 @@ class WrappingCollector(Collector):
     def finish(self):
         self.child.finish()
 
-    def set_subsearcher(self, subsearcher: 'searchers.Searcher', offset: int):
+    def set_subsearcher(self, subsearcher: 'searching.Searcher', offset: int):
         self.child.set_subsearcher(subsearcher, offset)
 
     def collect(self, globalid: int, localid: int, score: float,
@@ -431,7 +434,7 @@ class TopCollector(WrappingCollector):
 
     # Collecting
 
-    def set_context(self, context: 'searchers.SearchContext'):
+    def set_context(self, context: 'searching.SearchContext'):
         context.limit = self._limit
         self.child.set_context(context)
 
@@ -503,7 +506,7 @@ class SortingCollector(WrappingCollector):
 
     # Collecting
 
-    def set_context(self, context: 'searchers.SearchContext'):
+    def set_context(self, context: 'searching.SearchContext'):
         context.optimize = False
         self.child.set_context(context)
 
@@ -515,7 +518,7 @@ class SortingCollector(WrappingCollector):
         self._catter.close()
         self.child.finish()
 
-    def set_subsearcher(self, subsearcher: 'searchers.Searcher', offset: int):
+    def set_subsearcher(self, subsearcher: 'searching.Searcher', offset: int):
         self._catter.set_searcher(subsearcher, offset)
         self.child.set_subsearcher(subsearcher, offset)
 
@@ -563,7 +566,7 @@ class GroupingCollector(WrappingCollector):
 
         self.child.finish()
 
-    def set_subsearcher(self, subsearcher: 'searchers.Searcher', offset: int):
+    def set_subsearcher(self, subsearcher: 'searching.Searcher', offset: int):
         self._catter.set_searcher(subsearcher, offset)
         self.child.set_subsearcher(subsearcher, offset)
 
@@ -604,7 +607,7 @@ class FilterCollector(WrappingCollector):
 
     # Collecting
 
-    def set_context(self, context: 'searchers.SearchContext'):
+    def set_context(self, context: 'searching.SearchContext'):
         context.include = self._include
         context.exclude = self._exclude
         self.child.set_context(context)
@@ -634,7 +637,7 @@ class TermsCollector(WrappingCollector):
         data = self.current_data()
         data["terms"] = self._termset
 
-    def set_context(self, context: 'searchers.SearchContext'):
+    def set_context(self, context: 'searching.SearchContext'):
         context.optimize = False
         self.child.set_context(context)
 
@@ -666,7 +669,7 @@ class SpansCollector(WrappingCollector):
 
     # Collecting
 
-    def set_context(self, context: 'searchers.SearchContext'):
+    def set_context(self, context: 'searching.SearchContext'):
         context.optimize = False
         self.child.set_context(context)
 
@@ -734,11 +737,11 @@ class CollapsingCollector(WrappingCollector):
         data["collapsed_total"] = sum(counts.values()) if counts else 0
         self.child.finish()
 
-    def set_context(self, context: 'searchers.SearchContext'):
+    def set_context(self, context: 'searching.SearchContext'):
         context.optimize = False
         self.child.set_context(context)
 
-    def set_subsearcher(self, subsearcher: 'searchers.Searcher', offset: int):
+    def set_subsearcher(self, subsearcher: 'searching.Searcher', offset: int):
         self._collapse_cat.set_searcher(subsearcher, offset)
         if self._order_cat:
             self._order_cat.set_searcher(subsearcher, offset)
@@ -857,7 +860,7 @@ class SamplingCollector(WrappingCollector):
 
 @register("weighted_by")
 class WeightingCollector(WrappingCollector):
-    def __init__(self, weighting: 'weights.WeightingModel'):
+    def __init__(self, weighting: 'scoring.WeightingModel'):
         self._weighting = weighting
 
     def rewrap(self, child: Collector) -> 'WeightingCollector':
@@ -865,7 +868,7 @@ class WeightingCollector(WrappingCollector):
 
     # Collecting
 
-    def set_context(self, context: 'searchers.SearchContext'):
+    def set_context(self, context: 'searching.SearchContext'):
         context.weighting = self._weighting
         self.child.set_context(context)
 
@@ -880,7 +883,7 @@ class PageCollector(WrappingCollector):
     def rewrap(self, child: Collector) -> 'PageCollector':
         return self.__class__(child, self._page, self._size)
 
-    def results(self, context: 'searchers.SearchContext'=None
+    def results(self, context: 'searching.SearchContext'=None
                 ) -> 'results.Results':
         from whoosh.results import ResultsPage
 

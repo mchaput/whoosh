@@ -27,15 +27,20 @@
 
 from __future__ import division
 import logging
+import typing
 from abc import abstractmethod
 from math import ceil
 from operator import itemgetter
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union
 
 from whoosh import fields
-from whoosh.ifaces import codecs, readers, storage
+from whoosh.codec import codecs
 from whoosh.postings.ptuples import post_docid, update_post
 from whoosh.util import now, random_name
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import reading, storage
 
 
 logger = logging.getLogger(__name__)
@@ -343,7 +348,7 @@ default_strategy = TieredMergeStrategy
 
 # Helper function to copy the information from a reader into a new segment
 
-def _copy_perdoc(schema: 'fields.Schema', reader: 'readers.IndexReader',
+def _copy_perdoc(schema: 'fields.Schema', reader: 'reading.IndexReader',
                  perdoc: 'codecs.PerDocumentWriter'
                  ) -> Optional[Dict[int, int]]:
     """
@@ -419,7 +424,7 @@ def _copy_perdoc(schema: 'fields.Schema', reader: 'readers.IndexReader',
         return docmap
 
 
-def _copy_terms(schema: 'fields.Schema', reader: 'readers.IndexReader',
+def _copy_terms(schema: 'fields.Schema', reader: 'reading.IndexReader',
                 fieldnames: Set[str], fwriter: 'codecs.FieldWriter',
                 docmap: Optional[Dict[int, int]]):
     """
@@ -531,7 +536,7 @@ def perform_merge(codec: 'codecs.Codec',
     return newsegment, merge_obj.merge_id
 
 
-def copy_reader(reader: 'readers.IndexReader',
+def copy_reader(reader: 'reading.IndexReader',
                 codec: 'codecs.Codec',
                 session: 'storage.Session',
                 schema: 'fields.Schema',

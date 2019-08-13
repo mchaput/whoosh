@@ -5,7 +5,6 @@ from tempfile import mkstemp
 from typing import Any
 
 from whoosh import fields
-from whoosh.ifaces import codecs, storage
 from whoosh.writing.writing import IndexWriter, SegmentWriter
 from whoosh.util import now
 

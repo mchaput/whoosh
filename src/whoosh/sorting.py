@@ -25,6 +25,7 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+import typing
 from abc import abstractmethod
 from array import array
 from collections import defaultdict
@@ -32,7 +33,12 @@ from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, Iterable, Optional, Sequence, Set, Union
 
 from whoosh.compat import string_type, text_type
-from whoosh.ifaces import matchers, queries, searchers
+from whoosh.query import queries
+from whoosh.matching import matchers
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import searching
 
 
 # Faceting objects
@@ -57,7 +63,7 @@ class FacetType:
         else:
             raise Exception("Don't know what to do with %r" % item)
 
-    def categorizer(self, global_searcher: 'searchers.Searcher'
+    def categorizer(self, global_searcher: 'searching.Searcher'
                     ) -> 'Categorizer':
         """Returns a :class:`Categorizer` corresponding to this facet.
 
@@ -106,7 +112,7 @@ class Categorizer:
 
     allow_overlap = False
 
-    def set_searcher(self, segment_searcher: 'searchers.Searcher',
+    def set_searcher(self, segment_searcher: 'searching.Searcher',
                      docoffset: int):
         """
         Called by the collector when the collector moves to a new segment.
@@ -204,7 +210,7 @@ class FieldFacet(FacetType):
     def default_name(self) -> str:
         return self.fieldname
 
-    def categorizer(self, global_searcher: 'searchers.Searcher') -> Categorizer:
+    def categorizer(self, global_searcher: 'searching.Searcher') -> Categorizer:
         # The searcher we're passed here may wrap a multireader, but the
         # actual key functions will always be called per-segment following a
         # Categorizer.set_searcher method call
@@ -229,7 +235,7 @@ class FieldFacet(FacetType):
 
 
 class ColumnCategorizer(Categorizer):
-    def __init__(self, global_searcher: 'searchers.Searcher', fieldname: str,
+    def __init__(self, global_searcher: 'searching.Searcher', fieldname: str,
                  reverse: bool=False):
         self._fieldname = fieldname
         self._fieldobj = global_searcher.schema[self._fieldname]
@@ -245,7 +251,7 @@ class ColumnCategorizer(Categorizer):
                                            self._fieldobj, self._fieldname,
                                            self._reverse)
 
-    def set_searcher(self, segment_searcher: 'searchers.Searcher',
+    def set_searcher(self, segment_searcher: 'searching.Searcher',
                      docoffset: int):
         if self._creader is not None:
             self._creader.close()
@@ -306,11 +312,11 @@ class OverlappingCategorizer(Categorizer):
                             and field.column_type.stores_lists())
 
         # These are set in set_searcher() as we iterate over the sub-searchers
-        self._segment_searcher = None  # type: searchers.Searcher
+        self._segment_searcher = None  # type: searching.Searcher
         self._creader = None  # type: columns.ColumnReader
         self._lists = None
 
-    def set_searcher(self, segment_searcher: 'searchers.Searcher',
+    def set_searcher(self, segment_searcher: 'searching.Searcher',
                      docoffset: int):
         fieldname = self._fieldname
         self._segment_searcher = segment_searcher
@@ -389,7 +395,7 @@ class PostingCategorizer(Categorizer):
     def __init__(self, global_searcher, fieldname, reverse):
         self.reverse = reverse
         # These will be set by set_searcher
-        self._searcher = None  # type: searchers.Searcher
+        self._searcher = None  # type: searching.Searcher
         self._docoffset = None  # type: int
 
         if fieldname in global_searcher._field_caches:
@@ -415,7 +421,7 @@ class PostingCategorizer(Categorizer):
 
             global_searcher._field_caches[fieldname] = (self.values, self.array)
 
-    def set_searcher(self, segment_searcher: 'searchers.Searcher',
+    def set_searcher(self, segment_searcher: 'searching.Searcher',
                      docoffset: int):
         self._searcher = segment_searcher
         self._docoffset = docoffset
@@ -456,7 +462,7 @@ class QueryFacet(FacetType):
         self.maptype = maptype
         self.allow_overlap = allow_overlap
 
-    def categorizer(self, global_searcher: 'searchers.Searcher'
+    def categorizer(self, global_searcher: 'searching.Searcher'
                     ) -> 'Categorizer':
         return self.QueryCategorizer(self.querydict, self.other,
                                      self.allow_overlap)
@@ -472,7 +478,7 @@ class QueryFacet(FacetType):
             self._docsets = None  # type: Dict[str, Set[int]]
             self._docoffset = None
 
-        def set_searcher(self, segment_searcher: 'searchers.Searcher',
+        def set_searcher(self, segment_searcher: 'searching.Searcher',
                          docoffset: int):
             self._docsets = {}
             for qname, q in self.querydict.items():
@@ -580,7 +586,7 @@ class RangeFacet(QueryFacet):
 
             cstart = cend
 
-    def categorizer(self, global_searcher: 'searchers.Searcher'
+    def categorizer(self, global_searcher: 'searching.Searcher'
                     ) -> 'Categorizer':
         return QueryFacet(self.querydict).categorizer(global_searcher)
 
@@ -625,21 +631,21 @@ class ScoreFacet(FacetType):
         results = searcher.search(myquery, sortedby=tag_score)
     """
 
-    def categorizer(self, global_searcher: 'searchers.Searcher'
+    def categorizer(self, global_searcher: 'searching.Searcher'
                     ) -> 'Categorizer':
         return self.ScoreCategorizer(global_searcher)
 
     class ScoreCategorizer(Categorizer):
-        def __init__(self, global_searcher: 'searchers.Searcher'):
+        def __init__(self, global_searcher: 'searching.Searcher'):
             w = global_searcher.weighting
             self.use_final = w.use_final
             if w.use_final:
                 self.final = w.final
 
             # Set by set_searcher
-            self._segment_searcher = None  # type: searchers.Searcher
+            self._segment_searcher = None  # type: searching.Searcher
 
-        def set_searcher(self, segment_searcher: 'searchers.Searcher',
+        def set_searcher(self, segment_searcher: 'searching.Searcher',
                          docoffset: int):
             self._segment_searcher = segment_searcher
 
@@ -688,7 +694,7 @@ class FunctionFacet(FacetType):
             # Set by set_searcher
             self._docoffset = None  # type: int
 
-        def set_searcher(self, segment_searcher: 'searchers.Searcher',
+        def set_searcher(self, segment_searcher: 'searching.Searcher',
                          docoffset: int):
             self._docoffset = docoffset
 
@@ -739,7 +745,7 @@ class TranslateFacet(FacetType):
         self.facets = facets
         self.maptype = None
 
-    def categorizer(self, global_searcher: 'searchers.Searcher'
+    def categorizer(self, global_searcher: 'searching.Searcher'
                     ) -> 'Categorizer':
         catters = [facet.categorizer(global_searcher) for facet in self.facets]
         return self.TranslateCategorizer(self.fn, catters)
@@ -749,7 +755,7 @@ class TranslateFacet(FacetType):
             self.fn = fn
             self.catters = catters
 
-        def set_searcher(self, segment_searcher: 'searchers.Searcher',
+        def set_searcher(self, segment_searcher: 'searching.Searcher',
                          docoffset: int):
             for catter in self.catters:
                 catter.set_searcher(segment_searcher, docoffset)
@@ -800,7 +806,7 @@ class StoredFieldFacet(FacetType):
     def default_name(self) -> str:
         return self.fieldname
 
-    def categorizer(self, global_searcher: 'searchers.Searcher'
+    def categorizer(self, global_searcher: 'searching.Searcher'
                     ) -> 'Categorizer':
         return self.StoredFieldCategorizer(self.fieldname, self.allow_overlap,
                                            self.split_fn)
@@ -813,7 +819,7 @@ class StoredFieldFacet(FacetType):
             self.split_fn = split_fn
 
             # Set by set_searcher
-            self._segment_searcher = None  # type: searchers.Searcher
+            self._segment_searcher = None  # type: searching.Searcher
 
         def set_searcher(self, segment_searcher, docoffset):
             self._segment_searcher = segment_searcher
@@ -896,7 +902,7 @@ class MultiFacet(FacetType):
         self.facets.append(facet)
         return self
 
-    def categorizer(self, global_searcher: 'searchers.Searcher'
+    def categorizer(self, global_searcher: 'searching.Searcher'
                     ) -> 'Categorizer':
         if not self.facets:
             raise Exception("No facets")
@@ -911,7 +917,7 @@ class MultiFacet(FacetType):
         def __init__(self, catters: Sequence[Categorizer]):
             self.catters = catters
 
-        def set_searcher(self, segment_searcher: 'searchers.Searcher',
+        def set_searcher(self, segment_searcher: 'searching.Searcher',
                          docoffset: int):
             for catter in self.catters:
                 catter.set_searcher(segment_searcher, docoffset)

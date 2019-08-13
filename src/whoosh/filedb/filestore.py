@@ -42,8 +42,8 @@ from typing import Any, Dict, Iterable, List, Set
 
 import furl
 
-from whoosh import fields, index
-from whoosh.ifaces import codecs, storage
+from whoosh import index, storage
+from whoosh.codec import codecs
 from whoosh.filedb import datafile
 from whoosh.metadata import MetaData
 from whoosh.system import IS_LITTLE

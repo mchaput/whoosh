@@ -1,15 +1,21 @@
 import logging
+import typing
 from collections import defaultdict
 from concurrent import futures
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Any, List, Sequence
 
-from whoosh import columns, fields
-from whoosh.ifaces import codecs, queries, readers, searchers, storage
+from whoosh import columns, fields, storage
+from whoosh.query import queries
+from whoosh.codec import codecs
 from whoosh.writing import merging, reporting, segmentlist
 from whoosh.postings.ptuples import PostTuple, TERMBYTES, DOCID
 from whoosh.util import now, times, unclosed
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import reading, searching
 
 
 logger = logging.getLogger(__name__)
@@ -433,7 +439,7 @@ class IndexWriter:
             self.delete_by_query(Or(qs))
 
     @unclosed
-    def add_reader(self, reader: 'readers.IndexReader'):
+    def add_reader(self, reader: 'reading.IndexReader'):
         """
         Adds the contents of the given reader to this index.
 
@@ -760,7 +766,7 @@ class IndexWriter:
         return self.seglist.multireader()
 
     @unclosed
-    def searcher(self, **kwargs) -> 'searchers.Searcher':
+    def searcher(self, **kwargs) -> 'searching.Searcher':
         """
         Returns a searcher for the existing index.
 
@@ -769,6 +775,6 @@ class IndexWriter:
 
         from whoosh import searching
 
-        return searching.ConcreteSearcher(self.reader(), **kwargs)
+        return searching.Searcher(self.reader(), **kwargs)
 
 

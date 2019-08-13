@@ -25,12 +25,17 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from typing import Any, Callable, Dict, Iterable, Sequence, Set
+import typing
+from typing import Set
 
 from whoosh import sorting
-from whoosh.ifaces import matchers, queries, readers, searchers
+from whoosh.query import queries
 from whoosh.query.compound import BinaryQuery
-from whoosh.matching import wrappers
+from whoosh.matching import wrappers, matchers
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import reading, searching
 
 
 # Simple run-time equality join
@@ -86,10 +91,10 @@ class RelationQuery(BinaryQuery):
 
         return self.__class__(self.left_field, a, self.right_field, b)
 
-    def estimate_size(self, reader: 'readers.IndexReader'):
+    def estimate_size(self, reader: 'reading.IndexReader'):
         return self.b.estimate_size(reader)
 
-    def _build_keyset(self, context: 'searchers.SearchContext') -> Set:
+    def _build_keyset(self, context: 'searching.SearchContext') -> Set:
         keyset = set()
         top_searcher = context.top_searcher
         facet = sorting.FieldFacet(self.left_field)
@@ -103,8 +108,8 @@ class RelationQuery(BinaryQuery):
             m.close()
         return keyset
 
-    def matcher(self, searcher: 'searchers.Searcher',
-                context: 'searchers.SearchContext') -> matchers.Matcher:
+    def matcher(self, searcher: 'searching.Searcher',
+                context: 'searching.SearchContext') -> matchers.Matcher:
         reader = searcher.reader()
         if not (reader.has_column(self.left_field)
                 and reader.has_column(self.right_field)):

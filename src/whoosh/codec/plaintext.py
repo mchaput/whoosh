@@ -29,7 +29,7 @@ from ast import literal_eval
 from pickle import dumps, loads
 
 from whoosh.compat import bytes_type, text_type, integer_types
-from whoosh.ifaces import codecs
+from whoosh.codec import codecs
 from whoosh.matching import ListMatcher
 from whoosh.reading import TermInfo, TermNotFound
 

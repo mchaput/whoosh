@@ -31,7 +31,6 @@ parser modules.
 """
 
 import sys
-from whoosh.ifaces.queries import QueryParserError
 
 
 def get_single_text(field, text, **kwargs):

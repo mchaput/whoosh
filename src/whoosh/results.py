@@ -1,9 +1,14 @@
+import typing
 from math import ceil
 from typing import Any, Dict, Iterable, List, Sequence, Set, Tuple
 
 from whoosh import collectors, highlight
 from whoosh.compat import text_type
-from whoosh.ifaces import queries, searchers
+from whoosh.query import queries
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import searching
 
 
 class Results:
@@ -18,7 +23,7 @@ class Results:
     so keeps all files used by it open.
     """
 
-    def __init__(self, searcher: 'searchers.Searcher', q: 'queries.Query',
+    def __init__(self, searcher: 'searching.Searcher', q: 'queries.Query',
                  top_n: List[Tuple[float, int, Dict[str, Any]]],
                  docset: Set[int]=None, runtime: float=0, highlighter=None,
                  collector: 'collectors.Collector'=None,

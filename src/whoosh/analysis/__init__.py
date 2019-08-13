@@ -66,4 +66,4 @@ from whoosh.analysis.intraword import *
 from whoosh.analysis.morph import *
 from whoosh.analysis.ngrams import *
 from whoosh.analysis.tokenizers import *
-from whoosh.ifaces.analysis import *
+from whoosh.analysis.analysis import *

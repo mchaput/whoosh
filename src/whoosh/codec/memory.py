@@ -35,15 +35,20 @@
 # from whoosh.writing import SegmentWriter
 
 import threading
+import typing
 from bisect import bisect_left
 from io import BytesIO
 from collections import defaultdict
 from typing import Any, Dict, Iterable, Optional, Sequence, Set, Tuple
 
-from whoosh import columns, fields, index
-from whoosh.codec import null
-from whoosh.ifaces import codecs, storage, readers
+import whoosh.reading
+from whoosh import columns, fields, index, storage
+from whoosh.codec import null, codecs
 from whoosh.postings import basic, postform, postings, ptuples
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import reading
 
 
 class CapabilityError(Exception):
@@ -271,7 +276,7 @@ class MemFieldWriter(codecs.FieldWriter):
         self._fielddict = {}
         self._termbytes = b''
         self._posts = []
-        self._terminfo = None  # type: readers.TermInfo
+        self._terminfo = None  # type: reading.TermInfo
 
     def postings_io(self) -> 'postings.PostingsIO':
         return self._io
@@ -284,7 +289,7 @@ class MemFieldWriter(codecs.FieldWriter):
     def start_term(self, termbytes: bytes):
         self._termbytes = termbytes
         self._posts = []
-        self._terminfo = readers.TermInfo()
+        self._terminfo = whoosh.reading.TermInfo()
 
     def add_posting(self, post: 'ptuples.PostTuple'):
         self._posts.append(self._io.condition_post(post))
@@ -407,13 +412,13 @@ class MemTermsReader(codecs.TermsReader):
             for termbytes in self._segment.sorted_terms(fieldname):
                 yield fieldname, termbytes
 
-    def items(self) -> 'Iterable[Tuple[codecs.TermTuple, readers.TermInfo]]':
+    def items(self) -> 'Iterable[Tuple[codecs.TermTuple, reading.TermInfo]]':
         for fieldname in sorted(self._segment.terms):
             for termbytes in self._segment.sorted_terms(fieldname):
                 yield ((fieldname, termbytes),
                        self.term_info(fieldname, termbytes))
 
-    def term_info(self, fieldname: str, termbytes: bytes) -> readers.TermInfo:
+    def term_info(self, fieldname: str, termbytes: bytes) -> whoosh.reading.TermInfo:
         return self._segment.term_info(fieldname, termbytes)
 
     def indexed_field_names(self) -> Sequence[str]:
@@ -454,7 +459,7 @@ class MemCursor(codecs.TermCursor):
     def termbytes(self) -> bytes:
         return self._termlist[self._i]
 
-    def term_info(self) -> 'readers.TermInfo':
+    def term_info(self) -> 'reading.TermInfo':
         return self._segment.term_info(self.fieldname, self.termbytes())
 
 

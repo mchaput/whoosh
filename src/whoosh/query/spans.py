@@ -46,10 +46,8 @@ For example, to find documents containing "whoosh" at most 5 positions before
 from abc import abstractmethod
 from typing import List, Sequence
 
-from whoosh.ifaces import queries
-from whoosh.query import wrappers as qwrappers
-from whoosh.ifaces import matchers
-from whoosh.matching import wrappers, binary
+from whoosh.query import wrappers as qwrappers, queries
+from whoosh.matching import wrappers, binary, matchers
 from whoosh.postings import ptuples
 from whoosh.util import make_binary_tree
 

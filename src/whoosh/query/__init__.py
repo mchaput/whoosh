@@ -35,7 +35,7 @@ from whoosh.query.ranges import *
 from whoosh.query.spans import *
 from whoosh.query.terms import *
 from whoosh.query.wrappers import *
-from whoosh.ifaces.queries import *
+from whoosh.query.queries import *
 
 
 def _short_string(q: Query) -> str:

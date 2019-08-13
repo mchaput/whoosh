@@ -25,8 +25,14 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from whoosh import sorting
-from whoosh.ifaces import matchers, queries, readers, searchers
+import typing
+
+from whoosh.query import queries
+from whoosh.matching import matchers
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import searching
 
 
 __all__ = ("ColumnQuery", )
@@ -58,8 +64,8 @@ class ColumnQuery(queries.Query):
     def is_leaf(self):
         return True
 
-    def matcher(self, searcher: 'searchers.Searcher',
-                context: 'searchers.SearchContext') -> matchers.Matcher:
+    def matcher(self, searcher: 'searching.Searcher',
+                context: 'searching.SearchContext') -> matchers.Matcher:
         fieldname = self.fieldname
         condition = self.condition
         if callable(condition):

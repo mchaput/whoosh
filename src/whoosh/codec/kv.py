@@ -28,8 +28,7 @@
 
 from array import array
 
-from whoosh.ifaces import codecs
-
+from whoosh.codec import codecs
 
 KV_HEADER_MAGIC = b"WkvC"
 

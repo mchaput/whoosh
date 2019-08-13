@@ -32,18 +32,25 @@ This module implements a "codec" for writing/reading Whoosh X indexes.
 import re
 import logging
 import struct
+import typing
 from collections import defaultdict
 from typing import (Any, Callable, Dict, Iterable, List, Optional, Sequence,
                     Set, Tuple, Union, cast)
 
-from whoosh import columns, fields
-from whoosh.ifaces import codecs, matchers, readers, storage, weights
+import whoosh.reading
+from whoosh import columns, fields, storage
+from whoosh.matching import matchers
+from whoosh.codec import codecs
 from whoosh.compat import bytes_type, text_type
 from whoosh.filedb import blueline, filestore
 from whoosh.filedb.datafile import Data, OutputFile
 from whoosh.metadata import MetaData
 from whoosh.postings import basic, postform, postings, ptuples
 from whoosh.system import IS_LITTLE
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import scoring
 
 try:
     import zlib
@@ -124,7 +131,7 @@ def _lenfield(fieldname: str) -> str:
 
 # Term info implementation
 
-class X1TermInfo(readers.TermInfo):
+class X1TermInfo(whoosh.reading.TermInfo):
     # B   | Flags
     # f   | Total weight
     # I   | Total doc freq
@@ -912,7 +919,7 @@ class X1TermsReader(codecs.TermsReader):
         try:
             fnum = self._fieldnames.index(fieldname)
         except ValueError:
-            raise readers.TermNotFound("Unknown field %r" % fieldname)
+            raise whoosh.reading.TermNotFound("Unknown field %r" % fieldname)
         return fieldnum_struct.pack(fnum) + tbytes
 
     def _keydecoder(self, keybytes: bytes) -> TermTuple:
@@ -922,7 +929,7 @@ class X1TermsReader(codecs.TermsReader):
     def __contains__(self, term: TermTuple) -> bool:
         try:
             key = self._keycoder(*term)
-        except readers.TermNotFound:
+        except whoosh.reading.TermNotFound:
             return False
         return key in self._kv
 
@@ -958,7 +965,7 @@ class X1TermsReader(codecs.TermsReader):
             startkey = self._keycoder(fieldname, start)
             # The end can be None (meaning read all available)
             endkey = self._keycoder(fieldname, end) if end is not None else None
-        except readers.TermNotFound:
+        except whoosh.reading.TermNotFound:
             # The field doesn't exist in the file
             return
 
@@ -982,12 +989,12 @@ class X1TermsReader(codecs.TermsReader):
         try:
             return X1TermInfo.from_bytes(self._kv[key])
         except KeyError:
-            raise readers.TermNotFound("No term %s:%r" % (fieldname, tbytes))
+            raise whoosh.reading.TermNotFound("No term %s:%r" % (fieldname, tbytes))
 
     def weight(self, fieldname: str, tbytes: bytes) -> float:
         try:
             key = self._keycoder(fieldname, tbytes)
-        except readers.TermNotFound:
+        except whoosh.reading.TermNotFound:
             return 0
 
         try:
@@ -1000,7 +1007,7 @@ class X1TermsReader(codecs.TermsReader):
     def doc_frequency(self, fieldname: str, tbytes: bytes) -> float:
         try:
             key = self._keycoder(fieldname, tbytes)
-        except readers.TermNotFound:
+        except whoosh.reading.TermNotFound:
             return 0
 
         try:
@@ -1011,7 +1018,7 @@ class X1TermsReader(codecs.TermsReader):
         return X1TermInfo.decode_doc_freq(data, 0)
 
     def matcher(self, fieldname: str, tbytes: bytes, format_: 'postform.Format',
-                scorer: 'weights.Scorer'=None) -> 'X1Matcher':
+                scorer: 'scoring.Scorer'=None) -> 'X1Matcher':
         ti = self.term_info(fieldname, tbytes)
 
         is_mini = (format_.only_docids() and ti.doc_frequency() == 1 and
@@ -1052,7 +1059,7 @@ class X1TermCursor(codecs.TermCursor):
     def is_valid(self) -> bool:
         return self._cur.is_valid()
 
-    def term_info(self) -> readers.TermInfo:
+    def term_info(self) -> whoosh.reading.TermInfo:
         try:
             return X1TermInfo.from_bytes(self._cur.value())
         except blueline.InvalidCursor:
@@ -1082,7 +1089,7 @@ class X1TermCursor(codecs.TermCursor):
 class X1Matcher(matchers.LeafMatcher):
     def __init__(self, data: Data, fieldname: str, tbytes: bytes,
                  terminfo: X1TermInfo, postings_io: 'postings.PostingsIO',
-                 scorer: 'weights.Scorer'=None):
+                 scorer: 'scoring.Scorer'=None):
         super(X1Matcher, self).__init__(fieldname, tbytes, terminfo,
                                         postings_io, scorer=scorer)
 

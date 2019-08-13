@@ -50,13 +50,17 @@ method will return ``True``.
 """
 
 import copy
+import typing
 from abc import abstractmethod
 from functools import wraps
 from typing import Any, Iterable, Optional, Sequence, Set, Tuple, Union
 
 from whoosh import idsets
-from whoosh.ifaces import codecs, readers, weights
 from whoosh.postings import postform, postings, ptuples
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import reading, scoring
 
 
 # Typing aliases
@@ -579,9 +583,9 @@ class LeafMatcher(Matcher):
     #   self.format -- Format object for the posting values
 
     def __init__(self, fieldname: str, tbytes: bytes,
-                 terminfo: 'readers.TermInfo',
+                 terminfo: 'reading.TermInfo',
                  postings_io: 'postings.PostingsIO',
-                 scorer: 'weights.Scorer'=None):
+                 scorer: 'scoring.Scorer'=None):
         self._fieldname = fieldname
         self._tbytes = tbytes
         self._terminfo = terminfo
@@ -709,9 +713,9 @@ class LeafMatcher(Matcher):
 class PostReaderMatcher(LeafMatcher):
     def __init__(self, dpreader: 'postings.DocListReader',
                  fieldname: str, tbytes: bytes,
-                 terminfo: 'readers.TermInfo',
+                 terminfo: 'reading.TermInfo',
                  postings_io: 'postings.PostingsIO',
-                 scorer: 'weights.Scorer'=None):
+                 scorer: 'scoring.Scorer'=None):
         self._posts = dpreader
         self._fieldname = fieldname
         self._tbytes = tbytes

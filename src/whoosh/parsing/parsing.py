@@ -1,10 +1,9 @@
 import logging
-import sys
 from datetime import datetime
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Sequence, Tuple
 
 from whoosh import fields, query
-from whoosh.ifaces import queries
+from whoosh.query import queries
 from whoosh.parsing import peg
 from whoosh.parsing import plugins as plugs
 from whoosh.util.text import rcompile

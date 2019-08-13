@@ -49,13 +49,12 @@ See :doc:`/highlight` for more information.
 """
 
 from __future__ import division
+import html
 from collections import deque
 from heapq import nlargest
-from cgi import escape as htmlescape
 from itertools import groupby
 
-from whoosh.ifaces import analysis
-
+from whoosh.analysis import analysis
 
 # The default value for the maximum chars to examine when fragmenting
 DEFAULT_CHARLIMIT = 2 ** 15
@@ -701,7 +700,7 @@ class HtmlFormatter(Formatter):
         self.htmlclass = " ".join((self.classname, self.termclass))
 
     def _text(self, text):
-        return htmlescape(text, quote=False)
+        return html.escape(text, quote=False)
 
     def format_token(self, text, token, replace=False):
         seen = self.seen

@@ -26,11 +26,17 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import division
+import typing
 from typing import Callable, Iterable, Sequence
 
 from whoosh import collectors
 from whoosh.compat import text_type
-from whoosh.ifaces import matchers, queries, readers, searchers
+from whoosh.query import queries
+from whoosh.matching import matchers
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import reading, searching
 
 
 __all__ = ("WrappingQuery", "Not", "ConstantScoreQuery", "WeightingQuery")
@@ -56,7 +62,7 @@ class WrappingQuery(queries.Query):
     def _rewrap(self, child: queries.Query) -> queries.Query:
         return self.__class__(child)
 
-    def estimate_size(self, reader: 'readers.IndexReader') -> int:
+    def estimate_size(self, reader: 'reading.IndexReader') -> int:
         return self.child.estimate_size(reader)
 
     def is_leaf(self) -> bool:
@@ -79,17 +85,17 @@ class WrappingQuery(queries.Query):
         else:
             return self._rewrap(q)
 
-    def simplify(self, reader: 'readers.IndexReader') -> queries.Query:
+    def simplify(self, reader: 'reading.IndexReader') -> queries.Query:
         return self._rewrap(self.child.simplify(reader))
 
     def field(self) -> str:
         return self.child.field()
 
-    def estimate_size(self, ixreader: 'readers.IndexReader') -> int:
+    def estimate_size(self, ixreader: 'reading.IndexReader') -> int:
         return self.child.estimate_size(ixreader)
 
-    def matcher(self, searcher: 'searchers.Searcher',
-                context: 'searchers.SearchContext'=None) -> 'matchers.Matcher':
+    def matcher(self, searcher: 'searching.Searcher',
+                context: 'searching.SearchContext'=None) -> 'matchers.Matcher':
         return self.child.matcher(searcher, context)
 
 
@@ -197,7 +203,7 @@ class ConstantScoreQuery(WrappingQuery):
         return self.__class__(child, self.score)
 
     def matcher(self, searcher, context=None):
-        from whoosh.ifaces.searchers import SearchContext
+        from whoosh.searching import SearchContext
         from whoosh.matching.wrappers import ConstantScoreMatcher
 
         context = context or SearchContext()
