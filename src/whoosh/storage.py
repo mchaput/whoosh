@@ -26,7 +26,7 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from abc import abstractmethod
-from typing import Dict
+from typing import Any, Dict
 
 from whoosh import index, metadata
 from whoosh.codec import codecs
@@ -383,7 +383,8 @@ class Storage:
         # Return an Index with the new TOC
         return index.Index(self, indexname, schema)
 
-    def copy_index(self, to_storage: 'Storage', indexname: str=None):
+    def copy_index(self, to_storage: 'Storage', indexname: str=None,
+                   writer_kwargs: Dict[str, Any]=None):
         """
         Copies an index from this storage object to another storage. The default
         implementation simply gets a reader from the origin index, opens a
@@ -396,15 +397,20 @@ class Storage:
         not overwriting existing data, so this is best used to copy an existing
         index into a new, empty storage.
 
-        :param to_storage:
-        :param indexname:
+        :param to_storage: The Storage object copy the index into.
+        :param indexname: The name of the index to copy. If you don't supply
+            this argument, it uses the default index name.
+        :param writer_kwargs: a `dict` object containing keyword arguments to
+            pass to the Index.writer() method (when the base reader-writer
+            implementation is used). If the storage uses a file-by-file copy,
+            this argument is ignored.
         """
 
         from_ix = self.open_index(indexname)
+        to_ix = to_storage.create_index(from_ix.schema, indexname)
         with from_ix.reader() as reader:
-            to_ix = to_storage.create_index(from_ix.schema, indexname)
-
-            with to_ix.writer() as writer:
-                writer.add_reader(reader)
+            with to_ix.writer(**writer_kwargs) as writer:
+                for r, _ in reader.leaf_readers():
+                    writer.add_reader(r)
 
 

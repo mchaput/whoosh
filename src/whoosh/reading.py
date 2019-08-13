@@ -693,7 +693,8 @@ class IndexReader:
     #     return nlargest(number, gen)
 
     def leaf_readers(self) -> 'List[Tuple[IndexReader, int]]':
-        """Returns a list of (IndexReader, docbase) pairs for the child readers
+        """
+        Returns a list of (IndexReader, docbase) pairs for the child readers
         of this reader if it is a composite reader. If this is not a composite
         reader, it returns `[(self, 0)]`.
         """
