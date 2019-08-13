@@ -914,7 +914,7 @@ class Schema:
 
         return sorted(self._fields.keys())
 
-    def add(self, name: str, field: Union[FieldType, type]):
+    def add(self, name: str, field: Union[FieldType, type], glob=False):
         """
         Adds a field to this schema.
 
@@ -933,7 +933,7 @@ class Schema:
             raise FieldConfigurationError("%r is not a FieldType object"
                                           % field)
 
-        isglob = "?" in name or "*" in name
+        isglob = glob or "?" in name or "*" in name
 
         # Check name and check for duplicates
         if name.startswith("_"):

@@ -30,7 +30,7 @@ from typing import Dict, Tuple
 
 import furl
 
-from whoosh import index
+from whoosh import index, metadata
 from whoosh.ifaces import codecs
 
 
@@ -304,6 +304,8 @@ class Storage:
             try:
                 # Try loading a TOC with that name to see if we get an error
                 _ = self.load_toc(session)
+            except metadata.FileHeaderError:
+                return False
             except TocNotFound:
                 return False
 
@@ -374,8 +376,11 @@ class Storage:
 
         # Write the TOC to disk
         with self.open(indexname, writable=True) as session:
+            self.cleanup(session, toc)
             self.save_toc(session, toc)
 
         # Return an Index with the new TOC
         return index.Index(self, indexname, schema)
 
+    def copy_index(self, to_storage: "Storage", indexname: str):
+        raise NotImplementedError

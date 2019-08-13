@@ -558,7 +558,8 @@ class GroupingCollector(WrappingCollector):
         self._catter.close()
 
         data = self.current_data()
-        data[self._name] = self._map.as_dict()
+        groups = data.setdefault("groups", {})
+        groups[self._name] = self._map.as_dict()
 
         self.child.finish()
 

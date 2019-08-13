@@ -181,7 +181,10 @@ class SegmentList:
 
         segments = segments or self.segments  # type: Sequence[codecs.Segment]
         rs = [self.reader(seg) for seg in segments]
-        assert rs
+
+        if not rs:
+            return reading.EmptyReader()
+
         if len(rs) == 1:
             return rs[0]
         else:

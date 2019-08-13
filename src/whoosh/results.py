@@ -138,69 +138,69 @@ class Results:
         docnum = self.top_n[n][1]
         return r.stored_fields(docnum)
 
-    # def facet_names(self) -> List[str]:
-    #     """
-    #     Returns the available facet names, for use with the ``groups()``
-    #     method.
-    #     """
-    #
-    #     groups = self.data.get("groups")
-    #     if groups:
-    #         return list(groups.keys())
-    #     else:
-    #         return []
-    #
-    # def groups(self, name=None) -> Dict:
-    #     """
-    #     If you generated facet groupings for the results using the
-    #     `groupedby` keyword argument to the ``search()`` method, you can use
-    #     this method to retrieve the groups. You can use the ``facet_names()``
-    #     method to get the list of available facet names.
-    #
-    #     >>> results = searcher.search(my_query, groupedby=["tag", "price"])
-    #     >>> results.facet_names()
-    #     ["tag", "price"]
-    #     >>> results.groups("tag")
-    #     {"new": [12, 1, 4], "apple": [3, 10, 5], "search": [11]}
-    #
-    #     If you only used one facet, you can call the method without a facet
-    #     name to get the groups for the facet.
-    #
-    #     >>> results = searcher.search(my_query, groupedby="tag")
-    #     >>> results.groups()
-    #     {"new": [12, 1, 4], "apple": [3, 10, 5, 0], "search": [11]}
-    #
-    #     By default, this returns a dictionary mapping category names to a list
-    #     of document numbers, in the same relative order as they appear in the
-    #     results.
-    #
-    #     >>> results = mysearcher.search(myquery, groupedby="tag")
-    #     >>> docnums = results.groups()
-    #     >>> docnums['new']
-    #     [12, 1, 4]
-    #
-    #     You can then use :meth:`Searcher.stored_fields` to get the stored
-    #     fields associated with a document ID.
-    #
-    #     If you specified a different ``maptype`` for the facet when you
-    #     searched, the values in the dictionary depend on the
-    #     :class:`whoosh.sorting.FacetMap`.
-    #
-    #     >>> myfacet = sorting.FieldFacet("tag", maptype=sorting.Count)
-    #     >>> results = mysearcher.search(myquery, groupedby=myfacet)
-    #     >>> counts = results.groups()
-    #     {"new": 3, "apple": 4, "search": 1}
-    #     """
-    #
-    #     names = self.facet_names()
-    #     if (name is None or name == "facet") and len(names) == 1:
-    #         # If there's only one facet, just use it
-    #         name = names[0]
-    #     elif name not in self:
-    #         raise KeyError("%r not in facet names %r" % (name, names))
-    #
-    #     groups = self.data["groups"]
-    #     return groups[name]
+    def facet_names(self) -> List[str]:
+        """
+        Returns the available facet names, for use with the ``groups()``
+        method.
+        """
+
+        groups = self.data.get("groups")
+        if groups:
+            return list(groups.keys())
+        else:
+            return []
+
+    def groups(self, name=None) -> Dict:
+        """
+        If you generated facet groupings for the results using the
+        `groupedby` keyword argument to the ``search()`` method, you can use
+        this method to retrieve the groups. You can use the ``facet_names()``
+        method to get the list of available facet names.
+
+        >>> results = searcher.search(my_query, groupedby=["tag", "price"])
+        >>> results.facet_names()
+        ["tag", "price"]
+        >>> results.groups("tag")
+        {"new": [12, 1, 4], "apple": [3, 10, 5], "search": [11]}
+
+        If you only used one facet, you can call the method without a facet
+        name to get the groups for the facet.
+
+        >>> results = searcher.search(my_query, groupedby="tag")
+        >>> results.groups()
+        {"new": [12, 1, 4], "apple": [3, 10, 5, 0], "search": [11]}
+
+        By default, this returns a dictionary mapping category names to a list
+        of document numbers, in the same relative order as they appear in the
+        results.
+
+        >>> results = mysearcher.search(myquery, groupedby="tag")
+        >>> docnums = results.groups()
+        >>> docnums['new']
+        [12, 1, 4]
+
+        You can then use :meth:`Searcher.stored_fields` to get the stored
+        fields associated with a document ID.
+
+        If you specified a different ``maptype`` for the facet when you
+        searched, the values in the dictionary depend on the
+        :class:`whoosh.sorting.FacetMap`.
+
+        >>> myfacet = sorting.FieldFacet("tag", maptype=sorting.Count)
+        >>> results = mysearcher.search(myquery, groupedby=myfacet)
+        >>> counts = results.groups()
+        {"new": 3, "apple": 4, "search": 1}
+        """
+
+        names = self.facet_names()
+        if (name is None or name == "facet") and len(names) == 1:
+            # If there's only one facet, just use it
+            name = names[0]
+        elif name not in self:
+            raise KeyError("%r not in facet names %r" % (name, names))
+
+        groups = self.data["groups"]
+        return groups[name]
 
     def has_exact_length(self) -> bool:
         """
