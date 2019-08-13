@@ -237,8 +237,8 @@ class BaseFileStorage(storage.Storage):
         return mx
 
     @staticmethod
-    def _id_counter_filename(indexname: str) -> str:
-        assert isinstance(indexname, str)
+    def _id_counter_filename(indexname: str=None) -> str:
+        indexname = indexname or index.DEFAULT_INDEX_NAME
         return "%s_counter.txt" % indexname
 
     def _read_id_counter(self, indexname: str) -> int:
@@ -296,6 +296,25 @@ class BaseFileStorage(storage.Storage):
         except FileNotFoundError:
             raise storage.TocNotFound("Index %s generation %s not found" %
                                       (indexname, generation))
+
+    def copy_index(self, to_storage: storage.Storage, indexname: str=None):
+        if not isinstance(to_storage, BaseFileStorage):
+            return super().copy_index(to_storage, indexname)
+
+        from shutil import copyfileobj
+
+        indexname = indexname or index.DEFAULT_INDEX_NAME
+        segment_regex = index.segment_regex(indexname)
+        toc_regex = index.toc_regex(indexname)
+        counter_name = self._id_counter_filename(indexname)
+        for filename in self.list():
+            if segment_regex.match(filename) or toc_regex.match(filename) or \
+                    filename == counter_name:
+                from_file = self.open_file(filename)
+                to_file = to_storage.create_file(filename)
+                copyfileobj(from_file, to_file)
+                to_file.close()
+                from_file.close()
 
     # Specify more abstract methods for working with files
 

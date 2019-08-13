@@ -383,16 +383,28 @@ class Storage:
         # Return an Index with the new TOC
         return index.Index(self, indexname, schema)
 
-    def copy_index(self, to_storage: "Storage", from_name: str=None,
-                   to_name: str=None, to_schema=None, writer_kwargs=None):
-        from_ix = self.open_index(from_name)
-        with from_ix.reader() as reader:
-            to_name = to_name or from_name
-            to_schema = to_schema or from_ix.schema
-            to_ix = to_storage.create_index(to_schema, to_name)
+    def copy_index(self, to_storage: 'Storage', indexname: str=None):
+        """
+        Copies an index from this storage object to another storage. The default
+        implementation simply gets a reader from the origin index, opens a
+        writer for the destination index, and adds the reader to the writer.
 
-            writer_kwargs = writer_kwargs or {}
-            with to_ix.writer(**writer_kwargs) as writer:
+        If both storage objects are file-based (subclasses of
+        `whoosh.filedb.filestore.BaseFileStorage`), the implementation is much
+        faster but fairly brutish: it simply copies the files involved in the
+        index from one storage to the other. This does no checking that you're
+        not overwriting existing data, so this is best used to copy an existing
+        index into a new, empty storage.
+
+        :param to_storage:
+        :param indexname:
+        """
+
+        from_ix = self.open_index(indexname)
+        with from_ix.reader() as reader:
+            to_ix = to_storage.create_index(from_ix.schema, indexname)
+
+            with to_ix.writer() as writer:
                 writer.add_reader(reader)
 
 

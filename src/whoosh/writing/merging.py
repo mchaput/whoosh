@@ -377,7 +377,7 @@ def _copy_perdoc(schema: 'fields.Schema', reader: 'reading.IndexReader',
         fieldobj = schema[fieldname]
         colobj = fieldobj.column
         if colobj and reader.has_column(fieldname):
-            creader = reader.column_reader(fieldname, colobj)
+            creader = reader.column_reader(fieldname, colobj, translate=False)
             cols[fieldname] = creader
 
     to_io = perdoc.postings_io()
