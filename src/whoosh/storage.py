@@ -378,7 +378,6 @@ class Storage:
         # Write the TOC to disk
         with self.open(indexname, writable=True) as session:
             self.cleanup(session, toc, all_tocs=True)
-            print("Post-cleanup=", self.list())
             self.save_toc(session, toc)
 
         # Return an Index with the new TOC
