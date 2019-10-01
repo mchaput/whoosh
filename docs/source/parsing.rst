@@ -204,7 +204,7 @@ words for the AND, OR, ANDNOT, ANDMAYBE, and NOT functions::
 
     parser = qparser.QueryParser("content", schema=myschema)
     # These are regular expressions, so we have to escape the vertical bar
-    op = qparser.OperatorsPlugin(And="&", Or="\\|", AndNot="&!", AndMaybe="&~", Not="\\-")
+    op = qparser.OperatorsPlugin(And="&", Or="\|", AndNot="&!", AndMaybe="&~", Not="-")
     parser.replace_plugin(op)
 
 
