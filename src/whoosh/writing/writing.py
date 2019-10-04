@@ -639,7 +639,7 @@ class IndexWriter:
         # Close the codec writers
         logger.info("Cancelling writer")
         self.segwriter.cancel()
-        # self.store.cleanup(self.session)
+        self.session.store.cleanup(self.session, all_tocs=False)
         self._close()
         self._cancelled = True
 

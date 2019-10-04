@@ -176,8 +176,9 @@ class BaseFileStorage(storage.Storage):
                         pass
 
     def cleanup(self, session: 'storage.Session', toc: 'index.Toc'=None,
-                all_tocs: bool=False):
+                all_tocs: bool=True):
         toc = toc or self.load_toc(session)
+        current_gen = toc.generation
         segids = set(seg.segment_id() for seg in toc.segments)
         self._clean_by_segids(session, segids)
 
@@ -186,7 +187,9 @@ class BaseFileStorage(storage.Storage):
             for filename in self.list():
                 match = regex.match(filename)
                 if match:
-                    self.delete_file(filename)
+                    match_gen = int(match.group("gen"))
+                    if match_gen != current_gen:
+                        self.delete_file(filename)
 
     def clean_segment(self, session: 'storage.Session',
                       segment: 'codecs.Segment'):
@@ -196,9 +199,6 @@ class BaseFileStorage(storage.Storage):
     def save_toc(self, session: 'storage.Session', toc: 'index.Toc'):
         # This backend has no concept of a session, we just need the indexname
         indexname = session.indexname
-
-        # Clean up old segment files
-        self.cleanup(session, toc)
 
         # Write the segment ID counter
         self._write_id_counter(session)
@@ -220,6 +220,9 @@ class BaseFileStorage(storage.Storage):
         # Rename the file into place
         real_filename = index.make_toc_filename(indexname, toc.generation)
         self.rename_file(filename, real_filename, safe=True)
+
+        # Clean up old segment and TOC files
+        self.cleanup(session, toc, all_tocs=True)
 
     def latest_generation(self, session: 'storage.Session'):
         indexname = session.indexname
