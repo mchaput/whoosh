@@ -720,7 +720,8 @@ def test_short_prefix():
 
 
 def test_weighting():
-    from whoosh.ifaces.weights import WeightingModel, Scorer
+    from whoosh.scoring import Scorer
+    from whoosh.scoring import WeightingModel
 
     schema = fields.Schema(id=fields.ID(stored=True),
                            n_comments=fields.STORED)
@@ -1544,7 +1545,7 @@ def test_groupedby_with_terms():
             r = s.search(q, groupedby=["organism"], terms=True)
             assert r.scored_length() == 2
             assert len(r) == 2
-            assert r.data["organism"] == {"mus": [1, 0]}
+            assert r.data["groups"]["organism"] == {"mus": [1, 0]}
             assert "terms" in r.data
             assert r.data["terms"] == set([('content', b'ipfstd1')])
 

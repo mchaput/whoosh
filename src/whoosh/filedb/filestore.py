@@ -93,7 +93,7 @@ class FileSession(storage.Session):
             else:
                 locked = self._lock.acquire()
             if not locked:
-                raise Exception("Could not lock writable session")
+                raise index.LockError("Could not lock writable session")
         else:
             self._lock = None
 

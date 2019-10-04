@@ -564,14 +564,14 @@ def test_numeric_filter():
 
 
 def test_queries_as_json():
-    # whoosh.ifaces.queries.NullQuery
+    # whoosh.query.queries.NullQuery
     assert query.NullQuery().as_json() == {
-        "class": "whoosh.ifaces.queries.NullQuery", "name": "NullQuery"
+        "class": "whoosh.query.queries.NullQuery", "name": "NullQuery"
     }
 
-    # whoosh.ifaces.queries.ErrorQuery
+    # whoosh.query.queries.ErrorQuery
     assert query.ErrorQuery("No such field").as_json() == {
-        "class": "whoosh.ifaces.queries.ErrorQuery",
+        "class": "whoosh.query.queries.ErrorQuery",
         "name": "ErrorQuery",
         "error": "No such field"
     }

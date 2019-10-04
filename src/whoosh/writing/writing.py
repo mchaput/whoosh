@@ -200,6 +200,7 @@ class IndexWriter:
         self._start_new_segment()
 
         self.closed = False
+        self._cancelled = False
         self._group_depth = 0
 
         # The user can set these flags while writing to tell the writer what to
@@ -640,6 +641,7 @@ class IndexWriter:
         self.segwriter.cancel()
         # self.store.cleanup(self.session)
         self._close()
+        self._cancelled = True
 
     def _sync_toc(self):
         from whoosh.index import Toc
@@ -666,7 +668,8 @@ class IndexWriter:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if not exc_type:
-            self.commit()
+            if not self._cancelled:
+                self.commit()
 
     def group(self):
         """

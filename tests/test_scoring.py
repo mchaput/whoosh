@@ -2,7 +2,6 @@ import copy
 
 from whoosh import analysis, fields, qparser, query, scoring
 from whoosh.compat import text_type
-from whoosh.ifaces import weights, searchers
 from whoosh.util.testing import TempIndex
 
 
@@ -42,11 +41,11 @@ def test_weighting():
         w.commit()
 
         # Fake Weighting implementation
-        class CommentWeighting(weights.WeightingModel):
+        class CommentWeighting(scoring.WeightingModel):
             def scorer(self, searcher, fieldname, text, qf=1):
                 return self.CommentScorer(searcher.stored_fields)
 
-            class CommentScorer(weights.Scorer):
+            class CommentScorer(scoring.Scorer):
                 def __init__(self, stored_fields):
                     self.stored_fields = stored_fields
 
@@ -81,8 +80,7 @@ def test_finalweighting():
         class CommentWeighting(scoring.Frequency):
             use_final = True
 
-            def final(self, searcher: 'searchers.Searcher', docnum: int,
-                      score: float) -> float:
+            def final(self, searcher, docnum, score):
                 ncomments = searcher.stored_fields(docnum).get("n_comments", 0)
                 return ncomments
 

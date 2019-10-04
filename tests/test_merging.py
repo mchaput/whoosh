@@ -25,13 +25,18 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+import typing
 from typing import Dict, Iterable, Sequence
 
-from whoosh import fields, merging, writing
-from whoosh.ifaces import codecs, readers, searchers
+from whoosh import fields, merging, reading
+from whoosh.codec import codecs
 from whoosh.filedb.filestore import RamStorage
-from whoosh.ifaces import matchers
-from whoosh.ifaces import queries
+from whoosh.matching import matchers
+from whoosh.query import queries
+
+# Typing imports
+if typing.TYPE_CHECKING:
+    from whoosh import searching
 
 
 # logger = logging.getLogger("whoosh.merging")
@@ -77,7 +82,7 @@ class FakeSegment(codecs.Segment):
         return docnum in self._deleted
 
 
-class FakeReader(readers.IndexReader):
+class FakeReader(reading.IndexReader):
     def __init__(self, segment: FakeSegment):
         self.segment = segment
         self.patterns = segment.patterns
@@ -108,7 +113,7 @@ class FakeQuery(queries.Query):
     def __repr__(self):
         return "<%r>" % self.text
 
-    def docs(self, s: 'searchers.Searcher', deleting: bool=False
+    def docs(self, s: 'searching.Searcher', deleting: bool=False
              ) -> Iterable[int]:
         r = s.reader()
         return r.matcher("x", self.text).all_ids()

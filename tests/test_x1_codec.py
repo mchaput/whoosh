@@ -3,10 +3,9 @@ from itertools import permutations
 
 import pytest
 
-from whoosh import fields
-from whoosh.codec import x1
+from whoosh import fields, reading
+from whoosh.codec import x1, codecs
 from whoosh.postings import basic, postform, ptuples
-from whoosh.ifaces import codecs, readers
 from whoosh.util.testing import TempStorage
 
 
@@ -270,10 +269,10 @@ def test_terms():
                 assert tr.weight(fname, term) == w
                 assert tr.doc_frequency(fname, term) == len(posts)
 
-        with pytest.raises(readers.TermNotFound):
+        with pytest.raises(reading.TermNotFound):
             _ = tr.term_info("alfa", b"zzz")
 
-        with pytest.raises(readers.TermNotFound):
+        with pytest.raises(reading.TermNotFound):
             _ = tr.term_info("zzz", b"abcde")
 
         with pytest.raises(ValueError):

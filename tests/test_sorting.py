@@ -4,8 +4,7 @@ from datetime import datetime, timedelta
 from itertools import permutations
 from operator import itemgetter
 
-from whoosh import fields, query, sorting
-from whoosh.ifaces import weights
+from whoosh import fields, query, scoring, sorting
 from whoosh.util.testing import TempIndex
 
 
@@ -255,9 +254,8 @@ def test_query_facet():
                 .results()
             # r = s.search(query.Every(), groupedby=facet)
 
-            assert r.data["initials"] == {"a-c": [1, 2, 4],
-                                          "d-f": [5, 7, 8],
-                                          "g-i": [0, 3, 6]}
+            target = {"a-c": [1, 2, 4], "d-f": [5, 7, 8], "g-i": [0, 3, 6]}
+            assert target == r.data["groups"]["initials"]
 
 
 def test_query_facet_overlap():
@@ -278,9 +276,10 @@ def test_query_facet_overlap():
             f = sorting.QueryFacet({"a-c": q1, "d-f": q2, "g-i": q3},
                                    allow_overlap=True)
             r = s.q.all().grouped_by(f, name="initials").results()
-            assert r.data["initials"] == {'a-c': [0, 1, 2, 6, 7, 8],
-                                          'd-f': [3, 4, 5],
-                                          'g-i': [0, 1, 2, 6, 7, 8]}
+            correct = {'a-c': [0, 1, 2, 6, 7, 8],
+                       'd-f': [3, 4, 5],
+                       'g-i': [0, 1, 2, 6, 7, 8]}
+            assert correct == r.data["groups"]["initials"]
 
 
 def test_missing_field_facet():
@@ -295,8 +294,8 @@ def test_missing_field_facet():
 
         with ix.searcher() as s:
             r = s.q.all().grouped_by("tag").results()
-            tags = r.data["tag"]
-            assert tags == {None: [2, 4], 'bravo': [3], 'alfa': [0, 1]}
+            tags = r.data["groups"]["tag"]
+            assert {None: [2, 4], 'bravo': [3], 'alfa': [0, 1]} == tags
 
 
 def test_missing_numeric_facet():
@@ -311,8 +310,8 @@ def test_missing_numeric_facet():
 
         with ix.searcher() as s:
             r = s.q.all().grouped_by("tag").results()
-            tags = r.data["tag"]
-            assert tags == {None: [2, 4], 0: [3], 1: [0, 1]}
+            tags = r.data["groups"]["tag"]
+            assert {None: [2, 4], 0: [3], 1: [0, 1]} == tags
 
 
 def test_missing_overlap():
@@ -329,13 +328,14 @@ def test_missing_overlap():
         with ix.searcher() as s:
             facet = sorting.FieldFacet("b", allow_overlap=True)
             r = s.q.all().grouped_by(facet, name="b").results()
-            assert r.data["b"] == {
+            target = {
                 "one": [0],
                 "two": [0, 2],
                 "three": [2, 4],
                 "four": [4],
                 None: [1, 3]
             }
+            assert target == r.data["groups"]["b"]
 
 
 def test_date_facet():
@@ -358,8 +358,9 @@ def test_date_facet():
         with ix.searcher() as s:
             r = s.search(query.Every(), groupedby="date")
             r = s.q.all().grouped_by("date").results()
-            assert "date" in r.data
-            assert r.data["date"] == {d1: [0, 1], d2: [3], None: [2, 4]}
+            assert "date" in r.data["groups"]
+            assert ({d1: [0, 1], d2: [3], None: [2, 4]} ==
+                    r.data["groups"]["date"])
 
 
 def test_range_facet():
@@ -376,13 +377,14 @@ def test_range_facet():
         with ix.searcher() as s:
             rf = sorting.RangeFacet("price", 0, 1000, 100)
             r = s.q.all().grouped_by(rf, name="price").results()
-            assert r.data["price"] == {
+            correct = {
                 (0, 100): [3],
                 (100, 200): [1, 5],
                 (200, 300): [0],
                 (500, 600): [4],
                 None: [2]
             }
+            assert correct == r.data["groups"]["price"]
 
 
 def test_range_gaps():
@@ -395,13 +397,14 @@ def test_range_gaps():
         with ix.searcher() as s:
             rf = sorting.RangeFacet("num", 0, 1000, [1, 2, 3])
             r = s.q.all().grouped_by(rf, name="num").results()
-            assert r.data["num"] == {
+            correct = {
                 (0, 1): [0],
                 (1, 3): [1, 2],
                 (3, 6): [3, 4, 5],
                 (6, 9): [6, 7, 8],
                 (9, 12): [9]
             }
+            assert correct == r.data["groups"]["num"]
 
 
 def test_daterange_facet():
@@ -420,7 +423,7 @@ def test_daterange_facet():
                                         datetime(2001, 1, 20), timedelta(days=5))
             r = s.q.all().grouped_by(rf, name="date").results()
             dt = datetime
-            assert r.data["date"] == {
+            assert r.data["groups"]["date"] == {
                 (dt(2001, 1, 1, 0, 0), dt(2001, 1, 6, 0, 0)): [3],
                 (dt(2001, 1, 6, 0, 0), dt(2001, 1, 11, 0, 0)): [1, 4, 5],
                 (dt(2001, 1, 11, 0, 0), dt(2001, 1, 16, 0, 0)): [0],
@@ -447,7 +450,7 @@ def test_relative_daterange():
             rf = sorting.DateRangeFacet("date", dt(2001, 1, 1),
                                         dt(2001, 12, 31), gap)
             r = s.q.all().grouped_by(rf, name="date").results()
-            assert r.data["date"] == {
+            correct = {
                 (dt(2001, 1, 1), dt(2001, 2, 1)): [0, 1, 2],
                 (dt(2001, 2, 1), dt(2001, 3, 1)): [3, 4],
                 (dt(2001, 3, 1), dt(2001, 4, 1)): [5, 6],
@@ -460,6 +463,7 @@ def test_relative_daterange():
                 (dt(2001, 10, 1), dt(2001, 11, 1)): [19, 20],
                 (dt(2001, 11, 1), dt(2001, 12, 1)): [21, 22],
             }
+            assert correct == r.data["groups"]["date"]
 
 
 def test_overlapping_vector():
@@ -479,13 +483,14 @@ def test_overlapping_vector():
             assert cat._use_vectors
 
             r = s.q.all().grouped_by(of, name="tags").results()
-            assert r.data["tags"] == {
+            correct = {
                 'alfa': [0, 3, 4],
                 'bravo': [0, 1, 4],
                 'charlie': [0, 1, 2],
                 'delta': [1, 2, 3],
                 'echo': [2, 3, 4],
             }
+            assert correct == r.data["groups"]["tags"]
 
 
 def test_overlapping_lists():
@@ -504,13 +509,14 @@ def test_overlapping_lists():
             assert not cat._use_vectors
 
             r = s.q.all().grouped_by(of, name="tags").results()
-            assert r.data["tags"] == {
+            correct = {
                 'alfa': [0, 3, 4],
                 'bravo': [0, 1, 4],
                 'charlie': [0, 1, 2],
                 'delta': [1, 2, 3],
                 'echo': [2, 3, 4]
             }
+            assert correct == r.data["groups"]["tags"]
 
 
 def test_field_facets():
@@ -519,7 +525,7 @@ def test_field_facets():
             method(ix)
             with ix.searcher() as s:
                 r = s.q.all().grouped_by("tag").results()
-                assert r.data["tag"] == {
+                assert r.data["groups"]["tag"] == {
                     u'one': [0, 6],
                     u'two': [2, 4, 5],
                     u'three': [1, 3, 7, 8],
@@ -551,7 +557,7 @@ def test_multifacet():
         with ix.searcher() as s:
             facet = sorting.MultiFacet(["tag", "size"])
             r = s.q.all().grouped_by(facet, name="tag/size").results()
-            assert r.data["tag/size"] == correct
+            assert correct == r.data["groups"]["tag/size"]
 
 
 def test_sort_filter():
@@ -691,7 +697,7 @@ def test_sorted_groups():
         with ix.searcher() as s:
             q = query.Term("b", "blah")
             r = s.q.with_query(q).grouped_by("c").results()
-            g = r.data["c"]
+            g = r.data["groups"]["c"]
             assert g["apple"] == [4, 2, 0]
             assert g["bear"] == [5, 3, 1]
 
@@ -714,18 +720,18 @@ def test_group_types():
 
             f = sorting.FieldFacet("c", maptype=sorting.Count)
             r = s.q.with_query(q).grouped_by(f).results()
-            gs = r.data["c"]
+            gs = r.data["groups"]["c"]
             assert gs["apple"] == 4
             assert gs["bear"] == 3
 
             r = s.search(q, groupedby="c", maptype=sorting.Count)
-            gs = r.data["c"]
+            gs = r.data["groups"]["c"]
             assert gs["apple"] == 4
             assert gs["bear"] == 3
 
             f = sorting.FieldFacet("c", maptype=sorting.Best)
             r = s.search(q, groupedby=f)
-            gs = r.data["c"]
+            gs = r.data["groups"]["c"]
             assert gs["apple"] == 6
             assert gs["bear"] == 5
 
@@ -802,12 +808,12 @@ def test_groupby_phrase():
         with ix.searcher() as s:
             q = query.Term("name", "alan")
             r = s.search(q, groupedby="city_g")
-            keys = sorted(r.data["city_g"].keys())
+            keys = sorted(r.data["groups"]["city_g"].keys())
             assert keys == ["London", "Paris", "San Francisco", "Tel Aviv"]
 
             sff = sorting.StoredFieldFacet("city")
             r = s.search(q, groupedby=sff)
-            keys = sorted(r.data["city"].keys())
+            keys = sorted(r.data["groups"]["city"].keys())
             assert keys == ["London", "Paris", "San Francisco", "Tel Aviv"]
 
 
@@ -1026,13 +1032,13 @@ def test_column_scoring():
     schema = fields.Schema(id=fields.ID(sortable=True),
                            tag=fields.KEYWORD)
 
-    class MyWeighting(weights.WeightingModel):
+    class MyWeighting(scoring.WeightingModel):
         def scorer(self, searcher, fieldname, text, qf=1):
             # Pass the searcher to the scorer so it can look up values in the
             # "count" field
             return MyScorer(searcher)
 
-    class MyScorer(weights.Scorer):
+    class MyScorer(scoring.Scorer):
         def __init__(self, searcher):
             self.searcher = searcher
             # Get a column value reader for the "id" field

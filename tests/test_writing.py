@@ -1,10 +1,7 @@
 from __future__ import with_statement
-import random, time, threading
+import random
 
-import pytest
-
-from whoosh import fields, query, writing
-from whoosh.ifaces import analysis
+from whoosh import fields, query
 from whoosh.compat import text_type
 from whoosh.util.testing import TempIndex
 
@@ -206,6 +203,28 @@ def test_fractional_weights():
                 p = s.matcher("f", word)
                 wts.append(p.weight())
             assert wts == [0.5, 1.5, 2.0, 1.5]
+
+
+def test_cancel_manager():
+    schema = fields.Schema(text=fields.TEXT)
+    with TempIndex(schema, "cancelmanager") as ix:
+        with ix.writer() as w:
+            w.add_document(text=u"alfa bravo charlie")
+            w.add_document(text=u"bravo charlie delta")
+            w.add_document(text=u"charlie delta echo")
+
+        gen = ix.toc.generation
+        assert gen == 1
+
+        with ix.writer() as w:
+            w.add_document(text=u"delta echo foxtrot")
+            w.add_document(text=u"echo foxtrot golf")
+            w.add_document(text=u"foxtrot golf hotel")
+
+            w.cancel()
+
+        # Make sure the cancelled writer didn't write a new TOC
+        assert ix.toc.generation == gen
 
 
 def test_cancel_delete():

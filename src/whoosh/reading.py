@@ -857,6 +857,8 @@ class SegmentReader(IndexReader):
         self._perdoc.close()
         self.closed = True
 
+    # Delegate doc methods to the per-doc reader
+
     @unclosed
     def stored_fields(self, docnum) -> Dict:
         assert docnum >= 0
@@ -864,8 +866,6 @@ class SegmentReader(IndexReader):
         sfs = self._perdoc.stored_fields(docnum)
         # Double-check with schema to filter out removed fields
         return dict(item for item in sfs.items() if item[0] in schema)
-
-    # Delegate doc methods to the per-doc reader
 
     @unclosed
     def all_doc_ids(self) -> Iterable[int]:

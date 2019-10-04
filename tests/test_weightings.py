@@ -4,14 +4,13 @@ from random import choice, randint
 import sys
 
 from whoosh import fields, query, scoring
-from whoosh.ifaces import weights
 from whoosh.util.testing import TempIndex
 
 
 def _weighting_classes(ignore):
     # Get all the subclasses of Weighting in whoosh.scoring
     return [c for _, c in inspect.getmembers(scoring, inspect.isclass)
-            if weights.WeightingModel in c.__bases__ and c not in ignore]
+            if scoring.WeightingModel in c.__bases__ and c not in ignore]
 
 
 def test_all():
