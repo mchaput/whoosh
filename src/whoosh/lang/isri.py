@@ -84,9 +84,9 @@ class ISRIStemmer(object):
                      5: ['\u0627', '\u0648'],
                      6: ['\u0627', '\u0645']}   # Groups of length five patterns and length three roots
 
-        self.re_short_vowels = re.compile(r'[\u064B-\u0652]')
-        self.re_hamza = re.compile(r'[\u0621\u0624\u0626]')
-        self.re_intial_hamza = re.compile(r'^[\u0622\u0623\u0625]')
+        self.re_short_vowels = re.compile('[\u064B-\u0652]')
+        self.re_hamza = re.compile('[\u0621\u0624\u0626]')
+        self.re_intial_hamza = re.compile('^[\u0622\u0623\u0625]')
 
         self.stop_words = ['\u064a\u0643\u0648\u0646',
                            '\u0648\u0644\u064a\u0633',
@@ -187,11 +187,11 @@ class ISRIStemmer(object):
             self.stm = self.re_short_vowels.sub('', self.stm)
             return self.stm
         elif self.k == 2:
-            self.stm = self.re_intial_hamza.sub(r'\u0627', self.stm)
+            self.stm = self.re_intial_hamza.sub('\u0627', self.stm)
             return self.stm
         elif self.k == 3:
             self.stm = self.re_short_vowels.sub('', self.stm)
-            self.stm = self.re_intial_hamza.sub(r'\u0627', self.stm)
+            self.stm = self.re_intial_hamza.sub('\u0627', self.stm)
             return self.stm
 
     def pre32(self):
