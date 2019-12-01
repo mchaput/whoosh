@@ -83,8 +83,6 @@ class SegmentWriter:
             self._pbuffers[fieldname].extend(posts)
 
             if field.vector:
-                # If we need to add the posts as a vector, copy the
-                # generator into a list so they can be used more than once
                 perdoc.add_vector_postings(fieldname, field, posts)
 
         # Write the per-document values
@@ -214,6 +212,9 @@ class IndexWriter:
                                        self.schema)
 
     # User API
+
+    def set_multiproc(self, procs=None):
+        self.executor = futures.
 
     @unclosed
     def delete_by_term(self, fieldname: str, text: str):
@@ -362,7 +363,6 @@ class IndexWriter:
             segwriter.doc_count >= self.doc_limit or
             segwriter.post_count >= self.post_limit
         )
-
         if should_flush:
             self.flush_segment()
 
