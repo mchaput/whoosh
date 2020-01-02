@@ -186,7 +186,6 @@ class SegmentList:
         try:
             return self._cached_readers[segid]
         except KeyError:
-            print("HELLO", segid)
             r = self.readerclass(self.session.store, self.schema, segment)
             self._cached_readers[segid] = r
         return r

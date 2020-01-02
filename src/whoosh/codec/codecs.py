@@ -485,6 +485,10 @@ class TermCursor:
         raise NotImplementedError
 
     @abstractmethod
+    def seek_exact(self, termbytes: bytes):
+        raise NotImplementedError
+
+    @abstractmethod
     def next(self):
         raise NotImplementedError
 
@@ -510,7 +514,10 @@ class EmptyCursor(TermCursor):
     def is_valid(self):
         return False
 
-    def seek(self, term):
+    def seek(self, termbytes: bytes):
+        pass
+
+    def seek_exact(self, termbytes: bytes):
         pass
 
     def next(self):
@@ -598,6 +605,14 @@ class TermsReader:
 
     def set_merging_hint(self):
         pass
+
+    @abstractmethod
+    def field_min_term(self, fieldname: str) -> bytes:
+        raise NotImplementedError
+
+    @abstractmethod
+    def field_max_term(self, fieldname: str) -> bytes:
+        raise NotImplementedError
 
     @abstractmethod
     def cursor(self, fieldname: str, fieldobj: 'Optional[fields.FieldType]'

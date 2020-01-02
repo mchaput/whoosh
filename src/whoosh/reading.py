@@ -369,6 +369,14 @@ class IndexReader:
         raise NotImplementedError
 
     @abstractmethod
+    def field_min_term(self, fieldname: str) -> bytes:
+        raise NotImplementedError
+
+    @abstractmethod
+    def field_max_term(self, fieldname: str) -> bytes:
+        raise NotImplementedError
+
+    @abstractmethod
     def term_info(self, fieldname: str, text: TermText) -> TermInfo:
         """
         Returns a :class:`TermInfo` object allowing access to various
@@ -883,6 +891,14 @@ class SegmentReader(IndexReader):
         return self._terms.indexed_field_names()
 
     @unclosed
+    def field_min_term(self, fieldname: str) -> bytes:
+        return self._terms.field_min_term(fieldname)
+
+    @unclosed
+    def field_max_term(self, fieldname: str) -> bytes:
+        return self._terms.field_max_term(fieldname)
+
+    @unclosed
     def __contains__(self, term: TermTuple) -> bool:
         fieldname, termbytes = term
         if fieldname not in self.schema:
@@ -1126,7 +1142,13 @@ class EmptyReader(IndexReader):
         return codecs.EmptyCursor()
 
     def indexed_field_names(self) -> Sequence[str]:
-        return iter(())
+        return ()
+
+    def field_min_term(self, fieldname: str) -> bytes:
+        return b''
+
+    def field_max_term(self, fieldname: str) -> bytes:
+        return b''
 
     def all_terms(self) -> Iterable[TermTuple]:
         return iter(())
@@ -1265,11 +1287,17 @@ class MultiReader(IndexReader):
             names.update(r.indexed_field_names())
         return sorted(names)
 
+    def field_min_term(self, fieldname: str) -> bytes:
+        return min(r.field_min_term(fieldname) for r in self.readers)
+
+    def field_max_term(self, fieldname: str) -> bytes:
+        return max(r.field_max_term(fieldname) for r in self.readers)
+
     def all_terms(self) -> Iterable[TermTuple]:
         return _merge_iters([r.all_terms() for r in self.readers])
 
     def all_terms_with_reader(self) -> TermTupleWithOptReader:
-        return _merge_iters2(self.readers)
+        return _merge_iters2(list(self.readers))
 
     def term_range(self, fieldname: str, start: TermText,
                    end: Optional[TermText]) -> Iterable[bytes]:

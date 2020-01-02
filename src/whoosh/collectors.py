@@ -3,12 +3,12 @@ from collections import defaultdict, namedtuple
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from whoosh import sorting
-from whoosh.query import queries
 from whoosh.matching import matchers
 from whoosh.util import now
 
 # Typing imports
 if typing.TYPE_CHECKING:
+    from whoosh.query import queries
     from whoosh import results, scoring, searching
 
 

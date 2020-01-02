@@ -734,6 +734,8 @@ class X1FieldWriter(codecs.FieldWriter):
 
         # Assign numbers to fieldnames to shorten keys
         self._fieldnames = []
+        self._minterms = {}
+        self._maxterms = {}
 
         # Set by start_field
         self._fieldname = None
@@ -760,6 +762,7 @@ class X1FieldWriter(codecs.FieldWriter):
         self._format = fieldobj.format
         self._io = self.postings_io()
         self._infield = True
+        self._termbytes = None
 
         self._fieldnum = len(self._fieldnames)
         self._fieldnames.append(fieldname)
@@ -767,6 +770,10 @@ class X1FieldWriter(codecs.FieldWriter):
     def start_term(self, termbytes: bytes):
         assert self._infield
         assert isinstance(termbytes, bytes)
+
+        if self._termbytes is None:
+            self._minterms[self._fieldname] = termbytes
+
         self._termbytes = termbytes
         self._terminfo = X1TermInfo(offset=self.current_posting_offset())
         self._postbuf = []
@@ -862,6 +869,9 @@ class X1FieldWriter(codecs.FieldWriter):
         assert self._infield
         self._infield = False
 
+        if self._termbytes is not None:
+            self._maxterms[self._fieldname] = self._termbytes
+
     def close(self):
         # Finish the terms and write the region references
         termsfile = self._termsfile
@@ -877,20 +887,31 @@ class X1FieldWriter(codecs.FieldWriter):
         # Remember the start of the field names
         names_offset = termsfile.tell()
         # Write the field name lengths
-        fnames = self._fieldnames
-        name_bytes = [name.encode("utf8") for name in fnames]
-        name_lens = [len(bname) for bname in name_bytes]
-        lens_format = "<" + "H" * len(fnames)
-        termsfile.write(struct.pack(lens_format, *name_lens))
-        # Write the field names
-        for bname in name_bytes:
-            termsfile.write(bname)
+        lens_struct = struct.Struct("<HII")
+        for i, fieldname in enumerate(self._fieldnames):
+            fbytes = fieldname.encode("utf8")
+            minterm = self._minterms.get(fieldname, b'')
+            maxterm = self._maxterms.get(fieldname, b'')
+            termsfile.write(lens_struct.pack(len(fbytes), len(minterm),
+                                             len(maxterm)))
+            termsfile.write(fbytes)
+            termsfile.write(minterm)
+            termsfile.write(maxterm)
+
+        # fnames = self._fieldnames
+        # name_bytes = [name.encode("utf8") for name in fnames]
+        # name_lens = [len(bname) for bname in name_bytes]
+        # lens_format = "<" + "H" * len(fnames)
+        # termsfile.write(struct.pack(lens_format, *name_lens))
+        # # Write the field names
+        # for bname in name_bytes:
+        #     termsfile.write(bname)
 
         # Write the terms footer
         termsfile.write(TermsFileFooter(
             was_little=IS_LITTLE,
             refs_offset=refs_offset, refs_count=len(self._refs),
-            names_offset=names_offset, names_count=len(fnames),
+            names_offset=names_offset, names_count=len(self._fieldnames),
         ).encode())
 
         # Close the terms file
@@ -917,9 +938,9 @@ class X1TermsReader(codecs.TermsReader):
         self._io = segment.codec().postings_io()
 
         self._terms_filename = segment.make_filename(X1Codec.TERMS_EXT, subname)
-        self._termsdata = self._store.map_file(self._terms_filename)
+        data = self._termsdata = self._store.map_file(self._terms_filename)
         # Read the terms header
-        terms_header = TermsFileHeader.decode(self._termsdata)
+        terms_header = TermsFileHeader.decode(data)
         assert terms_header.version_number == 0
 
         self._posts_filename = segment.make_filename(X1Codec.POSTS_EXT, subname)
@@ -930,37 +951,57 @@ class X1TermsReader(codecs.TermsReader):
 
         # Read terms footer
         footer_size = TermsFileFooter.get_size()
-        foot = TermsFileFooter.decode(self._termsdata,
-                                      len(self._termsdata) - footer_size)
+        foot = TermsFileFooter.decode(data,
+                                      len(data) - footer_size)
         # Read the refs
         refs = []
         pos = foot.refs_offset
         for _ in range(foot.refs_count):
-            ref = blueline.Ref.from_bytes(self._termsdata, pos)
+            ref = blueline.Ref.from_bytes(data, pos)
             refs.append(ref)
             pos = ref.end_offset
         # Make a region reader from the refs
         if not refs:
             self._kv = blueline.EmptyRegion()
         elif len(refs) == 1:
-            self._kv = blueline.Region.from_ref(self._termsdata, refs[0])
+            self._kv = blueline.Region.from_ref(data, refs[0])
         else:
-            self._kv = blueline.MultiRegion(self._termsdata, refs)
+            self._kv = blueline.MultiRegion(data, refs)
 
-        # Read the field name lengths
-        lens_format = "<" + "H" * foot.names_count
-        lens_start = foot.names_offset
-        lens_end = lens_start + struct.calcsize(lens_format)
-        name_lens = struct.unpack(lens_format,
-                                  self._termsdata[lens_start:lens_end])
-        # Read the field names
-        fnames = []
-        pos = lens_end
-        for length in name_lens:
-            fname = bytes(self._termsdata[pos:pos + length]).decode("utf8")
-            fnames.append(fname)
-            pos += length
-        self._fieldnames = fnames
+        # Read field names and min/max terms
+        lens_struct = struct.Struct("<HII")
+        lens_size = lens_struct.size
+        pos = foot.names_offset
+        self._fieldnames = []
+        self._minmaxterms = []
+        for i in range(foot.names_count):
+            lens_end = pos + lens_size
+            sizes = lens_struct.unpack(data[pos:lens_end])
+            fname_len, min_len, max_len = sizes
+            pos = lens_end
+            fname = bytes(data[pos:pos + fname_len]).decode("utf8")
+            self._fieldnames.append(fname)
+            pos += fname_len
+            minterm = bytes(data[pos:pos + min_len])
+            pos += min_len
+            maxterm = bytes(data[pos:pos + max_len])
+            pos += max_len
+            self._minmaxterms.append((minterm, maxterm))
+
+        # # Read the field name lengths
+        # lens_format = "<" + "H" * foot.names_count
+        # lens_start = foot.names_offset
+        # lens_end = lens_start + struct.calcsize(lens_format)
+        # name_lens = struct.unpack(lens_format,
+        #                           self._termsdata[lens_start:lens_end])
+        # # Read the field names
+        # fnames = []
+        # pos = lens_end
+        # for length in name_lens:
+        #     fname = bytes(self._termsdata[pos:pos + length]).decode("utf8")
+        #     fnames.append(fname)
+        #     pos += length
+        # self._fieldnames = fnames
 
     def _keycoder(self, fieldname: str, tbytes: bytes) -> bytes:
         assert isinstance(tbytes, bytes), "tbytes=%r" % tbytes
@@ -987,6 +1028,14 @@ class X1TermsReader(codecs.TermsReader):
     def indexed_field_names(self) -> Sequence[str]:
         return list(self._fieldnames)
 
+    def field_min_term(self, fieldname):
+        fnum = self._fieldnames.index(fieldname)
+        return self._minmaxterms[fnum][0]
+
+    def field_max_term(self, fieldname):
+        fnum = self._fieldnames.index(fieldname)
+        return self._minmaxterms[fnum][1]
+
     def cursor(self, fieldname: str, fieldobj: 'fields.FieldType'
                ) -> 'codecs.TermCursor':
         try:
@@ -995,7 +1044,9 @@ class X1TermsReader(codecs.TermsReader):
             return codecs.EmptyCursor()
 
         prefix = fieldnum_struct.pack(fnum)
-        cur = blueline.SuffixCursor(self._kv.cursor(), prefix)
+        minterm, maxterm = self._minmaxterms[fnum]
+        cur = blueline.SuffixCursor(self._kv.cursor(), prefix, min_key=minterm,
+                                    max_key=maxterm)
         return X1TermCursor(cur, fieldobj.to_bytes, fieldobj.from_bytes)
 
     def terms(self) -> Iterable[TermTuple]:
@@ -1100,6 +1151,14 @@ class X1TermCursor(codecs.TermCursor):
         self._cur = cursor
         self._tobytes = to_bytes
         self._frombytes = from_bytes
+        self._minterm = cursor.min_key()
+        self._maxterm = cursor.max_key()
+
+    def min_term(self) -> bytes:
+        return self._minterm
+
+    def max_term(self) -> bytes:
+        return self._maxterm
 
     def first(self):
         self._cur.first()
@@ -1111,6 +1170,11 @@ class X1TermCursor(codecs.TermCursor):
         if not isinstance(termbytes, bytes):
             termbytes = self._tobytes(termbytes)
         self._cur.seek(termbytes)
+
+    def seek_exact(self, termbytes: bytes):
+        if not isinstance(termbytes, bytes):
+            termbytes = self._tobytes(termbytes)
+        self._cur.seek_exact(termbytes)
 
     def term_info(self) -> reading.TermInfo:
         try:

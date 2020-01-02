@@ -32,11 +32,11 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, Iterable, Optional, Sequence, Set, Union
 
-from whoosh.query import queries
 from whoosh.matching import matchers
 
 # Typing imports
 if typing.TYPE_CHECKING:
+    from whoosh.query import queries
     from whoosh import searching
 
 

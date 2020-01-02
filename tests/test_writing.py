@@ -353,7 +353,6 @@ def test_add_field():
             assert s.reader().indexed_field_names() == ["a", "b", "cat"]
             assert ("cat", "juliet") in s.reader()
             fs = s.document(b=u"india")
-            print("fs=", fs)
             assert {"b": "india", "cat": "juliet"} == fs
 
 
@@ -455,29 +454,21 @@ def test_add_reader_spelling():
             assert list(r.terms_within("b", "undoink", 1)) == ["undoing"]
 
 
-# def test_clear():
-#     schema = fields.Schema(a=fields.KEYWORD)
-#     with TempIndex(schema) as ix:
-#         # Add some segments
-#         with ix.writer() as w:
-#             w.add_document(a=u"one two three")
-#             w.merge = False
-#         with ix.writer() as w:
-#             w.add_document(a=u"two three four")
-#             w.merge = False
-#         with ix.writer() as w:
-#             w.add_document(a=u"three four five")
-#             w.merge = False
-#
-#         # Clear
-#         with ix.writer() as w:
-#             w.add_document(a=u"foo bar baz")
-#             w.mergetype = writing.CLEAR
-#
-#         with ix.searcher() as s:
-#             assert s.doc_count_all() == 1
-#             assert (list(s.reader().lexicon("a")) ==
-#                     [b"bar", b"baz", b"foo"])
+def test_minmax_terms():
+    schema = fields.Schema(a=fields.Text, b=fields.Text)
+    with TempIndex(schema, "minmax") as ix:
+        a_domain = u"foxtrot echo delta charlie bravo alfa".split()
+        b_domain = u"bear apple dog foobar easy cackle".split()
+        with ix.writer() as w:
+            for aw in a_domain:
+                for bw in b_domain:
+                    w.add_document(a=aw, b=bw)
+
+        with ix.reader() as r:
+            assert b"alfa" == r.field_min_term("a")
+            assert b"foxtrot" == r.field_max_term("a")
+            assert b"apple" == r.field_min_term("b")
+            assert b"foobar" == r.field_max_term("b")
 
 
 def test_spellable_list():

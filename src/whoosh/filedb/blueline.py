@@ -412,7 +412,7 @@ class Region(KeyValueReader):
         :param fixedklen: a common length of all keys, or -1.
         :param fixedvlen: a common length of all values, or -1.
         :param minkey: the smallest key in the region, if already known.
-        :param maxkey: the smallest key in the region, if already known.
+        :param maxkey: the largest key in the region, if already known.
         :param preread_keys: load all keys into memory. This is faster when
             you know you will access the region linearly, but takes more memory.
         """
@@ -973,6 +973,14 @@ class Cursor:
             self.next()
 
     @abstractmethod
+    def min_key(self):
+        raise NotImplementedError
+
+    @abstractmethod
+    def max_key(self):
+        raise NotImplementedError
+
+    @abstractmethod
     def first(self):
         """
         Positions the cursor at the first item.
@@ -992,6 +1000,16 @@ class Cursor:
     def seek(self, key: bytes):
         """
         Moves the cursor to the first item <= the given key.
+
+        :param key: the key to move to.
+        """
+
+        raise NotImplementedError
+
+    @abstractmethod
+    def seek_exact(self, key: bytes):
+        """
+        Moves the cursor to the exact key, or invalidates the cursor.
 
         :param key: the key to move to.
         """
@@ -1024,6 +1042,12 @@ class Cursor:
 
 
 class EmptyCursor(Cursor):
+    def min_key(self):
+        return b''
+
+    def max_key(self):
+        return b''
+
     def is_valid(self):
         return False
 
@@ -1031,6 +1055,9 @@ class EmptyCursor(Cursor):
         pass
 
     def seek(self, key: bytes):
+        pass
+
+    def seek_exact(self, key: bytes):
         pass
 
     def next(self):
@@ -1049,8 +1076,19 @@ class EmptyCursor(Cursor):
 class RegionCursor(Cursor):
     def __init__(self, region: Region):
         self._region = region
+        self._minkey = region.min_key()
+        self._maxkey = region.max_key()
         self._i = 0
         self._length = len(region)
+
+    def _invalidate(self):
+        self._i = self._length
+
+    def min_key(self):
+        return self._minkey
+
+    def max_key(self):
+        return self._maxkey
 
     def first(self):
         self._i = 0
@@ -1061,8 +1099,16 @@ class RegionCursor(Cursor):
         else:
             raise InvalidCursor
 
-    def seek(self, key):
+    def seek(self, key: bytes):
         self._i = self._region.key_index(key)
+
+    def seek_exact(self, key: bytes):
+        if key < self._minkey or key > self._maxkey:
+            self._invalidate()
+        else:
+            self.seek(key)
+            if not (self.is_valid() and self.key() == key):
+                self._invalidate()
 
     def key(self) -> bytes:
         if self._i < self._length:
@@ -1080,12 +1126,17 @@ class RegionCursor(Cursor):
         return self._i < self._length
 
 
-class MultiRegionCursor(Cursor):
+class MultiRegionCursor(RegionCursor):
     def __init__(self, multiregion: MultiRegion):
         self._multi = multiregion
+        self._minkey = multiregion.min_key()
+        self._maxkey = multiregion.max_key()
         self._i = 0
         self._cursor = self._multi.region_at(0).cursor()
         self._count = self._multi.region_count()
+
+    def _invalidate(self):
+        self._i = self._count
 
     def first(self):
         self._i = 0
@@ -1112,12 +1163,12 @@ class MultiRegionCursor(Cursor):
             self.next()
 
     def key(self) -> bytes:
-        if self._i >= self._multi.region_count():
+        if self._i >= self._count:
             raise InvalidCursor
         return self._cursor.key()
 
     def value(self) -> bytes:
-        if self._i >= self._multi.region_count():
+        if self._i >= self._count:
             raise InvalidCursor
         return self._cursor.value()
 
@@ -1131,8 +1182,11 @@ class SuffixCursor(Cursor):
     with a certain prefix.
     """
 
-    def __init__(self, cur: Cursor, prefix: bytes):
+    def __init__(self, cur: Cursor, prefix: bytes, min_key: bytes=None,
+                 max_key: bytes=None):
         self._cur = cur
+        self._minkey = min_key
+        self._maxkey = max_key
         self._prefix = prefix
         self._valid = True
 
@@ -1142,6 +1196,12 @@ class SuffixCursor(Cursor):
     def _check(self):
         self._valid = (self._cur.is_valid() and
                        self._cur.key().startswith(self._prefix))
+
+    def min_key(self):
+        return self._minkey
+
+    def max_key(self):
+        return self._maxkey
 
     def first(self):
         self._cur.seek(self._prefix)
@@ -1156,6 +1216,15 @@ class SuffixCursor(Cursor):
     def seek(self, key: bytes):
         self._cur.seek(self._prefix + key)
         self._check()
+
+    def seek_exact(self, key: bytes):
+        if key < self._minkey or key > self._maxkey:
+            self._valid = False
+        else:
+            self.seek(key)
+            if not (self.is_valid() and self.key() == key):
+                self._valid = False
+
 
     def key(self) -> bytes:
         if not self._valid:
