@@ -1,8 +1,6 @@
-from __future__ import with_statement
-
 import pytest
 
-from whoosh import collectors, fields, query
+from whoosh import fields, query
 from whoosh.util.testing import TempIndex
 
 

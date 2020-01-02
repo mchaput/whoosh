@@ -30,7 +30,6 @@ import typing
 from typing import Callable, Iterable, Sequence
 
 from whoosh import collectors
-from whoosh.compat import text_type
 from whoosh.query import queries
 from whoosh.matching import matchers
 
@@ -133,10 +132,8 @@ class Not(queries.Query):
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, repr(self.child))
 
-    def __unicode__(self):
-        return u"NOT " + text_type(self.child)
-
-    __str__ = __unicode__
+    def __str__(self):
+        return u"NOT " + str(self.child)
 
     def __hash__(self):
         return (hash(self.__class__.__name__) ^

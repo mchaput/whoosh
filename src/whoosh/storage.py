@@ -26,7 +26,7 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from abc import abstractmethod
-from typing import Any, Dict
+from typing import Any, Dict, Union
 
 from whoosh import index, metadata
 from whoosh.codec import codecs
@@ -50,44 +50,19 @@ class TocNotFound(StorageError):
     pass
 
 
-# URL registry
+# Configuration
 
-registry = {}  # type: Dict[str, type]
+def from_json(data: dict) -> 'Storage':
+    from whoosh.codec.kv import KvStorage
+    from whoosh.kv.db import Database
+    from whoosh.util.loading import find_object
 
-
-# Class decorator to add a class to the registry
-def url_handler(cls):
-    method = getattr(cls, "from_url")
-    if not method or not callable(method):
-        raise Exception("%r does not have a valid from_url method" % cls)
-    if not hasattr(cls, "url_scheme"):
-        raise Exception("%r does not have a url_scheme attribute" % cls)
-    scheme = cls.url_scheme
-    if not isinstance(scheme, str):
-        raise TypeError("URL scheme %r is not a string" % scheme)
-    if scheme in registry:
-        raise NameError("URL scheme %r already registered" % scheme)
-
-    registry[cls.url_scheme] = cls
-    return cls
-
-
-# def get_storage_and_codec(scheme: str) -> Tuple[str, str]:
-#     if "+" in scheme:
-#         storage_name, codec_name = scheme.rsplit("+", 1)
-#     else:
-#         storage_name = scheme
-#         codec_name = None
-#     return storage_name, codec_name
-#
-#
-# def from_url(url: str) -> 'Storage':
-#     url = furl.furl(url)
-#     scheme = url.scheme
-#     storage_name, _ = get_storage_and_codec(scheme)
-#     storage_cls = registry[storage_name]
-#     assert issubclass(storage_cls, Storage)
-#     return storage_cls.from_url(url)
+    cls = find_object(data["class"])
+    if issubclass(cls, Database):
+        db = cls.from_json(data)
+        return KvStorage(db)
+    else:
+        return cls.from_json(data)
 
 
 # Base classes
@@ -155,11 +130,11 @@ class Storage:
     """
 
     @classmethod
-    def from_url(cls, url: str) -> 'Storage':
-        raise Exception("%r does not support construction from URL" % cls)
+    def from_json(cls, data) -> 'Storage':
+        raise NotImplementedError
 
-    def as_url(self) -> str:
-        raise Exception("%s does not support construction of URL" % self)
+    def as_json(self) -> dict:
+        return {"class": "%s.%s" % (self.__module__, type(self).__name__)}
 
     def supports_multiproc_writing(self) -> bool:
         return False
@@ -372,11 +347,12 @@ class Storage:
             raise ReadOnlyError
         indexname = indexname or index.DEFAULT_INDEX_NAME
 
-        # Create an empty initial TOC
-        toc = index.Toc(schema, [], 0)
-
-        # Write the TOC to disk
         with self.open(indexname, writable=True) as session:
+            # Create an empty initial TOC
+            generation = self.latest_generation(session) + 1
+            toc = index.Toc(schema, [], generation)
+
+            # Write the TOC to disk
             self.cleanup(session, toc, all_tocs=True)
             self.save_toc(session, toc)
 

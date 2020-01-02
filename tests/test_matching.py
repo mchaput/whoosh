@@ -1,4 +1,3 @@
-from __future__ import with_statement
 from itertools import permutations
 from random import randint, choice, sample
 
@@ -292,7 +291,7 @@ def test_random_intersections():
         # the domain list. Add the documents to the index, but also keep them
         # in the "documents" list for the sanity check
         for i in range(segments):
-            with ix.writer() as w:
+            with ix.writer(merge=False) as w:
                 for j in range(docsperseg):
                     docnum = i * docsperseg + j
                     # Create a string of random words

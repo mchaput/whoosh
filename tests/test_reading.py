@@ -1,4 +1,3 @@
-from __future__ import with_statement
 import random, threading, time
 
 from whoosh import fields, reading
@@ -224,8 +223,7 @@ class RecoverReader(threading.Thread):
 
 
 class RecoverWriter(threading.Thread):
-    domain = u"alfa bravo charlie deleta echo foxtrot golf hotel india"
-    domain = domain.split()
+    domain = u"alfa bravo charlie deleta echo foxtrot golf hotel india".split()
 
     def __init__(self, ix):
         threading.Thread.__init__(self)
@@ -234,9 +232,18 @@ class RecoverWriter(threading.Thread):
     def run(self):
         for _ in range(10):
             w = self.ix.writer()
-            w.add_document(text=random.sample(self.domain, 4))
+            w.add_document(text=" ".join(random.sample(self.domain, 4)))
             w.commit()
             time.sleep(0.01)
+
+
+def test_delete_recovery_serial():
+    schema = fields.Schema(text=fields.TEXT)
+    with TempIndex(schema, "delrecover") as ix:
+        rw = RecoverWriter(ix)
+        rw.run()
+        rr = RecoverReader(ix)
+        rr.run()
 
 
 def test_delete_recovery():

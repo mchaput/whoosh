@@ -32,7 +32,6 @@ from bisect import insort
 from typing import Callable, Dict, Iterable, Optional, Sequence, Tuple
 
 from whoosh import reading, searching
-from whoosh.compat import text_type
 from whoosh.matching import matchers
 from whoosh.analysis import analysis
 
@@ -125,7 +124,7 @@ class Query:
 
         return getattr(self, "fieldname")
 
-    def query_text(self) -> Optional[text_type]:
+    def query_text(self) -> Optional[str]:
         """
         Returns the text searched for by this query, or None if the query
         doesn't search for text.
@@ -197,8 +196,8 @@ class Query:
     def combine_collector(cls, collector, args, kwargs):
         return collector.with_query(cls(*args, **kwargs))
 
-    def replace(self, fieldname: str, oldtext: text_type,
-                newtext: text_type) -> 'Query':
+    def replace(self, fieldname: str, oldtext: str,
+                newtext: str) -> 'Query':
         """
         Recursively search-and-replace text in this query and any children.
         Returns a new copy of
@@ -271,7 +270,7 @@ class Query:
         return False
 
     def terms(self, reader: 'reading.IndexReader'=None, phrases: bool=True
-              ) -> Iterable[Tuple[str, text_type]]:
+              ) -> Iterable[Tuple[str, str]]:
         """
         Returns an iterator of any terms searched for by this query.
 
@@ -288,7 +287,7 @@ class Query:
                 yield term
 
     def _terms(self, reader: 'reading.IndexReader'=None,
-               phrases: bool=True) -> Iterable[Tuple[str, text_type]]:
+               phrases: bool=True) -> Iterable[Tuple[str, str]]:
         return iter(())
 
     def tokens(self, reader: 'reading.IndexReader'=None, phrases: bool=True,

@@ -32,7 +32,6 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, Iterable, Optional, Sequence, Set, Union
 
-from whoosh.compat import string_type, text_type
 from whoosh.query import queries
 from whoosh.matching import matchers
 
@@ -155,7 +154,7 @@ class Categorizer:
 
         return [self.key_for(matcher, segment_docnum)]
 
-    def key_to_name(self, key: Any) -> text_type:
+    def key_to_name(self, key: Any) -> str:
         """
         Returns a representation of the key to be used as a dictionary key
         in faceting. For example, the sorting key for date fields is a large
@@ -263,7 +262,7 @@ class ColumnCategorizer(Categorizer):
     def key_for(self, matcher: 'matchers.Matcher', segment_docnum: int) -> Any:
         return self._creader.sort_key(segment_docnum)
 
-    def key_to_name(self, key: Any) -> text_type:
+    def key_to_name(self, key: Any) -> str:
         return self._fieldobj.from_column_value(key)
 
     def close(self):
@@ -292,7 +291,7 @@ class ReversedColumnCategorizer(ColumnCategorizer):
         # Subtract from 0 to reverse the order
         return 0 - order
 
-    def key_to_name(self, key: Any) -> text_type:
+    def key_to_name(self, key: Any) -> str:
         # Re-reverse the key to get the index into _values
         key = self._values[0 - key]
         return ColumnCategorizer.key_to_name(self, key)
@@ -398,8 +397,8 @@ class PostingCategorizer(Categorizer):
         self._searcher = None  # type: searching.Searcher
         self._docoffset = None  # type: int
 
-        if fieldname in global_searcher._field_caches:
-            self.values, self.array = global_searcher._field_caches[fieldname]
+        if fieldname in global_searcher.field_caches:
+            self.values, self.array = global_searcher.field_caches[fieldname]
         else:
             # Cache the relative positions of all docs with the given field
             # across the entire index
@@ -419,7 +418,7 @@ class PostingCategorizer(Categorizer):
                 for docid in matcher.all_ids():
                     self.array[docid] = i
 
-            global_searcher._field_caches[fieldname] = (self.values, self.array)
+            global_searcher.field_caches[fieldname] = (self.values, self.array)
 
     def set_searcher(self, segment_searcher: 'searching.Searcher',
                      docoffset: int):
@@ -433,7 +432,7 @@ class PostingCategorizer(Categorizer):
             i = len(self.values) - i
         return i
 
-    def key_to_name(self, i: int) -> text_type:
+    def key_to_name(self, i: int) -> str:
         if i >= len(self.values):
             return None
         if self.reverse:
@@ -487,14 +486,14 @@ class QueryFacet(FacetType):
                     self._docsets[qname] = docset
 
         def key_for(self, matcher: 'matchers.Matcher', segment_docnum: int
-                    ) -> text_type:
+                    ) -> str:
             for qname in self._docsets:
                 if segment_docnum in self._docsets[qname]:
                     return qname
             return self.other
 
         def keys_for(self, matcher: 'matchers.Matcher', segment_docnum: int
-                     ) -> Iterable[text_type]:
+                     ) -> Iterable[str]:
             found = False
             for qname in self._docsets:
                 if segment_docnum in self._docsets[qname]:
@@ -965,7 +964,7 @@ class Facets:
         facets = cls()
         if isinstance(groupedby, (cls, dict)):
             facets.add_facets(groupedby)
-        elif isinstance(groupedby, string_type):
+        elif isinstance(groupedby, str):
             facets.add_field(groupedby)
         elif isinstance(groupedby, FacetType):
             facets.add_facet(groupedby.default_name(), groupedby)

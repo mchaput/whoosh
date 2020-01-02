@@ -6,7 +6,6 @@ from functools import wraps
 from typing import Callable, Dict, Iterable, List, Sequence, Tuple
 
 from whoosh import query
-from whoosh.compat import text_type
 from whoosh.parsing import parsing, peg
 from whoosh.util.text import rcompile
 
@@ -595,7 +594,7 @@ class BoostPlugin(Plugin):
 class FieldAliasPlugin(Plugin):
     name = "field_alias"
 
-    def __init__(self, fieldmap: Dict[str, Sequence[text_type]]):
+    def __init__(self, fieldmap: Dict[str, Sequence[str]]):
         self.fieldmap = fieldmap
 
     @syntax(-1)

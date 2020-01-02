@@ -1,11 +1,9 @@
-from __future__ import with_statement
 import random
 from array import array
 
 import pytest
 
 from whoosh import analysis, fields, postings, query
-from whoosh.compat import array_tobytes
 from whoosh.codec import default_codec
 from whoosh.filedb.filestore import RamStorage
 from whoosh.postings import ptuples
@@ -67,7 +65,7 @@ def test_random_termkeys():
 
     def random_btext():
         a = array("H", (random.randint(0, 0xd7ff) for _ in range(1, 20)))
-        return array_tobytes(a).decode("utf-16")
+        return a.tobytes().decode("utf-16")
 
     domain = sorted(set([(random_fieldname(), random_btext().encode("utf-8"))
                          for _ in range(1000)]))

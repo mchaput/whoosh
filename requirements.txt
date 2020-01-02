@@ -1,3 +1,2 @@
-furl
 futures
 typing

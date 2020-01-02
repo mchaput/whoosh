@@ -53,7 +53,8 @@ import copy
 import typing
 from abc import abstractmethod
 from functools import wraps
-from typing import Any, Iterable, Optional, Sequence, Set, Tuple, Union
+from typing import (Any, Callable, Iterable, Optional, Sequence, Set, Tuple,
+                    Union)
 
 from whoosh import idsets
 from whoosh.postings import postform, postings, ptuples
@@ -409,6 +410,16 @@ class Matcher:
         raise NotLeafMatcher(self.__class__.__name__)
 
     def raw_posting(self) -> 'ptuples.RawPost':
+        raise NotLeafMatcher(self.__class__.__name__)
+
+    def supports_raw_blocks(self) -> bool:
+        return False
+
+    def raw_blocks(self) -> Iterable[bytes]:
+        raise NotLeafMatcher(self.__class__.__name__)
+
+    def rewrite_raw_blocks(self, docmap_get: Callable[[int, int], int]
+                           ) -> Iterable[bytes]:
         raise NotLeafMatcher(self.__class__.__name__)
 
     def all_postings(self) -> 'Iterable[postings.PostTuple]':
@@ -964,3 +975,5 @@ class IteratorMatcher(Matcher):
 
     def block_quality(self) -> float:
         return self._weight
+
+

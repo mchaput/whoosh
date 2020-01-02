@@ -28,8 +28,6 @@
 from abc import abstractmethod
 from typing import Iterable, List, Sequence
 
-from whoosh.compat import text_type
-
 
 # Exceptions
 
@@ -48,7 +46,7 @@ def unstopped(tokenstream: 'Iterable[Token]') -> 'Iterable[Token]':
     return (t for t in tokenstream if not t.stopped)
 
 
-def entoken(textstream: Iterable[text_type], positions: bool=False,
+def entoken(textstream: Iterable[str], positions: bool=False,
             chars: bool=False, start_pos: int=0, start_char: int=0,
             **kwargs) -> 'Iterable[Token]':
     """
@@ -119,7 +117,7 @@ class Token:
     def __init__(self, positions: bool=False, chars: bool=False,
                  payloads: bool=False, removestops: bool=True, mode: str='',
                  no_morph: bool=False, field_boost: float=1.0,
-                 source: text_type=None, **kwargs):
+                 source: str=None, **kwargs):
         """
         :param positions: Whether tokens should have the token position in the
             'pos' attribute.
@@ -185,7 +183,7 @@ class Analyzer:
         raise NotImplementedError
 
     @abstractmethod
-    def __call__(self, value: text_type, **kwargs):
+    def __call__(self, value: str, **kwargs):
         raise NotImplementedError
 
     def components(self) -> 'Iterable[Analyzer]':
@@ -200,7 +198,7 @@ class Analyzer:
 
 class Tokenizer(Analyzer):
     @abstractmethod
-    def __call__(self, value: text_type, **kwargs):
+    def __call__(self, value: str, **kwargs):
         raise NotImplementedError
 
     def __or__(self, other: 'Filter') -> 'CompositeAnalyzer':
@@ -218,7 +216,7 @@ class Tokenizer(Analyzer):
 
 
 class Filter(Analyzer):
-    def __call__(self, value: text_type, **kwargs):
+    def __call__(self, value: str, **kwargs):
         raise TypeError("Can't call a Filter, use the filter method")
 
     def __or__(self, other: 'Filter') -> 'CompositeAnalyzer':
@@ -290,7 +288,7 @@ class CompositeAnalyzer(Tokenizer):
     def is_token_start(self, s: str, at: int) -> bool:
         return self._tokenizer.is_token_start(s, at)
 
-    def __call__(self, value: text_type, no_morph: bool=False,
+    def __call__(self, value: str, no_morph: bool=False,
                  **kwargs) -> Iterable[Token]:
         # Allow filters to change options
         for f in self._filters:

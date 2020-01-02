@@ -1,8 +1,6 @@
-from __future__ import with_statement
 import random
 
 from whoosh import fields, query
-from whoosh.compat import text_type
 from whoosh.util.testing import TempIndex
 
 
@@ -14,12 +12,51 @@ def test_no_stored():
 
         with ix.writer() as w:
             for i in range(20):
-                w.add_document(id=text_type(i),
+                w.add_document(id=str(i),
                                text=u" ".join(random.sample(domain, 5)))
 
         with ix.reader() as r:
             assert (sorted([int(id) for id in r.lexicon("id")]) ==
                     list(range(20)))
+
+
+def test_clear():
+    schema = fields.Schema(id=fields.Id, name=fields.Keyword(stored=True))
+    with TempIndex(schema, "writing_clear") as ix:
+        domain = (u"alfa", u"bravo", u"charlie", u"delta", u"echo",
+                  u"foxtrot", u"golf", u"hotel", u"india")
+
+        assert ix.is_empty()
+
+        with ix.writer() as w:
+            for i in range(20):
+                w.add_document(id=str(i),
+                               name=u" ".join(random.sample(domain, 5)))
+
+        assert not ix.is_empty()
+
+        with ix.writer() as w:
+            w.clear()
+
+        assert ix.is_empty()
+        for name in ix.storage().list():
+            assert not name.endswith(".seg")
+
+        with ix.writer() as w:
+            for i, word in enumerate(domain):
+                w.add_document(id=str(i), name=word)
+
+        assert not ix.is_empty()
+
+        # Make sure we can cancel a clear
+        with ix.writer() as w:
+            w.clear()
+            w.cancel()
+
+        assert not ix.is_empty()
+        with ix.searcher() as s:
+            doc = s.document(id=u"2")
+            assert u"charlie" == doc["name"]
 
 
 # def test_asyncwriter():
@@ -35,7 +72,7 @@ def test_no_stored():
 #         for i in range(20):
 #             w = writing.AsyncWriter(ix)
 #             writers.append(w)
-#             w.add_document(id=text_type(i),
+#             w.add_document(id=str(i),
 #                            text=u" ".join(random.sample(domain, 5)))
 #             w.commit()
 #
@@ -62,7 +99,7 @@ def test_no_stored():
 #         for i in range(20):
 #             w = writing.AsyncWriter(ix)
 #             writers.append(w)
-#             w.add_document(id=text_type(i),
+#             w.add_document(id=str(i),
 #                            text=u" ".join(random.sample(domain, 5)))
 #             w.commit()
 #
@@ -94,7 +131,7 @@ def test_updates():
 #         w = writing.BufferedWriter(ix, period=None, limit=10,
 #                                    commitargs={"merge": False})
 #         for i in range(20):
-#             w.add_document(id=text_type(i),
+#             w.add_document(id=str(i),
 #                            text=u" ".join(random.sample(domain, 5)))
 #         time.sleep(0.1)
 #         w.close()
@@ -134,7 +171,7 @@ def test_updates():
 #         w = writing.BufferedWriter(ix, period=None, limit=5)
 #         for i in range(10):
 #             for char in u"abc":
-#                 fs = dict(id=char, payload=text_type(i) + char)
+#                 fs = dict(id=char, payload=str(i) + char)
 #                 w.update_document(**fs)
 #
 #         with w.reader() as r:
@@ -304,6 +341,7 @@ def test_add_field():
     with TempIndex(schema, "addfield") as ix:
         with ix.writer() as w:
             w.add_document(a=u"alfa bravo charlie")
+
         with ix.writer() as w:
             w.add_field("b", fields.ID(stored=True))
             w.add_field("c*", fields.ID(stored=True))
@@ -315,7 +353,8 @@ def test_add_field():
             assert s.reader().indexed_field_names() == ["a", "b", "cat"]
             assert ("cat", "juliet") in s.reader()
             fs = s.document(b=u"india")
-            assert fs == {"b": "india", "cat": "juliet"}
+            print("fs=", fs)
+            assert {"b": "india", "cat": "juliet"} == fs
 
 
 def test_add_reader():

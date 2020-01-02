@@ -1,5 +1,3 @@
-from __future__ import with_statement
-
 from whoosh import fields, query, sorting
 from whoosh.util.testing import TempIndex
 
@@ -389,7 +387,7 @@ def test_relation():
             w.add_document(id=12, type="song", name="Thriller", parent=1)
             w.add_document(id=13, type="song", name="Beat It", parent=1)
 
-        with ix.writer() as w:
+        with ix.writer(merge=False) as w:
             w.add_document(id=3, type="album", name="Blood Sugar Sex Magik",
                            artist="Red Hot Chili Peppers", sales=13)
 
@@ -399,7 +397,7 @@ def test_relation():
             w.add_document(id=23, type="song", name="Back in Black",
                            parent=2)
 
-        with ix.writer() as w:
+        with ix.writer(merge=False) as w:
             w.add_document(id=1, type="album", name="Thriller",
                            artist="Michael Jackson", sales=65)
 

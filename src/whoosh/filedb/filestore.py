@@ -25,22 +25,19 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from __future__ import with_statement
 import errno
-import io
 import logging
 import mmap
 import os
 import random
 import sys
 import tempfile
+import typing
 from abc import abstractmethod
 from binascii import crc32
 from io import BytesIO
 from threading import Lock
 from typing import Any, Dict, Iterable, List, Set
-
-import furl
 
 from whoosh import index, storage
 from whoosh.codec import codecs
@@ -56,10 +53,17 @@ logger = logging.getLogger(__name__)
 
 # Type aliases
 
-if sys.version_info[0] >= 3:
-    File = io.IOBase
-else:
-    File = file
+if typing.TYPE_CHECKING:
+    File = typing.BinaryIO
+
+
+# Configuration
+
+def from_json(data: dict) -> 'BaseFileStorage':
+    from whoosh.util.loading import find_object
+    cls = find_object(data["class"])
+    assert issubclass(cls, BaseFileStorage)
+    return cls.from_json(data)
 
 
 # TOC header
@@ -205,7 +209,10 @@ class BaseFileStorage(storage.Storage):
 
         # Write the TOC file with a temporary name so other processes don't
         # notice it until it's done
-        filename = index.make_toc_filename(indexname, toc.generation, ".tmp")
+        real_filename = index.make_toc_filename(indexname, toc.generation)
+        assert not self.file_exists(real_filename)
+
+        filename = real_filename + ".tmp"
         tocbytes = toc.to_bytes()
         toclen = len(tocbytes)
         check = crc32(tocbytes)
@@ -218,49 +225,64 @@ class BaseFileStorage(storage.Storage):
             f.write_uint_le(check)
 
         # Rename the file into place
-        real_filename = index.make_toc_filename(indexname, toc.generation)
         self.rename_file(filename, real_filename, safe=True)
-
+        # Write the pointer to the current TOC
+        self._write_toc_pointer(session, toc)
         # Clean up old segment and TOC files
         self.cleanup(session, toc, all_tocs=True)
 
     def latest_generation(self, session: 'storage.Session'):
         indexname = session.indexname
-        regex = index.toc_regex(indexname)
+        pointer = self._read_toc_pointer(indexname)
+        if pointer < 0:
+            regex = index.toc_regex(indexname)
+            for filename in self:
+                m = regex.match(filename)
+                if m:
+                    pointer = max(int(m.group(1)), pointer)
 
-        mx = -2
-        for filename in self:
-            m = regex.match(filename)
-            if m:
-                mx = max(int(m.group(1)), mx)
-
-        if mx == -2:
-            raise storage.TocNotFound(indexname)
-
-        return mx
+        if pointer < 0:
+           pointer = -1
+        return pointer
 
     @staticmethod
     def _id_counter_filename(indexname: str=None) -> str:
         indexname = indexname or index.DEFAULT_INDEX_NAME
         return "%s_counter.txt" % indexname
 
-    def _read_id_counter(self, indexname: str) -> int:
-        filename = self._id_counter_filename(indexname)
-        if self.file_exists(filename):
-            with self.open_file(filename) as f:
-                f.seek(0)
-                num = int(f.read(), 16) + 1
-        else:
-            num = 0
-
-        return num
+    @staticmethod
+    def _toc_pointer_filename(indexname: str=None) -> str:
+        indexname = indexname or index.DEFAULT_INDEX_NAME
+        return "%s_toc.txt" % indexname
 
     def _write_id_counter(self, session: 'storage.Session'):
         filename = self._id_counter_filename(session.indexname)
+        self._write_number_file(filename, session.id_counter)
+
+    def _read_id_counter(self, indexname: str) -> int:
+        filename = self._id_counter_filename(indexname)
+        return self._read_number_file(filename, 0) + 1
+
+    def _write_toc_pointer(self, session: 'storage:Session', toc: 'index.Toc'):
+        filename = self._toc_pointer_filename(session.indexname)
+        self._write_number_file(filename, toc.generation)
+
+    def _read_toc_pointer(self, indexname: str):
+        filename = self._toc_pointer_filename(indexname)
+        return self._read_number_file(filename, -1)
+
+    def _write_number_file(self, filename: str, number: int):
         tempname = filename + ".temp"
         with self.create_file(tempname) as f:
-            f.write(("%06x" % session.id_counter).encode("ascii"))
+            f.write(("%08x" % number).encode("ascii"))
         self.rename_file(tempname, filename)
+
+    def _read_number_file(self, filename, default=-1):
+        if self.file_exists(filename):
+            with self.open_file(filename) as f:
+                f.seek(0)
+                return int(f.read().decode("ascii"), 16)
+        return default
 
     def load_toc(self, session: 'storage.Session', generation: int=None):
         # This backend has no concept of a session, all we need from the object
@@ -269,6 +291,8 @@ class BaseFileStorage(storage.Storage):
 
         if generation is None:
             generation = self.latest_generation(session)
+            if generation < 0:
+                raise storage.TocNotFound
 
         filename = index.make_toc_filename(indexname, generation)
         try:
@@ -333,7 +357,7 @@ class BaseFileStorage(storage.Storage):
         raise NotImplementedError
 
     @abstractmethod
-    def open_file(self, name: str) -> File:
+    def open_file(self, name: str) -> 'File':
         """
         Opens a file with the given name in this storage.
 
@@ -449,6 +473,16 @@ class OverlayStorage(BaseFileStorage):
         self.a = a
         self.b = b
 
+    @classmethod
+    def from_json(cls, data):
+        a = from_json(data["a"])
+        b = from_json(data["b"])
+        return cls(a, b)
+
+    def as_json(self) -> dict:
+        return {"class": "%s.%s" % (self.__module__, type(self).__name__),
+                "a": self.a.as_json(), "b": self.b.as_json()}
+
     def supports_multiproc_writing(self) -> bool:
         return self.b.supports_multiproc_writing()
 
@@ -461,7 +495,7 @@ class OverlayStorage(BaseFileStorage):
     def create_file(self, name: str) -> datafile.OutputFile:
         return self.b.create_file(name)
 
-    def open_file(self, name: str) -> File:
+    def open_file(self, name: str) -> 'File':
         if self.a.file_exists(name):
             return self.a.open_file(name)
         else:
@@ -512,13 +546,11 @@ class OverlayStorage(BaseFileStorage):
         self.b.optimize()
 
 
-@storage.url_handler
 class FileStorage(BaseFileStorage):
     """
     Storage object that stores the index as files in a directory on disk.
     """
 
-    url_scheme = "file"
     supports_mmap = True
 
     def __init__(self, path: str, supports_mmap: bool=True,
@@ -554,18 +586,18 @@ class FileStorage(BaseFileStorage):
                            recursive=True)
 
     @classmethod
-    def from_url(cls, url: str) -> 'FileStorage':
-        url = furl.furl(url)
-        assert url.scheme == cls.url_scheme
-
-        path = str(url.path)
-        supports_mmap = url.args.get("mmap") == "true"
-        readonly = url.args.get("readonly") == "true"
+    def from_json(cls, data: dict) -> 'FileStorage':
+        path = data["path"]
+        supports_mmap = data.get("mmap", True)
+        readonly = data.get("readonly", False)
         return cls(path, supports_mmap=supports_mmap, readonly=readonly)
 
-    def as_url(self) -> str:
-        args = {"mmap": self.supports_mmap, "readonly": self.readonly}
-        return furl.furl().set(scheme="file", path=self.folder, args=args).url
+    def as_json(self) -> dict:
+
+        return {"class": "%s.%s" % (self.__module__, type(self).__name__),
+                "path": self.folder,
+                "mmap": self.supports_mmap,
+                "readonly": self.readonly}
 
     def supports_multiproc_writing(self):
         return True
@@ -657,7 +689,7 @@ class FileStorage(BaseFileStorage):
         f = datafile.OutputFile(fileobj, name=name, **kwargs)
         return f
 
-    def open_file(self, name) -> File:
+    def open_file(self, name) -> 'File':
         return open(self._fpath(name), "rb")
 
     def map_file(self, name, offset=0, length=0) -> datafile.Data:
@@ -781,6 +813,13 @@ class RamStorage(BaseFileStorage):
         self.files = {}  # type: Dict[str, bytes]
         self.locks = {}  # type: Dict[str, Lock]
 
+    @classmethod
+    def from_json(cls, data):
+        return RamStorage()
+
+    def as_json(self) -> dict:
+        return {"class": "%s.%s" % (self.__module__, type(self).__name__)}
+
     def destroy(self):
         del self.files
         del self.locks
@@ -826,7 +865,7 @@ class RamStorage(BaseFileStorage):
         f = datafile.OutputFile(BytesIO(), name=name, onclose=_onclose)
         return f
 
-    def open_file(self, name: str, **kwargs) -> File:
+    def open_file(self, name: str, **kwargs) -> 'File':
         if name not in self.files:
             raise NameError(name)
         return BytesIO(memoryview(self.files[name]))

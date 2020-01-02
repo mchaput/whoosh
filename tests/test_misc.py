@@ -1,4 +1,3 @@
-from __future__ import with_statement
 import os, threading, time
 
 from whoosh.util.filelock import try_for, decode_key

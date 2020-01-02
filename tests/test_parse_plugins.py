@@ -1,9 +1,7 @@
-from __future__ import with_statement
 import inspect
 from datetime import datetime
 
 from whoosh import analysis, fields, qparser, query
-from whoosh.compat import text_type
 from whoosh.qparser import dateparse, default, plugins, syntax
 from whoosh.util.times import adatetime
 from whoosh.util.testing import TempIndex
@@ -49,7 +47,7 @@ def test_field_alias():
     qp = qparser.QueryParser("content", None)
     qp.add_plugin(plugins.FieldAliasPlugin({"title": ("article", "caption")}))
     q = qp.parse("alfa title:bravo article:charlie caption:delta")
-    assert text_type(q) == u"(content:alfa AND title:bravo AND title:charlie AND title:delta)"
+    assert str(q) == u"(content:alfa AND title:bravo AND title:charlie AND title:delta)"
 
 
 def test_dateparser():
@@ -289,32 +287,32 @@ def test_custom_tokens():
 def test_copyfield():
     qp = qparser.QueryParser("a", None)
     qp.add_plugin(plugins.CopyFieldPlugin({"b": "c"}, None))
-    assert (text_type(qp.parse("hello b:matt"))
+    assert (str(qp.parse("hello b:matt"))
             == "(a:hello AND b:matt AND c:matt)")
 
     qp = qparser.QueryParser("a", None)
     qp.add_plugin(plugins.CopyFieldPlugin({"b": "c"}, syntax.AndMaybeGroup))
-    assert (text_type(qp.parse("hello b:matt"))
+    assert (str(qp.parse("hello b:matt"))
             == "(a:hello AND (b:matt ANDMAYBE c:matt))")
 
     qp = qparser.QueryParser("a", None)
     qp.add_plugin(plugins.CopyFieldPlugin({"b": "c"}, syntax.RequireGroup))
-    assert (text_type(qp.parse("hello (there OR b:matt)"))
+    assert (str(qp.parse("hello (there OR b:matt)"))
             == "(a:hello AND (a:there OR (b:matt REQUIRE c:matt)))")
 
     qp = qparser.QueryParser("a", None)
     qp.add_plugin(plugins.CopyFieldPlugin({"a": "c"}, syntax.OrGroup))
-    assert (text_type(qp.parse("hello there"))
+    assert (str(qp.parse("hello there"))
             == "((a:hello OR c:hello) AND (a:there OR c:there))")
 
     qp = qparser.QueryParser("a", None)
     qp.add_plugin(plugins.CopyFieldPlugin({"b": "c"}, mirror=True))
-    assert (text_type(qp.parse("hello c:matt"))
+    assert (str(qp.parse("hello c:matt"))
             == "(a:hello AND (c:matt OR b:matt))")
 
     qp = qparser.QueryParser("a", None)
     qp.add_plugin(plugins.CopyFieldPlugin({"c": "a"}, mirror=True))
-    assert (text_type(qp.parse("hello c:matt"))
+    assert (str(qp.parse("hello c:matt"))
             == "((a:hello OR c:hello) AND (c:matt OR a:matt))")
 
     ana = analysis.RegexAnalyzer(r"\w+") | analysis.DoubleMetaphoneFilter()
@@ -325,7 +323,7 @@ def test_copyfield():
     qp.add_plugin(plugins.CopyFieldPlugin({"name": "name_phone"}))
     target = ("((name:spruce OR name_phone:SPRS) "
               "AND (name:view OR name_phone:F OR name_phone:FF))")
-    assert text_type(qp.parse(u"spruce view")) == target
+    assert str(qp.parse(u"spruce view")) == target
 
 
 def test_gtlt():
@@ -353,12 +351,12 @@ def test_gtlt():
     assert q[2] == query.Term("a", "there")
 
     q = qp.parse(u"a:> alfa c:<= bravo")
-    assert text_type(q) == "(a:a: AND a:alfa AND a:c: AND a:bravo)"
+    assert str(q) == "(a:a: AND a:alfa AND a:c: AND a:bravo)"
 
     qp.remove_plugin_class(plugins.FieldsPlugin)
     qp.remove_plugin_class(plugins.RangePlugin)
     q = qp.parse(u"hello a:>500 there")
-    assert text_type(q) == "(a:hello AND a:a: AND a:500 AND a:there)"
+    assert str(q) == "(a:hello AND a:a: AND a:500 AND a:there)"
 
 
 def test_regex():
@@ -367,10 +365,10 @@ def test_regex():
     qp.add_plugin(plugins.RegexPlugin())
 
     q = qp.parse(u"a:foo-bar b:foo-bar")
-    assert q.__unicode__() == '(a:foo-bar AND b:foo AND b:bar)'
+    assert str(q) == '(a:foo-bar AND b:foo AND b:bar)'
 
     q = qp.parse(u'a:r"foo-bar" b:r"foo-bar"')
-    assert q.__unicode__() == '(a:r"foo-bar" AND b:r"foo-bar")'
+    assert str(q) == '(a:r"foo-bar" AND b:r"foo-bar")'
 
 
 def test_pseudofield():
@@ -385,7 +383,7 @@ def test_pseudofield():
     qp = qparser.QueryParser("a", schema)
     qp.add_plugin(qparser.PseudoFieldPlugin({"regex": regex_maker}))
     q = qp.parse(u"alfa regex:br.vo")
-    assert q.__unicode__() == '(a:alfa AND content:r"br.vo")'
+    assert str(q) == '(a:alfa AND content:r"br.vo")'
 
     def rev_text(node):
         if node.has_text:
@@ -407,7 +405,7 @@ def test_pseudofield():
     qp = qparser.QueryParser("content", schema)
     qp.add_plugin(qparser.PseudoFieldPlugin({"reverse": rev_text}))
     q = qp.parse(u"alfa reverse:bravo")
-    assert q.__unicode__() == '(content:alfa AND (reverse:bravo OR reverse:ovarb))'
+    assert str(q) == '(content:alfa AND (reverse:bravo OR reverse:ovarb))'
 
 
 def test_fuzzy_plugin():
@@ -523,13 +521,11 @@ def test_function_plugin():
         def __hash__(self):
             return hash(tuple(self.children)) ^ hash(self.args)
 
-        def __unicode__(self):
+        def __str__(self):
             qs = "|".join(str(q) for q in self.children)
             args = ",".join(self.args)
             kwargs = ",".join(sorted("%s:%s" % item for item in self.kwargs.items()))
             return u"<%s %s %s>" % (qs, args, kwargs)
-
-        __str__ = __unicode__
 
     def fuzzy(qs, prefix=0, maxdist=2):
         prefix = int(prefix)
@@ -596,7 +592,7 @@ def test_sequence_plugin():
     q = qp.parse(u'alfa "bravo charlie~2 (delta OR echo)" foxtrot')
     assert isinstance(q, query.And)
     assert type(q[1]) is query.Sequence
-    assert q.__unicode__() == "(f:alfa AND (f:bravo NEAR f:charlie~2 NEAR (f:delta OR f:echo)) AND f:foxtrot)"
+    assert str(q) == "(f:alfa AND (f:bravo NEAR f:charlie~2 NEAR (f:delta OR f:echo)) AND f:foxtrot)"
 
     q = qp.parse(u'alfa "bravo charlie~2 d?lt*')
     assert q[0].text == "alfa"
@@ -605,7 +601,7 @@ def test_sequence_plugin():
     assert q[3].__class__ == query.Wildcard
 
     q = qp.parse(u'alfa "bravo charlie~2" d?lt* "[a TO z] [0 TO 9]" echo')
-    assert q.__unicode__() == "(f:alfa AND (f:bravo NEAR f:charlie~2) AND f:d?lt* AND (f:[a TO z] NEAR f:[0 TO 9]) AND f:echo)"
+    assert str(q) == "(f:alfa AND (f:bravo NEAR f:charlie~2) AND f:d?lt* AND (f:[a TO z] NEAR f:[0 TO 9]) AND f:echo)"
     assert q[0].text == "alfa"
     assert q[1].__class__ == query.Sequence
     assert q[2].__class__ == query.Wildcard

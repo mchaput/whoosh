@@ -1,7 +1,6 @@
 import pytest
 
 from whoosh import analysis, fields, qparser, query
-from whoosh.compat import text_type
 from whoosh.qparser import default
 from whoosh.qparser import plugins
 
@@ -175,7 +174,7 @@ def test_multifield():
     q = qp.parse(qs)
     target = ("((x:a OR y:a) AND (((x:b OR y:b) AND (x:c OR y:c) "
               "AND cat:d) OR ((x:b OR y:b) AND (x:c OR y:c) AND cat:e)))")
-    assert text_type(q) == target
+    assert str(q) == target
 
 
 def test_fieldname_chars():
@@ -191,7 +190,7 @@ def test_fieldname_chars():
     assert q.text == u'456'
 
     q = qp.parse(u"abc123:456 def")
-    assert text_type(q) == u"(abc123:456 AND content:def)"
+    assert str(q) == u"(abc123:456 AND content:def)"
 
     q = qp.parse(u'\u0646\u0633\u0628\u0629:\u0627\u0644\u0641\u0644\u0633'
                  u'\u0637\u064a\u0646\u064a')
@@ -200,7 +199,7 @@ def test_fieldname_chars():
     assert q.text == u'\u0627\u0644\u0641\u0644\u0633\u0637\u064a\u0646\u064a'
 
     q = qp.parse(u"abc123 (xyz:123 OR qrs)")
-    assert text_type(q) == "(content:abc123 AND (abc123:123 OR content:qrs))"
+    assert str(q) == "(content:abc123 AND (abc123:123 OR content:qrs))"
 
 
 def test_colonspace():
@@ -236,7 +235,7 @@ def test_colonspace():
 def test_andor():
     qp = default.QueryParser("a", None)
     q = qp.parse("a AND b OR c AND d OR e AND f")
-    assert text_type(q) == "((a:a AND a:b) OR (a:c AND a:d) OR (a:e AND a:f))"
+    assert str(q) == "((a:a AND a:b) OR (a:c AND a:d) OR (a:e AND a:f))"
 
     q = qp.parse("aORb")
     assert q == query.Term("a", "aORb")
@@ -274,7 +273,7 @@ def test_andnot():
 
     q = qp.parse(u"a AND b ANDNOT c")
     assert q.__class__ == query.AndNot
-    assert text_type(q) == "((content:a AND content:b) ANDNOT content:c)"
+    assert str(q) == "((content:a AND content:b) ANDNOT content:c)"
 
 
 def test_boost_query():
@@ -296,7 +295,7 @@ def test_boost_query():
 def test_boosts():
     qp = default.QueryParser("t", None)
     q = qp.parse("alfa ((bravo^2)^3)^4 charlie")
-    assert q.__unicode__() == "(t:alfa AND t:bravo^24.0 AND t:charlie)"
+    assert str(q) == "(t:alfa AND t:bravo^24.0 AND t:charlie)"
 
 
 def test_wild():
@@ -713,17 +712,17 @@ def test_analyzing_terms():
 def test_simple_parsing():
     parser = default.SimpleParser("x", None)
     q = parser.parse(u"alfa bravo charlie delta")
-    assert text_type(q) == "(x:alfa OR x:bravo OR x:charlie OR x:delta)"
+    assert str(q) == "(x:alfa OR x:bravo OR x:charlie OR x:delta)"
 
     q = parser.parse(u"alfa +bravo charlie delta")
-    assert text_type(q) == "(x:bravo ANDMAYBE (x:alfa OR x:charlie OR x:delta))"
+    assert str(q) == "(x:bravo ANDMAYBE (x:alfa OR x:charlie OR x:delta))"
 
     q = parser.parse(u"alfa +bravo -charlie delta")
-    assert (text_type(q)
+    assert (str(q)
             == "((x:bravo ANDMAYBE (x:alfa OR x:delta)) ANDNOT x:charlie)")
 
     q = parser.parse(u"- alfa +bravo + delta")
-    assert text_type(q) == "((x:bravo AND x:delta) ANDNOT x:alfa)"
+    assert str(q) == "((x:bravo AND x:delta) ANDNOT x:alfa)"
 
 
 def test_dismax():
@@ -733,25 +732,25 @@ def test_dismax():
     target = ("(DisMax(body:alfa^0.8 title:alfa^2.5) "
               "OR DisMax(body:bravo^0.8 title:bravo^2.5) "
               "OR DisMax(body:charlie^0.8 title:charlie^2.5))")
-    assert text_type(q) == target
+    assert str(q) == target
 
     q = parser.parse(u"alfa +bravo charlie")
     target = ("(DisMax(body:bravo^0.8 title:bravo^2.5) "
               "ANDMAYBE (DisMax(body:alfa^0.8 title:alfa^2.5) "
               "OR DisMax(body:charlie^0.8 title:charlie^2.5)))")
-    assert text_type(q) == target
+    assert str(q) == target
 
     q = parser.parse(u"alfa -bravo charlie")
     target = ("((DisMax(body:alfa^0.8 title:alfa^2.5) "
               "OR DisMax(body:charlie^0.8 title:charlie^2.5)) "
               "ANDNOT DisMax(body:bravo^0.8 title:bravo^2.5))")
-    assert text_type(q) == target
+    assert str(q) == target
 
     q = parser.parse(u"alfa -bravo +charlie")
     target = ("((DisMax(body:charlie^0.8 title:charlie^2.5) "
               "ANDMAYBE DisMax(body:alfa^0.8 title:alfa^2.5)) "
               "ANDNOT DisMax(body:bravo^0.8 title:bravo^2.5))")
-    assert text_type(q) == target
+    assert str(q) == target
 
 
 def test_many_clauses():
@@ -764,7 +763,7 @@ def test_many_clauses():
 def test_roundtrip():
     parser = default.QueryParser("a", None)
     q = parser.parse(u"a OR ((b AND c AND d AND e) OR f OR g) ANDNOT h")
-    assert (text_type(q) ==
+    assert (str(q) ==
             "((a:a OR (a:b AND a:c AND a:d AND a:e) OR a:f OR a:g) ANDNOT a:h)")
 
 
@@ -852,23 +851,23 @@ def test_singlequote_multitoken():
     schema = fields.Schema(text=f)
     parser = default.QueryParser("text", schema)
     q = parser.parse(u"foo bar")
-    assert q.__unicode__() == "(text:foo AND text:bar)"
+    assert str(q) == "(text:foo AND text:bar)"
 
     q = parser.parse(u"'foo bar'")  # single quotes
-    assert q.__unicode__() == "(text:foo OR text:bar)"
+    assert str(q) == "(text:foo OR text:bar)"
 
 
 def test_operator_queries():
     qp = default.QueryParser("f", None)
 
     q = qp.parse("a AND b OR c AND d")
-    assert text_type(q) == "((f:a AND f:b) OR (f:c AND f:d))"
+    assert str(q) == "((f:a AND f:b) OR (f:c AND f:d))"
 
     q = qp.parse("a OR b OR c OR d")
-    assert text_type(q) == "(f:a OR f:b OR f:c OR f:d)"
+    assert str(q) == "(f:a OR f:b OR f:c OR f:d)"
 
     q = qp.parse("a ANDMAYBE b ANDNOT c REQUIRE d")
-    assert text_type(q) == "((f:a ANDMAYBE (f:b ANDNOT f:c)) REQUIRE f:d)"
+    assert str(q) == "((f:a ANDMAYBE (f:b ANDNOT f:c)) REQUIRE f:d)"
 
 
 #def test_associativity():
@@ -883,39 +882,39 @@ def test_operator_queries():
 #
 #    p = make_parser(left_andmaybe)
 #    q = p.parse("a ANDMAYBE b ANDMAYBE c ANDMAYBE d")
-#    assert text_type(q), "(((f:a ANDMAYBE f:b) ANDMAYBE f:c) ANDMAYBE f:d)")
+#    assert str(q), "(((f:a ANDMAYBE f:b) ANDMAYBE f:c) ANDMAYBE f:d)")
 #
 #    p = make_parser(right_andmaybe)
 #    q = p.parse("a ANDMAYBE b ANDMAYBE c ANDMAYBE d")
-#    assert text_type(q), "(f:a ANDMAYBE (f:b ANDMAYBE (f:c ANDMAYBE f:d)))")
+#    assert str(q), "(f:a ANDMAYBE (f:b ANDMAYBE (f:c ANDMAYBE f:d)))")
 #
 #    p = make_parser(not_)
 #    q = p.parse("a NOT b NOT c NOT d", normalize=False)
-#    assert text_type(q), "(f:a AND NOT f:b AND NOT f:c AND NOT f:d)")
+#    assert str(q), "(f:a AND NOT f:b AND NOT f:c AND NOT f:d)")
 #
 #    p = make_parser(left_andmaybe)
 #    q = p.parse("(a ANDMAYBE b) ANDMAYBE (c ANDMAYBE d)")
-#    assert text_type(q), "((f:a ANDMAYBE f:b) ANDMAYBE (f:c ANDMAYBE f:d))")
+#    assert str(q), "((f:a ANDMAYBE f:b) ANDMAYBE (f:c ANDMAYBE f:d))")
 #
 #    p = make_parser(right_andmaybe)
 #    q = p.parse("(a ANDMAYBE b) ANDMAYBE (c ANDMAYBE d)")
-#    assert text_type(q), "((f:a ANDMAYBE f:b) ANDMAYBE (f:c ANDMAYBE f:d))")
+#    assert str(q), "((f:a ANDMAYBE f:b) ANDMAYBE (f:c ANDMAYBE f:d))")
 
 
 def test_not_assoc():
     qp = default.QueryParser("text", None)
     q = qp.parse(u"a AND NOT b OR c")
-    assert text_type(q) == "((text:a AND NOT text:b) OR text:c)"
+    assert str(q) == "((text:a AND NOT text:b) OR text:c)"
 
     qp = default.QueryParser("text", None)
     q = qp.parse(u"a NOT (b OR c)")
-    assert text_type(q) == "(text:a AND NOT (text:b OR text:c))"
+    assert str(q) == "(text:a AND NOT (text:b OR text:c))"
 
 
 def test_fieldname_space():
     qp = default.QueryParser("a", None)
     q = qp.parse("Man Ray: a retrospective")
-    assert text_type(q) == "(a:Man AND a:Ray: AND a:a AND a:retrospective)"
+    assert str(q) == "(a:Man AND a:Ray: AND a:a AND a:retrospective)"
 
 
 def test_fieldname_fieldname():
@@ -929,10 +928,10 @@ def test_paren_fieldname():
 
     qp = default.QueryParser("content", schema)
     q = qp.parse(u"(kind:1d565 OR kind:7c584) AND (stuff)")
-    assert text_type(q) == "((kind:1d565 OR kind:7c584) AND content:stuff)"
+    assert str(q) == "((kind:1d565 OR kind:7c584) AND content:stuff)"
 
     q = qp.parse(u"kind:(1d565 OR 7c584) AND (stuff)")
-    assert text_type(q) == "((kind:1d565 OR kind:7c584) AND content:stuff)"
+    assert str(q) == "((kind:1d565 OR kind:7c584) AND content:stuff)"
 
 
 def test_star_paren():
@@ -963,7 +962,7 @@ def test_dash():
 
     qp = default.MultifieldParser(["title", "text", "time"], schema)
     q = qp.parse(qtext)
-    assert (q.__unicode__() ==
+    assert (str(q) ==
             "(title:*ben-hayden* OR text:*ben-hayden* OR time:*Ben-Hayden*)")
 
 
@@ -982,24 +981,24 @@ def test_not_order():
                            cats=fields.KEYWORD(lowercase=True))
     qp = default.QueryParser("count", schema)
 
-    q1 = qp.parse(u"(NOT (count:0) AND cats:1)")
-    assert q1.__class__ == query.And
-    assert q1[0].__class__ == query.Not
-    assert q1[1].__class__ == query.Term
-    assert q1.__unicode__() == '(NOT count:0 AND cats:1)'
+    q1 = qp.parse(u"(NOT (count:0) AND cats:1)")  # type: query.And
+    assert q1.__class__ is query.And
+    assert q1[0].__class__ is query.Not
+    assert q1[1].__class__ is query.Term
+    assert str(q1) == '(NOT count:0 AND cats:1)'
 
-    q2 = qp.parse(u"(cats:1 AND NOT (count:0))")
-    assert q2.__class__ == query.And
-    assert q2[0].__class__ == query.Term
-    assert q2[1].__class__ == query.Not
-    assert q2.__unicode__() == '(cats:1 AND NOT count:0)'
+    q2 = qp.parse(u"(cats:1 AND NOT (count:0))")  # type: query.And
+    assert q2.__class__ is query.And
+    assert q2[0].__class__ is query.Term
+    assert q2[1].__class__ is query.Not
+    assert str(q2) == '(cats:1 AND NOT count:0)'
 
 
 def test_spacespace_and():
     qp = default.QueryParser("f", None)
     # one blank before/after AND
-    q = qp.parse("A AND B")
-    assert q.__class__ == query.And
+    q = qp.parse("A AND B")  # type: query.And
+    assert q.__class__ is query.And
     assert len(q) == 2
     assert q[0] == query.Term("f", "A")
     assert q[1] == query.Term("f", "B")
@@ -1017,7 +1016,7 @@ def test_unicode_num():
     parser = default.QueryParser(u"num", schema=schema)
     q = parser.parse(u"num:1")
 
-    _ = text_type(q)
+    _ = str(q)
 
 
 def test_phrase_andmaybe():

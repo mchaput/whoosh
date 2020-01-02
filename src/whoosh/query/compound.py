@@ -31,7 +31,6 @@ import typing
 from typing import Callable, Iterable, Optional, Sequence
 
 from whoosh import collectors
-from whoosh.compat import text_type
 from whoosh.matching import matchers
 from whoosh.query import ranges, queries
 
@@ -69,13 +68,11 @@ class CompoundQuery(queries.Query):
         r += ")"
         return r
 
-    def __unicode__(self):
+    def __str__(self):
         r = u"("
-        r += self.joint.join([text_type(s) for s in self.subqueries])
+        r += self.joint.join([str(s) for s in self.subqueries])
         r += u")"
         return r
-
-    __str__ = __unicode__
 
     def __eq__(self, other):
         return (other and
@@ -338,15 +335,13 @@ class Or(CompoundQuery):
         self.minmatch = minmatch
         self.scale = scale
 
-    def __unicode__(self):
+    def __str__(self):
         r = u"("
-        r += (self.joint).join([text_type(s) for s in self.subqueries])
+        r += (self.joint).join([str(s) for s in self.subqueries])
         r += u")"
         if self.minmatch:
             r += u">%s" % self.minmatch
         return r
-
-    __str__ = __unicode__
 
     def normalize(self):
         norm = CompoundQuery.normalize(self)
@@ -399,15 +394,13 @@ class DisjunctionMax(CompoundQuery):
         super(DisjunctionMax, self).__init__(subqueries, boost=boost)
         self.tiebreak = tiebreak
 
-    def __unicode__(self):
+    def __str__(self):
         r = u"DisMax("
-        r += " ".join(sorted(text_type(s) for s in self.subqueries))
+        r += " ".join(sorted(str(s) for s in self.subqueries))
         r += u")"
         if self.tiebreak:
-            r += u"~" + text_type(self.tiebreak)
+            r += u"~" + str(self.tiebreak)
         return r
-
-    __str__ = __unicode__
 
     def normalize(self):
         norm = CompoundQuery.normalize(self)

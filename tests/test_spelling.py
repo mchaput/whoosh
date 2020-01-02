@@ -1,4 +1,3 @@
-from __future__ import with_statement
 import gzip
 from itertools import permutations
 
@@ -146,7 +145,7 @@ def test_correct_query():
             qtext = u'alpha b:("brovo november" a:delta) detail'
             q = qp.parse(qtext, ix.schema)
             c = s.correct_query(q, qtext)
-            assert c.query.__unicode__() == '(a:alfa AND b:"brovo november" AND a:delta AND a:detail)'
+            assert str(c.query) == '(a:alfa AND b:"brovo november" AND a:delta AND a:detail)'
             assert c.string == 'alfa b:("brovo november" a:delta) detail'
 
             hf = highlight.HtmlFormatter(classname="c")

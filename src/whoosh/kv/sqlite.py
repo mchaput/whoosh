@@ -78,7 +78,7 @@ class Sqlite(Database):
                 pass
 
     def optimize(self):
-        self._connection(False).execute("vacuum")
+        self._connection().execute("vacuum")
 
     def open(self, write=False, create=False):
         if create:

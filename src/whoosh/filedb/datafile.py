@@ -6,7 +6,6 @@ from abc import abstractmethod
 from array import array
 from typing import Callable, Tuple, Union
 
-from whoosh.compat import array_tobytes, array_frombytes
 from whoosh.util import unclosed
 from whoosh.system import IS_LITTLE
 
@@ -132,7 +131,7 @@ class OutputFile:
         if self.is_real:
             arry.tofile(self._file)
         else:
-            self.write(array_tobytes(arry))
+            self.write(arry.tobytes())
 
 
 #
@@ -205,7 +204,7 @@ class Data:
         arry = array(typecode)
         end = start + count * arry.itemsize
         bs = self[start:end]
-        array_frombytes(arry, bs)
+        arry.frombytes(bs)
         if not native and arry.itemsize > 1:
             arry.byteswap()
         return arry
@@ -245,6 +244,9 @@ class FileData(Data):
         self.read = self._file.read
         self.tell = self._file.tell
         self.seek = self._file.seek
+
+    def __repr__(self):
+        return "<%s %s %s>" % (type(self).__name__, self.name, self._length)
 
     def __bytes__(self) -> bytes:
         self._file.seek(self._offset)
@@ -297,6 +299,10 @@ class MemData(Data):
         self._source = source
         self.name = name
         self.__getitem__ = self._source.__getitem__
+
+    def __repr__(self):
+        return "<%s %r %d (%s)>" % (type(self).__name__, self._source,
+                                    len(self), self.name)
 
     def __bytes__(self):
         return self._source

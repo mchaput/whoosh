@@ -1,7 +1,6 @@
 import copy
 
 from whoosh import analysis, fields, qparser, query, scoring
-from whoosh.compat import text_type
 from whoosh.util.testing import TempIndex
 
 
@@ -174,7 +173,7 @@ def test_fieldboost():
             q = query.Or([query.Term("a", u"alfa"),
                           query.Term("b", u"alfa")])
             q = q.accept(field_booster("a", 100.0))
-            assert text_type(q) == u"(a:alfa^100.0 OR b:alfa)"
+            assert str(q) == u"(a:alfa^100.0 OR b:alfa)"
             r = s.search(q)
             assert [hit["id"] for hit in r] == [2, 5, 6, 3, 0, 1, 4]
 

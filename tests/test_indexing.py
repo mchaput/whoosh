@@ -1,4 +1,3 @@
-from __future__ import with_statement
 import random
 from collections import defaultdict
 from datetime import datetime
@@ -7,7 +6,6 @@ from itertools import permutations
 import pytest
 
 from whoosh import fields, index, qparser
-from whoosh.compat import text_type
 from whoosh.writing import IndexingError
 from whoosh.util.testing import TempIndex, TempStorage
 
@@ -127,7 +125,7 @@ def test_lengths():
     s = fields.Schema(
         id=fields.Numeric,
         f1=fields.KEYWORD(stored=True, scorable=True),
-        f2=fields.KEYWORD(stored=True, scorable=True)
+        f2=fields.KEYWORD(stored=True, scorable=True, store_lengths=True)
     )
     with TempIndex(s, "testlengths") as ix:
         with ix.writer() as w:
@@ -319,11 +317,12 @@ def test_deletion():
             w.delete_by_term("key", u"B")
 
         ix.optimize()
-        assert ix.doc_count_all() == 4
-        assert ix.doc_count() == 4
 
         with ix.reader() as tr:
-            assert b" ".join(tr.lexicon("name")) == b"brown one two yellow"
+            assert b"brown one two yellow" == b" ".join(tr.lexicon("name"))
+
+        assert ix.doc_count_all() == 4
+        assert ix.doc_count() == 4
 
 
 def test_writer_reuse():
@@ -374,7 +373,7 @@ def test_update2():
         # random.shuffle(nums)
         for i, n in enumerate(nums):
             with ix.writer() as w:
-                w.update_document(key=text_type(n % 10), p=text_type(i))
+                w.update_document(key=str(n % 10), p=str(i))
 
         with ix.searcher() as s:
             results = [d["key"] for _, d in s.reader().iter_docs()]
@@ -390,7 +389,7 @@ def test_update_numeric():
         random.shuffle(nums)
         for num in nums:
             with ix.writer() as w:
-                w.update_document(num=num, text=text_type(num))
+                w.update_document(num=num, text=str(num))
 
         with ix.searcher() as s:
             results = [d["text"] for _, d in s.reader().iter_docs()]
@@ -656,22 +655,26 @@ def test_doc_boost():
     schema = fields.Schema(id=fields.STORED, a=fields.TEXT, b=fields.TEXT)
     with TempIndex(schema) as ix:
         with ix.writer() as w:
-            w.add_document(id=0, a=u"alfa alfa alfa", b=u"bravo")
-            w.add_document(id=1, a=u"alfa", b=u"bear", _a_boost=5.0)
-            w.add_document(id=2, a=u"alfa alfa alfa alfa", _boost=0.5)
+            # Alfa #2, score = 3.0
+            w.add_document(id='a', a=u"alfa alfa alfa", b=u"bravo")
+            # Alfa #1, score = 5.0
+            w.add_document(id='b', a=u"alfa", b=u"bear", _a_boost=5.0)
+            # Alfa #3, score = 2.0
+            w.add_document(id='c', a=u"alfa alfa alfa alfa", _boost=0.5)
 
         with ix.searcher(weighting=Frequency()) as s:
             r = s.search(Term("a", "alfa"))
-            assert [hit["id"] for hit in r] == [1, 0, 2]
+            assert [hit["id"] for hit in r] == ['b', 'a', 'c']
 
         with ix.writer() as w:
             w.merge = False
-            w.add_document(id=3, a=u"alfa", b=u"bottle")
-            w.add_document(id=4, b=u"bravo", _b_boost=2.0)
+            # Alfa #4, score = 1.0
+            w.add_document(id='d', a=u"alfa", b=u"bottle")
+            w.add_document(id='e', b=u"bravo", _b_boost=2.0)
 
         with ix.searcher() as s:
             r = s.search(Term("a", "alfa"))
-            assert [hit["id"] for hit in r] == [1, 0, 3, 2]
+            assert [hit["id"] for hit in r] == ['b', 'a', 'c', 'd']
 
 
 def test_globfield_length_merge():

@@ -25,7 +25,6 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-# from __future__ import with_statement
 # from bisect import bisect_left
 # from threading import Lock, RLock
 #
@@ -170,10 +169,17 @@ class MemorySegment(codecs.Segment):
         return self._deleted > (len(self.docs) // 2)
 
 
-@codecs.register("memory")
 class MemoryCodec(codecs.Codec):
     def __init__(self, store_per_doc: bool=True):
         self._storeperdoc = store_per_doc
+
+    @classmethod
+    def from_json(cls, data: dict) -> 'Codec':
+        return cls(store_per_doc=data.get("store_per_doc", True))
+
+    def as_json(self) -> dict:
+        return {"class": "%s.%s" % (self.__module__, type(self).__name__),
+                "store_per_doc": self._storeperdoc}
 
     def name(self) -> str:
         return "whoosh.codecs.memory"

@@ -1,4 +1,3 @@
-from __future__ import with_statement
 import random
 from datetime import datetime, timedelta
 from itertools import permutations

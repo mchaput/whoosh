@@ -30,7 +30,6 @@ import typing
 from typing import Iterable, Tuple
 
 from whoosh import collectors
-from whoosh.compat import text_type
 from whoosh.matching import matchers
 from whoosh.query import terms, compound, wrappers, queries
 from whoosh.util.times import datetime_to_long
@@ -79,15 +78,13 @@ class Range(terms.MultiTerm):
                    self.end, self.startexcl, self.endexcl, self.boost,
                    self.constantscore))
 
-    def __unicode__(self):
+    def __str__(self):
         startchar = "{" if self.startexcl else "["
         endchar = "}" if self.endexcl else "]"
         start = '' if self.start is None else self.start
         end = '' if self.end is None else self.end
         return u"%s:%s%s TO %s%s" % (self.fieldname, startchar, start, end,
                                      endchar)
-
-    __str__ = __unicode__
 
     def __eq__(self, other):
         return (
@@ -128,7 +125,7 @@ class Range(terms.MultiTerm):
         return True
 
     def terms(self, reader: 'reading.IndexReader'=None, phrases: bool=True
-              ) -> Iterable[Tuple[str, text_type]]:
+              ) -> Iterable[Tuple[str, str]]:
         return self.simplify(reader).terms(reader, phrases)
 
     def _comparable_start(self):

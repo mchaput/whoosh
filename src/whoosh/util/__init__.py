@@ -25,11 +25,11 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-from __future__ import with_statement
-from array import array
+import math
 import random
 import sys
 import time
+from array import array
 from bisect import insort
 from functools import wraps
 
@@ -95,6 +95,24 @@ def make_weighted_tree(fn, ls, **kwargs):
         b = ls.pop(0)
         insort(ls, (a[0] + b[0], fn(a[1], b[1])))
     return ls[0][1]
+
+
+tens_abbrevs = 'B KB MB GB TB PB'.split()
+ibi_abbrevs = 'B KiB MiB GiB TiB PiB'.split()
+
+
+def readable_tens(size: int) -> str:
+    if size <= 0:
+        return str(size)
+    i = math.floor(math.log(size) / math.log(1000))
+    return "%0.02f%s" % (size / math.pow(1000, i), tens_abbrevs[int(i)])
+
+
+def readable_ibis(size: int) -> str:
+    if size <= 0:
+        return str(size)
+    i = math.floor(math.log(size) / math.log(1024))
+    return "%0.02f%s" % (size / math.pow(1024, i), ibi_abbrevs[int(i)])
 
 
 # Fibonacci function

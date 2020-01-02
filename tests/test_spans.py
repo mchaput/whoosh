@@ -1,8 +1,6 @@
-from __future__ import with_statement
 from itertools import permutations
 
 from whoosh import analysis, fields, qparser, query
-from whoosh.compat import text_type
 from whoosh.query import spans, And, Or, Term, Phrase
 from whoosh.util.testing import TempIndex
 
@@ -52,7 +50,7 @@ def test_excludematcher():
             with ix.writer() as w:
                 w.merge = False
                 for ls in permutations(domain):
-                    w.add_document(id=text_type(count), content=u" ".join(ls))
+                    w.add_document(id=str(count), content=u" ".join(ls))
                     count += 1
 
         with ix.writer() as w:
@@ -448,7 +446,7 @@ def test_stop_phrase():
         with ix.searcher() as s:
             qp = qparser.QueryParser("title", schema)
             q = qp.parse(u"richard of york")
-            assert q.__unicode__() == "(title:richard AND title:york)"
+            assert str(q) == "(title:richard AND title:york)"
             assert len(s.search(q)) == 1
             #q = qp.parse(u"lily the pink")
             #assert len(s.search(q)), 1)

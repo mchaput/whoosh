@@ -38,7 +38,6 @@ from bisect import bisect_left, bisect_right
 from collections import deque
 from typing import Sequence
 
-from whoosh.compat import array_frombytes, bytes_type, string_type
 from whoosh.kv.db import Database, DBReader, DBWriter, Cursor
 from whoosh.kv.db import EmptyCursor, MergeCursor
 from whoosh.kv.db import EmptyDatabaseError, OverrunError, ReadOnlyError
@@ -365,7 +364,7 @@ class BluelineWriter(BluelineReader, DBWriter):
             return BluelineReader.__getitem__(self, key)
 
     def __setitem__(self, key, value):
-        assert isinstance(key, bytes_type) and isinstance(value, bytes_type)
+        assert isinstance(key, bytes_type) and isinstance(value, bytes)
         self._buffer[key] = value
         self._bufferkeys = None
         self._buffered += len(key) + len(value)
@@ -1326,7 +1325,7 @@ class Header:
     def from_bytes(cls, bytestring):
         header = cls(*cls.header.unpack(bytestring))
         # Python 2/3 is stupid
-        if not isinstance(header.poscode, string_type):
+        if not isinstance(header.poscode, str):
             header.poscode = header.poscode.decode("ascii")
             header.klencode = header.klencode.decode("ascii")
             header.vlencode = header.vlencode.decode("ascii")
@@ -1340,12 +1339,12 @@ class Header:
     def to_bytes(self):
         assert self.version and self.version < 256
         assert isinstance(self.flags, int) and self.flags >= 0
-        assert isinstance(self.tag, bytes_type)
+        assert isinstance(self.tag, bytes)
         assert self.length
         assert self.datasize
-        assert isinstance(self.poscode, string_type) and len(self.poscode) == 1
-        assert isinstance(self.klencode, string_type) and len(self.klencode) == 1
-        assert isinstance(self.vlencode, string_type) and len(self.vlencode) == 1
+        assert isinstance(self.poscode, str) and len(self.poscode) == 1
+        assert isinstance(self.klencode, str) and len(self.klencode) == 1
+        assert isinstance(self.vlencode, str) and len(self.vlencode) == 1
 
         pc = self.poscode.encode("ascii")  # type code of positions array
         klc = self.klencode.encode("ascii")  # type code of lengths array
@@ -1449,11 +1448,11 @@ def read_region(mm, offset=0, load_arrays=False):
 
     elif load_arrays:
         poses = array(header.poscode)
-        array_frombytes(poses, mm[posbase:klenbase])
+        poses.frombytes(mm[posbase:klenbase])
         klens = array(header.klencode)
-        array_frombytes(klens, mm[klenbase:vlenbase])
+        klens.frombytes(mm[klenbase:vlenbase])
         vlens = array(header.vlencode)
-        array_frombytes(vlens, mm[vlenbase:datastart])
+        vlens.frombytes(mm[vlenbase:datastart])
         if not native:
             poses.byteswap()
             klens.byteswap()

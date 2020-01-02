@@ -32,15 +32,19 @@ This module contains base classes/interfaces for "codec" objects.
 import pickle
 from abc import abstractmethod
 from bisect import bisect_right
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+import typing
+from typing import (Any, Callable, Dict, Iterable, List, Optional, Sequence,
+                    Set, Tuple)
 
 from whoosh import columns, fields, reading, storage
 from whoosh.automata import lev
 from whoosh.automata.fsa import DFA
-from whoosh.compat import text_type
 from whoosh.postings import postform, postings, ptuples
 from whoosh.system import IS_LITTLE
-from whoosh.util.loading import find_object
+from whoosh.util import random_name
+
+if typing.TYPE_CHECKING:
+    from whoosh import matching, scoring
 
 
 # Exceptions
@@ -67,26 +71,13 @@ class InvalidCursor(Exception):
 TermTuple = Tuple[str, bytes]
 
 
-# Registry
-codec_registry = {}
+# Configuration
 
-
-def register(name: str):
-    def _wrapper(cls: type):
-        codec_registry[name] = cls
-        return cls
-
-    return _wrapper
-
-
-def codec_by_name(name: str) -> 'Codec':
-    try:
-        cls = codec_registry[name]
-    except KeyError:
-        cls = find_object(name)
-
-    return cls()
-    # raise UnknownCodecError(name)
+def from_json(data: dict) -> 'Codec':
+    from whoosh.util.loading import find_object
+    cls = find_object(data["class"])
+    assert issubclass(cls, Codec)
+    return cls.from_json(data)
 
 
 # Filename
@@ -109,11 +100,9 @@ class Segment:
     """
 
     def __init__(self, indexname: str, was_little: bool=IS_LITTLE):
-        from whoosh import index
-
         self._indexname = indexname
         self.was_little = was_little
-        self._segid = index.make_segment_id()
+        self._segid = random_name(20)
 
     def json_info(self) -> dict:
         return {
@@ -145,11 +134,14 @@ class Segment:
     def codec_name(self) -> str:
         return self.codec().name()
 
+    def codec_json(self) -> dict:
+        return self.codec().as_json()
+
     # Interface
 
     @abstractmethod
     def codec(self) -> 'Codec':
-        raise NotImplementedError
+        raise NotImplementedError(type(self).__name__)
 
     @abstractmethod
     def size(self) -> int:
@@ -166,28 +158,26 @@ class Segment:
         Returns the total number of documents, DELETED OR UNDELETED, in this
         segment.
         """
-
-        raise NotImplementedError
+        raise NotImplementedError(type(self).__name__)
 
     @abstractmethod
     def set_doc_count(self, doccount: int):
-        raise NotImplementedError
+        raise NotImplementedError(type(self).__name__)
 
     @abstractmethod
     def field_length(self, fieldname: str, default: int=0) -> int:
-        raise NotImplementedError
+        raise NotImplementedError(type(self).__name__)
 
     @abstractmethod
     def deleted_count(self) -> int:
         """
         Returns the total number of deleted documents in this segment.
         """
-
-        raise NotImplementedError
+        raise NotImplementedError(type(self).__name__)
 
     @abstractmethod
     def deleted_docs(self) -> Set:
-        raise NotImplementedError
+        raise NotImplementedError(type(self).__name__)
 
     @abstractmethod
     def delete_document(self, docnum: int):
@@ -258,6 +248,13 @@ class FileSegment(Segment):
 class Codec:
     length_stats = True
 
+    @classmethod
+    def from_json(cls, data: dict) -> 'Codec':
+        return cls()
+
+    def as_json(self) -> dict:
+        return {"class": "%s.%s" % (self.__module__, type(self).__name__)}
+
     # Self
 
     @abstractmethod
@@ -286,7 +283,7 @@ class Codec:
 
     @abstractmethod
     def field_writer(self, session: 'storage.Session',
-                     segment: Segment) -> 'FieldWriter':
+                     segment: Segment, subname: str=None) -> 'FieldWriter':
         raise NotImplementedError
 
     # Index readers
@@ -302,7 +299,7 @@ class Codec:
 
     @abstractmethod
     def terms_reader(self, session: 'storage.Session',
-                     segment: Segment) -> 'TermsReader':
+                     segment: Segment, subname: str=None) -> 'TermsReader':
         raise NotImplementedError
 
     # Segments
@@ -340,16 +337,16 @@ class WrappingCodec(Codec):
                             segment: Segment) -> 'PerDocumentWriter':
         return self._child.per_document_writer(session, segment)
 
-    def field_writer(self, session: 'storage.Session', segment: Segment
-                     ) -> 'FieldWriter':
+    def field_writer(self, session: 'storage.Session', segment: Segment,
+                     subname: str=None) -> 'FieldWriter':
         return self._child.field_writer(session, segment)
 
     def automata(self, session: 'storage.Session', segment: Segment
                  ) -> 'Automata':
         return self._child.automata(session, segment)
 
-    def terms_reader(self, session: 'storage.Session', segment: Segment
-                     ) -> 'TermsReader':
+    def terms_reader(self, session: 'storage.Session', segment: Segment,
+                     subname: str=None) -> 'TermsReader':
         return self._child.terms_reader(session, segment)
 
     def per_document_reader(self, session: 'storage.Session',
@@ -366,7 +363,7 @@ class WrappingCodec(Codec):
                         ) -> 'storage.Storage':
         return self._child.segment_storage(store, segment)
 
-    def segment_from_bytes(self, bs: bytes) -> Codec:
+    def segment_from_bytes(self, bs: bytes) -> Segment:
         return self._child.segment_from_bytes(bs)
 
     def postings_io(self) -> 'postings.PostingsIO':
@@ -495,7 +492,7 @@ class TermCursor:
     def termbytes(self) -> bytes:
         raise NotImplementedError
 
-    def text(self) -> text_type:
+    def text(self) -> str:
         return self.field.from_bytes(self.termbytes())
 
     @abstractmethod
@@ -543,7 +540,7 @@ class MultiCursor(TermCursor):
 
         for c in self._cursors:
             if c.is_valid():
-                cterm = c.term()
+                cterm = c.termbytes()
                 if low and cterm == lowterm:
                     low.append(c)
                 elif low and cterm < lowterm:
@@ -641,11 +638,11 @@ class TermsReader:
     @abstractmethod
     def matcher(self, fieldname: str, termbytes: bytes,
                 fmt: 'postform.Format', scorer=None):
-        raise NotImplementedError
+        raise NotImplementedError(self.__class__.__name__)
 
     @abstractmethod
     def indexed_field_names(self) -> Sequence[str]:
-        raise NotImplementedError
+        raise NotImplementedError(self.__class__.__name__)
 
     def close(self):
         pass
@@ -653,11 +650,11 @@ class TermsReader:
 
 class Automata:
     @staticmethod
-    def levenshtein_dfa(uterm: text_type, maxdist: int, prefix: int=0):
+    def levenshtein_dfa(uterm: str, maxdist: int, prefix: int=0):
         return lev.levenshtein_automaton(uterm, maxdist, prefix).to_dfa()
 
     @staticmethod
-    def find_matches(dfa: DFA, cur: TermCursor) -> Iterable[text_type]:
+    def find_matches(dfa: DFA, cur: TermCursor) -> Iterable[str]:
         unull = chr(0)
 
         if not cur.is_valid():
@@ -676,8 +673,8 @@ class Automata:
                 term += unull
             match = dfa.next_valid_string(term)
 
-    def terms_within(self, fieldcur: TermCursor, uterm: text_type,
-                     maxdist: int, prefix=0) -> Iterable[text_type]:
+    def terms_within(self, fieldcur: TermCursor, uterm: str,
+                     maxdist: int, prefix=0) -> Iterable[str]:
         dfa = self.levenshtein_dfa(uterm, maxdist, prefix)
         return self.find_matches(dfa, fieldcur)
 

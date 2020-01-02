@@ -4,7 +4,6 @@ import pytest
 
 from whoosh import analysis
 from whoosh.postings import ptuples as pt
-from whoosh.compat import text_type
 from whoosh.postings import basic, postform, postings
 from whoosh.postings.basic import BasicIO as Bio
 from whoosh.util.testing import TempStorage
@@ -314,7 +313,7 @@ def test_roundtrip_vector():
 
 #
 
-def _check_index(content: text_type, fmt: postform.Format,
+def _check_index(content: str, fmt: postform.Format,
                  ana: analysis.Analyzer=None):
     ana = ana or analysis.StandardAnalyzer()
     length, postiter = fmt.index(ana, lambda x: x.encode("utf8"), content)
@@ -519,32 +518,29 @@ def test_minimal_multipost():
     assert list(r1.all_ids()) == list(r2.all_ids())
 
 
+def test_vector_block():
+    fmt = postform.Format(has_lengths=True, has_weights=True,
+                          has_positions=True, has_chars=True, has_payloads=True)
+    posts = [
+        pt.posting(termbytes=tb, weight=w, positions=ps, chars=cs, payloads=ys)
+        for tb, w, ps, cs, ys in [
+            (b"alfa", 1.5, [1, 2], [(1, 2), (3, 4)], [b"a", b"b"]),
+            (b"bravo", 2.5, [3, 4], [(5, 6), (7, 8)], [b"c", b"d"]),
+            (b"charlie", 3.5, [5], [(9, 10)], [b"e"]),
+            (b"delta", 2.0, [6], [(11, 12)], [b"f"]),
+            (b"echo", 1.0, [7, 8], [(13, 14), (15, 16)], [b"g", b"h"]),
+        ]
+    ]
+
+    bio = basic.BasicIO()
+    bbytes = bio.vector_to_bytes(fmt, posts)
+
+    r = bio.vector_reader(bbytes)
+    assert b" ".join(r.all_terms()) == b"alfa bravo charlie delta echo"
+    assert r.termbytes(0) == b"alfa"
+    assert r.weight(1) == 2.5
+    assert r.positions(2) == (5,)
+    assert r.chars(3) == [(11, 12)]
+    assert r.payloads(4) == (b"g", b"h")
 
 
-#
-# def test_vector_block():
-#     data = [
-#         (b"alfa", 1.5, [1, 2], [(1, 2), (3, 4)], [b"a", b"b"]),
-#         (b"bravo", 2.5, [3, 4], [(5, 6), (7, 8)], [b"c", b"d"]),
-#         (b"charlie", 3.5, [5], [(9, 10)], [b"e"]),
-#         (b"delta", 2.0, [6], [(11, 12)], [b"f"]),
-#         (b"echo", 1.0, [7, 8], [(13, 14), (15, 16)], [b"g", b"h"]),
-#     ]
-#     posts = [
-#         Posting(id=tb, weight=w, positions=ps, chars=cs, payloads=ys)
-#         for tb, w, ps, cs, ys in data
-#     ]
-#
-#     form = postings.BasicFormat(True, True, True, True, True)
-#     buff = form.buffer(vector=True).from_list(posts)
-#     bs = buff.to_bytes()
-#
-#     r = form.reader(vector=True).from_bytes(bs)
-#     assert b" ".join(r.all_ids()) == b"alfa bravo charlie delta echo"
-#     assert r.id(0) == b"alfa"
-#     assert r.weight(1) == 2.5
-#     assert r.positions(2) == [5]
-#     assert r.chars(3) == [(11, 12)]
-#     assert r.payloads(4) == [b"g", b"h"]
-#     assert list(r.all_values()) == posts
-#

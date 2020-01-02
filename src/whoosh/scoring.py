@@ -36,12 +36,11 @@ from math import log, pi
 from typing import Dict, Union
 
 from whoosh.matching import matchers
-from whoosh.compat import text_type
 
 
 # Type aliases
 
-TermText = Union[text_type, bytes]
+TermText = Union[str, bytes]
 
 
 # Exceptions

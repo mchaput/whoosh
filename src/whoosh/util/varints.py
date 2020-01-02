@@ -28,8 +28,6 @@
 from array import array
 from typing import Sequence, Tuple
 
-from whoosh.compat import array_tobytes
-
 
 def varint_size(value: int) -> int:
     """Compute the size of a varint value."""
@@ -74,7 +72,7 @@ def _varint(i):
         a.append((i & 0x7F) | 0x80)
         i >>= 7
     a.append(i)
-    return array_tobytes(a)
+    return a.tobytes()
 
 
 def _build_varint_cache(size):

@@ -27,7 +27,7 @@
 
 import codecs, re
 
-from whoosh.compat import string_type, byte
+from whoosh.compat import byte
 
 
 # Note: these functions return a tuple of (text, length), so when you call
@@ -124,7 +124,7 @@ def rcompile(pattern, flags=0, unicode=True, ignore_case=False, verbose=False):
     or a string to be compiled, and automatically adds the re.UNICODE flag.
     """
 
-    if not isinstance(pattern, string_type):
+    if not isinstance(pattern, str):
         # If it's not a string, assume it's already a compiled pattern
         return pattern
     if unicode:

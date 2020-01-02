@@ -30,7 +30,6 @@ from collections import deque
 from typing import Iterable
 
 from whoosh.analysis import analysis
-from whoosh.compat import text_type
 
 
 class CompoundWordFilter(analysis.Filter):
@@ -291,7 +290,7 @@ class IntraWordFilter(analysis.Filter):
 
     is_morph = True
 
-    __inittypes__ = dict(delims=text_type, splitwords=bool, splitnums=bool,
+    __inittypes__ = dict(delims=str, splitwords=bool, splitnums=bool,
                          mergewords=bool, mergenums=bool)
 
     def __init__(self, delims=u"-_'\"()!@#$%^&*[]{}<>\\|;:,./?`~=+",
@@ -329,7 +328,7 @@ class IntraWordFilter(analysis.Filter):
                                           digit2letter)
             self.boundary = re.compile(splitpat, re.UNICODE)
         elif splitwords:
-            self.boundary = re.compile(text_type(lower2upper), re.UNICODE)
+            self.boundary = re.compile(str(lower2upper), re.UNICODE)
         elif splitnums:
             numpat = u"(%s|%s)" % (letter2digit, digit2letter)
             self.boundary = re.compile(numpat, re.UNICODE)

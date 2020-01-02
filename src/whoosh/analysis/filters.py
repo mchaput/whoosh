@@ -32,7 +32,6 @@ from typing import (Any, Callable, Dict, Iterable, List, Sequence, Set, Tuple,
                     Union)
 
 from whoosh.analysis import analysis
-from whoosh.compat import text_type
 from whoosh.util.text import rcompile
 
 
@@ -347,7 +346,7 @@ class CharsetFilter(analysis.Filter):
 
     __inittypes__ = dict(charmap=dict)
 
-    def __init__(self, charmap: Dict[int, text_type]):
+    def __init__(self, charmap: Dict[int, str]):
         """
         :param charmap: a dictionary mapping from integer character numbers to
             unicode characters, as required by the unicode.translate() method.
@@ -443,7 +442,7 @@ class SubstitutionFilter(analysis.Filter):
         ana = rt | sf
     """
 
-    def __init__(self, pattern: str, replacement: text_type):
+    def __init__(self, pattern: str, replacement: str):
         """
         :param pattern: a pattern string or compiled regular expression object
             describing the text to replace.
@@ -486,7 +485,7 @@ class HyphenFilter(analysis.Filter):
                ) -> Iterable[analysis.Token]:
         # List of (text, pos, startchar, endchar) tuples representing previous
         # parts of a string of hyphenates
-        prev = []  # type: List[Tuple[text_type, int, int, int]]
+        prev = []  # type: List[Tuple[str, int, int, int]]
         for t in tokens:
             if t.mode != "query":
                 is_hy = False

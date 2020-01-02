@@ -83,6 +83,14 @@ def change_docid(post: PostTuple, newdocid: int) -> PostTuple:
     return newdocid, post[1], post[2], post[3], post[4], post[5], post[6]
 
 
+def repr_post(p):
+    return "<ID=%s term=%r len=%s weight=%s poses=%s chars=%s pays=%s>" % p
+
+
+def repr_postlist(ps):
+    return "[%s]" % ", ".join(repr_post(p) for p in ps)
+
+
 # Assign names to the members of the posting tuple to make them easier to get
 DOCID = 0
 TERMBYTES = 1

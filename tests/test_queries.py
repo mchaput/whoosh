@@ -1,4 +1,3 @@
-from __future__ import with_statement
 import copy
 from datetime import datetime, timedelta
 
@@ -372,29 +371,29 @@ def test_patterns():
 
             assert list(r.expand_prefix("word", "al")) == [b"alembic", b"all"]
             q = query.Prefix("word", "al")
-            assert q.simplify(r).__unicode__() == "(word:alembic OR word:all)"
+            assert str(q.simplify(r)) == "(word:alembic OR word:all)"
 
             q = query.Wildcard("word", "a*[ae]")
-            assert (q.simplify(r).__unicode__() ==
+            assert (str(q.simplify(r)) ==
                     "(word:able OR word:acre OR word:adage OR word:amiga OR word:ampere)")
             assert q._find_prefix(q.text) == "a"
 
             q = query.Regex("word", "am.*[ae]")
-            assert q.simplify(r).__unicode__() == "(word:amiga OR word:ampere)"
+            assert str(q.simplify(r)) == "(word:amiga OR word:ampere)"
             assert q._find_prefix(q.text) == "am"
 
             q = query.Regex("word", "able|ago")
-            assert q.simplify(r).__unicode__() == "(word:able OR word:ago)"
+            assert str(q.simplify(r)) == "(word:able OR word:ago)"
             assert q._find_prefix(q.text) == ""
 
             # special case: ? may mean "zero occurences"
             q = query.Regex("word", "ah?i")
-            assert q.simplify(r).__unicode__() == "(word:ahi OR word:aim)"
+            assert str(q.simplify(r)) == "(word:ahi OR word:aim)"
             assert q._find_prefix(q.text) == "a"
 
             # special case: * may mean "zero occurences"
             q = query.Regex("word", "ah*i")
-            assert q.simplify(r).__unicode__() == "(word:ahi OR word:aim)"
+            assert str(q.simplify(r)) == "(word:ahi OR word:aim)"
             assert q._find_prefix(q.text) == "a"
 
 

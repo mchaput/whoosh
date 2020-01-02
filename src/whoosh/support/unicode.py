@@ -1,8 +1,6 @@
 import re
 from bisect import bisect_right
 
-from whoosh.compat import text_type
-
 
 # http://unicode.org/Public/UNIDATA/Blocks.txt
 _blockdata = '''
@@ -246,7 +244,7 @@ def blockname(ch):
     None
     """
 
-    assert isinstance(ch, text_type) and len(ch) == 1, repr(ch)
+    assert isinstance(ch, str) and len(ch) == 1, repr(ch)
     cp = ord(ch)
     i = bisect_right(_starts, cp) - 1
     end = _ends[i]

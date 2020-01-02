@@ -53,13 +53,14 @@ class SegmentList:
 
         # Ongoing merges, keyed by the merge ID
         self._current_merges = {}  # type: Dict[str, merging.Merge]
-        # Cache readers for the segments for computing deletions
+        # Cache readers for the segments for computing deletions, keyed by the
+        # segment ID
         self._cached_readers = {}  # type: Dict[str, reading.IndexReader]
 
         # Buffer deletes in memory before applying them to the segment, to
         # "batch up" changes to the segment instead of doing them one document
         # at a time (just in case the codec's implementation of saving deletions
-        # is slow)
+        # is slow). This dict maps segment IDs to sets of doc numbers.
         self._buffered_deletes = {}  # type: Dict[str, Set[int]]
 
         # Lock around modifying operations to prevent threaded multiwriter from
@@ -70,6 +71,13 @@ class SegmentList:
 
     def __len__(self):
         return len(self.segments)
+
+    @synchronized
+    def clear(self):
+        self.segments = []
+        # self._current_merges = {}
+        self._cached_readers = {}
+        self._buffered_deletes = {}
 
     @synchronized
     def merging_ids(self) -> Set[str]:
@@ -133,6 +141,8 @@ class SegmentList:
         logger.info("Adding merge %r" % mergeobj)
         for segment in mergeobj.segments:
             self.save_buffered_deletes(segment)
+
+        assert mergeobj.merge_id not in self._current_merges
         self._current_merges[mergeobj.merge_id] = mergeobj
 
     @synchronized
@@ -166,7 +176,8 @@ class SegmentList:
             store.clean_segment(self.session, segment)
 
     @synchronized
-    def reader(self, segment: 'codecs.Segment') -> 'reading.IndexReader':
+    def segment_reader(self, segment: 'codecs.Segment'
+                       ) -> 'reading.IndexReader':
         # Apply any pending deletions to the segment before we open a reader
         # for it, so the reader reflects the changes
         self.save_buffered_deletes(segment)
@@ -175,17 +186,18 @@ class SegmentList:
         try:
             return self._cached_readers[segid]
         except KeyError:
+            print("HELLO", segid)
             r = self.readerclass(self.session.store, self.schema, segment)
             self._cached_readers[segid] = r
         return r
 
     @synchronized
-    def multireader(self, segments: 'Sequence[codecs.Segment]'=None,
+    def full_reader(self, segments: 'Sequence[codecs.Segment]'=None
                     ) -> 'reading.IndexReader':
         from whoosh import reading
 
         segments = segments or self.segments  # type: Sequence[codecs.Segment]
-        rs = [self.reader(seg) for seg in segments]
+        rs = [self.segment_reader(seg) for seg in segments]
 
         if not rs:
             return reading.EmptyReader()
@@ -200,7 +212,7 @@ class SegmentList:
                                qs: 'Iterable[queries.Query]'):
         # Create a searcher around the given segment
         from whoosh.searching import Searcher
-        r = self.reader(segment)
+        r = self.segment_reader(segment)
         s = Searcher(r)
 
         # Iterate through the given queries, find the corresponding documents,

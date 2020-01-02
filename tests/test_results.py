@@ -1,10 +1,8 @@
-from __future__ import with_statement
 from itertools import permutations
 
 import pytest
 
 from whoosh import analysis, fields, highlight, qparser, query
-from whoosh.compat import text_type
 from whoosh.util.testing import TempStorage, TempIndex
 
 
@@ -287,7 +285,7 @@ def test_page_counts():
     with TempIndex(schema) as ix:
         with ix.writer() as w:
             for i in range(10):
-                w.add_document(id=text_type(i))
+                w.add_document(id=str(i))
 
         with ix.searcher(weighting=Frequency) as s:
             q = query.Every("id")
@@ -323,7 +321,7 @@ def test_resultspage():
     with TempIndex(schema) as ix:
         with ix.writer() as w:
             for i, lst in enumerate(permutations(domain, 3)):
-                w.add_document(id=text_type(i), content=u" ".join(lst))
+                w.add_document(id=str(i), content=u" ".join(lst))
 
         with ix.searcher() as s:
             q = query.Term("content", u"bravo")

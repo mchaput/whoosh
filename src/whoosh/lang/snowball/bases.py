@@ -1,7 +1,7 @@
 # Base classes
 
 
-class _ScandinavianStemmer(object):
+class _ScandinavianStemmer:
 
     """
     This subclass encapsulates a method for defining the string region R1.
@@ -44,7 +44,7 @@ class _ScandinavianStemmer(object):
         return r1
 
 
-class _StandardStemmer(object):
+class _StandardStemmer:
     """
     This subclass encapsulates two methods for defining the standard versions
     of the string regions R1, R2, and RV.

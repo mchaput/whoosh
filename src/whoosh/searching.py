@@ -36,24 +36,27 @@ from __future__ import division
 import copy
 import weakref
 import typing
+from abc import abstractmethod, abstractproperty
 from typing import Optional, Sequence, Tuple, Union, Dict, Any, Iterable, Set
 
 from whoosh import index
 from whoosh.idsets import DocIdSet, BitSet
 from whoosh.query import queries
 from whoosh.matching import matchers
-from whoosh.compat import text_type, bytes_type
 
 # Typing imports
 if typing.TYPE_CHECKING:
-    from whoosh import reading, scoring
+    from whoosh import collectors, fields, reading, results, scoring, sorting
 
 
 # Typing aliases
 
-TermText = Union[text_type, bytes]
+TermText = Union[str, bytes]
 ConditionerType = 'Calllable[[Searcher, int, SearchContext], SearchContext]'
-FilterType = 'Union[idsets.DocIdSet, queries.Query, Set[int]]'
+FilterType = (
+    "Union[collectors.Collector, results.Results, queries.Query, "
+    "idsets.DocIdSet, Set[int]]"
+)
 
 
 # Search context object
@@ -65,13 +68,13 @@ class SearchContext:
     """
 
     def __init__(self, weighting: 'scoring.WeightingModel'=None,
-                 top_searcher: 'Searcher'=None,
+                 top_searcher: 'SearcherType'=None,
                  top_query: 'queries.Query'=None,
                  offset: int=0,
-                 limit: int=0,
+                 limit: Optional[int]=0,
                  optimize: bool=True,
-                 include: FilterType =None,
-                 exclude: FilterType =None):
+                 include: FilterType=None,
+                 exclude: FilterType=None):
         """
         :param weighting: the Weighting object to use for scoring documents.
         :param top_searcher: a reference to the top-level Searcher object.
@@ -122,103 +125,64 @@ class SearchContext:
         return ctx
 
 
+def setup_weighting(weighting: 'scoring.WeightingModel'
+                    ) -> 'scoring.WeightingModel':
+    from whoosh.scoring import BM25F
+
+    weighting = weighting or BM25F()
+    if isinstance(weighting, type):
+        weighting = weighting()
+    return weighting
+
+
 # Searcher base class
 
-class Searcher:
-    """
-    Wraps an :class:`~whoosh.reading.IndexReader` object and provides
-    methods for searching the index.
-    """
-
-    def __init__(self, reader: 'reading.IndexReader',
-                 weighting: 'scoring.WeightingModel' = None,
-                 closereader: bool = True,
-                 fromindex: 'index.Index' = None,
-                 parent: 'Searcher' = None):
-        """
-        :param reader: An :class:`~whoosh.reading.IndexReader` object for
-            the index to search.
-        :param weighting: A :class:`whoosh.scoring.WeightingModel` object to use
-            to score documents.
-        :param closereader: Whether the underlying reader will be closed when
-            the searcher is closed.
-        :param fromindex: An optional reference to the index of the underlying
-            reader. This is required for :meth:`Searcher.up_to_date` and
-            :meth:`Searcher.refresh` to work.
-        :param parent: the parent searcher if this is a sub-searcher.
-        """
-
-        from whoosh.scoring import BM25F
-
-        self._reader = reader
-        self._closereader = closereader
-        self._ix = fromindex
-        self._doc_count_all = self._reader.doc_count_all()
-        self.closed = False
-
-        weighting = weighting or BM25F()  # type: scoring.WeightingModel
-        if isinstance(weighting, type):
-            weighting = weighting()
-        self.weighting = weighting
-
+class SearcherType:
+    def __init__(self, weighting: 'scoring.WeightingModel'=None):
+        self.idf_cache = {}
         # Cache for PostingCategorizer objects (supports fields without columns)
-        self._field_caches = {}
+        self.field_caches = {}
         # Cache for docnum filters
-        self._filter_cache = {}
+        self.filter_cache = {}
 
-        # If this is a sub-searcher, take a weak reference to the parent, and
-        # use the parent's schema and IDFs
-        self._parent = None  # type: Optional[weakref]
-        if parent:
-            self._parent = weakref.ref(parent)
-            self.schema = parent.schema
-            self._idf_cache = parent._idf_cache
-            self._filter_cache = parent._filter_cache
-        else:
-            self.schema = self._reader.schema
-            self._idf_cache = {}
-
-        if self._reader.is_atomic():
-            self._subsearchers = None
-        else:
-            self._subsearchers = [(self._subsearcher(r), offset) for r, offset
-                                  in self._reader.leaf_readers()]
-
-        # Replace some methods with the methods from the reader
-        self.doc_count = self._reader.doc_count
-        self.doc_field_length = self._reader.doc_field_length
-        self.stored_fields = self._reader.stored_fields
+        self._weighting = setup_weighting(weighting)
+        self._closereader = True
+        self.closed = False
 
     def __enter__(self):
         return self
 
-    def __exit__(self, *_):
+    def __exit__(self, *args):
         self.close()
 
-    def _subsearcher(self, reader: 'reading.IndexReader'
-                     ) -> 'Searcher':
-        # Creates a Searcher using the given reader that treats this searcher
-        # as its parent
+    @classmethod
+    def from_reader(cls, reader: 'reading.IndexReader', **kwargs):
+        subcls = Searcher if reader.is_atomic() else MultiSearcher
+        return subcls(reader, **kwargs)
 
-        return self.__class__(reader, fromindex=self._ix,
-                              weighting=self.weighting, parent=self)
+    @classmethod
+    def from_reader_list(cls, readers: 'Sequence[reading.IndexReader]',
+                         **kwargs):
+        from whoosh.reading import leaf_readers, MultiReader
 
-    def _parent_or_reader(self, method_name: str, *args, **kwargs):
-        if self._parent:
-            obj = self.parent()
+        rs = leaf_readers(readers)
+        if len(rs) == 1:
+            return Searcher(rs[0], **kwargs)
         else:
-            obj = self.reader()
-        return getattr(obj, method_name)(*args, **kwargs)
+            mr = MultiReader(rs)
+            return MultiSearcher(mr, **kwargs)
 
     # Interface
 
-    def is_atomic(self) -> bool:
-        """
-        Returns True if this searcher is not a parent to sub-searchers.
-        """
+    @abstractproperty
+    def schema(self) -> 'fields.Schema':
+        raise NotImplementedError
 
-        return self.reader().is_atomic()
+    @abstractproperty
+    def weighting(self) -> 'scoring.WeightingModel':
+        raise NotImplementedError
 
+    @abstractmethod
     def leaf_searchers(self) -> 'Sequence[Tuple[Searcher, int]]':
         """
         Returns a sequence of ``(Searcher, doc_offset)`` tuples representing
@@ -227,22 +191,22 @@ class Searcher:
         sub-searchers.
         """
 
-        if self.is_atomic():
-            return [(self, 0)]
-        else:
-            return self._subsearchers
+        raise NotImplementedError
 
-    def parent(self) -> 'Searcher':
+    def is_atomic(self) -> bool:
+        """
+        Returns True if this searcher is not a parent to sub-searchers.
+        """
+
+        return True
+
+    def parent(self) -> 'SearcherType':
         """
         Returns the parent of this searcher (if has_parent() is True), or
         else self.
         """
 
-        if self._parent is not None:
-            # Call the weak reference to get the parent searcher
-            return self._parent()
-        else:
-            return self
+        return self
 
     def doc_count(self) -> int:
         """
@@ -257,21 +221,51 @@ class Searcher:
         the index.
         """
 
-        return self._doc_count_all
+        return self.reader().doc_count_all()
 
     def field_length(self, fieldname: str) -> int:
-        return self._parent_or_reader("field_length", fieldname)
+        return self.reader().field_length(fieldname)
 
     def min_field_length(self, fieldname: str) -> int:
-        return self._parent_or_reader("min_field_length", fieldname)
+        return self.reader().min_field_length(fieldname)
 
     def max_field_length(self, fieldname: str) -> int:
-        return self._parent_or_reader("max_field_length", fieldname)
+        return self.reader().max_field_length(fieldname)
 
     def avg_field_length(self, fieldname, default=None):
         if not self.schema[fieldname].scorable:
             return default
-        return self.field_length(fieldname) / (self._doc_count_all or 1)
+        return self.field_length(fieldname) / (self.doc_count_all() or 1)
+
+    def doc_field_length(self, docnum: int, fieldname: str, default: int=1
+                         ) -> int:
+        return self.reader().doc_field_length(docnum, fieldname, default)
+
+    def stored_fields(self, docnum: int) -> Dict[str, Any]:
+        return self.reader().stored_fields(docnum)
+
+    @abstractmethod
+    def reader(self) -> 'reading.IndexReader':
+        """
+        Returns the underlying :class:`~whoosh.reading.IndexReader`.
+        """
+
+        raise NotImplementedError
+
+    def matcher(self, fieldname: str, text: TermText,
+                weighting: 'scoring.WeightingModel' = None,
+                include: 'queries.Query' = None,
+                exclude: 'queries.Query' = None,
+                qf: int = 1) -> 'matchers.Matcher':
+        weighting = weighting or self.weighting
+        scorer = weighting.scorer(self, fieldname, text, qf=qf)
+        include = self.to_comb(include)
+        exclude = self.to_comb(exclude)
+        return self.reader().matcher(fieldname, text, scorer=scorer,
+                                     include=include, exclude=exclude)
+
+    def index(self) -> 'Optional[index.Index]':
+        return None
 
     def up_to_date(self):
         """
@@ -279,9 +273,10 @@ class Searcher:
         index, for backends that support versioning.
         """
 
-        if not self._ix:
-            raise Exception("No reference to index")
-        return self._ix.latest_generation() == self._reader.generation()
+        ix = self.index()
+        if not ix:
+            raise Exception("The searcher has no reference to its index")
+        return self.reader().generation() == ix.latest_generation()
 
     def refresh(self):
         """
@@ -297,38 +292,29 @@ class Searcher:
         searcher after calling ``refresh()`` on it.
         """
 
+        ix = self.index()
+        if ix is None:
+            raise Exception("This searcher has no reference to its index")
+
         if self.up_to_date():
             return self
 
-            # Get a new reader, re-using resources from the current reader if
-            # possible
+        # Get a new reader, re-using resources from the current reader if
+        # possible
         self.closed = True
-        newreader = self._ix.reader(reuse=self._reader)
-        return self.__class__(newreader, fromindex=self._ix,
-                              weighting=self.weighting)
-
-    def reader(self) -> 'reading.IndexReader':
-        """
-        Returns the underlying :class:`~whoosh.reading.IndexReader`.
-        """
-
-        return self._reader
-
-    def matcher(self, fieldname: str, text: TermText,
-                weighting: 'scoring.WeightingModel' = None,
-                include: 'queries.Query' = None,
-                exclude: 'queries.Query' = None,
-                qf: int = 1) -> 'matchers.Matcher':
-        weighting = weighting or self.weighting
-        scorer = weighting.scorer(self, fieldname, text, qf=qf)
-        include = self.to_comb(include)
-        exclude = self.to_comb(exclude)
-
-        return self._reader.matcher(fieldname, text, scorer=scorer,
-                                    include=include, exclude=exclude)
+        newreader = ix.reader(reuse=self.reader())
+        return SearcherType.from_reader(newreader, fromindex=ix,
+                                        weighting=self.weighting)
 
     def vector(self, docid: int, fieldname: str):
         return self.reader().vector(docid, fieldname)
+
+    def close(self):
+        if self._closereader:
+            self.reader().close()
+        self.closed = True
+
+    # Derived and helper methods
 
     def idf(self, fieldname: str, termbytes: TermText) -> float:
         """
@@ -339,7 +325,7 @@ class Searcher:
         :param termbytes: the term to get the IDF for.
         """
 
-        cache = self._idf_cache
+        cache = self.idf_cache
         field = self.schema[fieldname]
         if not isinstance(termbytes, bytes):
             termbytes = field.to_bytes(termbytes)
@@ -351,22 +337,9 @@ class Searcher:
             cache[term] = idf = self.weighting.idf(self, fieldname, termbytes)
             return idf
 
-    def doc_field_length(self, docnum: int, fieldname: str, default: int=1
-                         ) -> int:
-        return self.reader().doc_field_length(docnum, fieldname, default)
-
-    def stored_fields(self, docnum: int) -> Dict[str, Any]:
-        return self.reader().stored_fields(docnum)
-
-    def close(self):
-        if self._closereader:
-            self._reader.close()
-        self.closed = True
-
-    # Derived and helper methods
-
-    def context(self, weighting: 'scoring.WeightingModel'=None,
-                top_query: 'queries.Query'=None, limit: int=0, offset: int=0):
+    def context(self, weighting: 'scoring.WeightingModel' = None,
+                top_query: 'queries.Query' = None, limit: int=0,
+                offset: int=0):
         """
         Returns a ``SearchContext`` object
 
@@ -451,7 +424,7 @@ class Searcher:
                 op = "contains"
 
             fieldobj = self.schema[k]
-            if not isinstance(v, bytes_type):
+            if not isinstance(v, bytes):
                 v = fieldobj.to_bytes(v)
             kw[k] = v
 
@@ -521,7 +494,7 @@ class Searcher:
                 delset.add(docnum)
         return delset
 
-    def to_comb(self, obj) -> DocIdSet:
+    def to_comb(self, obj: FilterType) -> Optional[DocIdSet]:
         from whoosh.collectors import Collector
         from whoosh.results import Results
 
@@ -535,12 +508,13 @@ class Searcher:
             obj = obj.docs()
         elif isinstance(obj, queries.Query):
             # TODO: cache this
-            obj = BitSet(self.docs_for_query(obj), size=self.doc_count_all())
+            obj = BitSet(self.docs_for_query(obj),
+                         size=self.doc_count_all())
 
         return obj
 
     def suggest(self, fieldname: str, text: TermText, limit: int=5,
-                maxdist: int=2, prefix: int=0) -> Sequence[text_type]:
+                maxdist: int=2, prefix: int=0) -> Sequence[str]:
         """
         Returns a sorted list of suggested corrections for the given
         mis-typed word ``text`` based on the contents of the given field::
@@ -573,7 +547,8 @@ class Searcher:
         c = self.reader().corrector(fieldname)
         return c.suggest(text, limit=limit, maxdist=maxdist, prefix=prefix)
 
-    def search_page(self, query: 'queries.Query', pagenum: int, pagelen: int=10,
+    def search_page(self, query: 'queries.Query', pagenum: int,
+                    pagelen: int = 10,
                     **kwargs) -> 'results.ResultsPage':
         """
         This method is Like the :meth:`Searcher.search` method, but returns
@@ -632,7 +607,7 @@ class Searcher:
 
     def find(self, defaultfield, querystring, **kwargs):
         from whoosh.qparser import QueryParser
-        qp = QueryParser(defaultfield, schema=self._reader.schema)
+        qp = QueryParser(defaultfield, schema=self.schema)
         q = qp.parse(querystring)
         return self.search(q, **kwargs)
 
@@ -642,13 +617,13 @@ class Searcher:
         given :class:`whoosh.query.Query` object.
         """
 
-        if not self.is_atomic():
+        if self.is_atomic():
+            for docnum in q.docs(self, deleting=for_deletion):
+                yield docnum
+        else:
             for s, offset in self.leaf_searchers():
                 for docnum in q.docs(s, deleting=for_deletion):
                     yield docnum + offset
-        else:
-            for docnum in q.docs(self, deleting=for_deletion):
-                yield docnum
 
     @property
     def q(self):
@@ -658,12 +633,14 @@ class Searcher:
         return Collector(self, NullQuery())
 
     def search(self, q: 'queries.Query', limit: Optional[int]=10,
-               sortedby: 'sorting.FacetType'=None, reverse: bool=False,
-               groupedby: 'sorting.FacetType'=None,
-               collapse: 'sorting.FacetType'=None, collapse_limit: int=1,
-               collapse_order: 'sorting.FacetType'=None,
-               optimize: bool=True, filter=None, mask=None, terms: bool=False,
-               maptype=None, scored: bool=True, spans: bool=False
+               sortedby: 'sorting.FacetType' = None, reverse: bool = False,
+               groupedby: 'sorting.FacetType' = None,
+               collapse: 'sorting.FacetType' = None,
+               collapse_limit: int = 1,
+               collapse_order: 'sorting.FacetType' = None,
+               optimize: bool = True, filter=None, mask=None,
+               terms: bool = False,
+               maptype=None, scored: bool = True, spans: bool = False
                ) -> 'results.Results':
         """
         Runs a :class:`whoosh.query.Query` object on this searcher and
@@ -751,9 +728,9 @@ class Searcher:
         return col.results(context)
 
     def correct_query(self, q: 'queries.Query', qstring: str,
-                      correctors: 'Dict[str, spelling.Corrector]'=None,
-                      terms: 'Sequence[Tuple[str, TermText]]'=None,
-                      maxdist: int=2, prefix: int=0):
+                      correctors: 'Dict[str, spelling.Corrector]' = None,
+                      terms: 'Sequence[Tuple[str, TermText]]' = None,
+                      maxdist: int = 2, prefix: int = 0):
         """
         Returns a corrected version of the given user query using a default
         :class:`whoosh.spelling.ReaderCorrector`.
@@ -843,22 +820,142 @@ class Searcher:
         if terms is None:
             terms = []
             for fieldname, text in q.terms():
-                if fieldname in correctors and (fieldname, text) not in reader:
+                if fieldname in correctors and (
+                fieldname, text) not in reader:
                     # Note that we use the original, not aliases fieldname here
                     # so if we correct the query we know what it was
                     terms.append((fieldname, text))
 
         # Make q query corrector
         from whoosh import spelling
-        print("correctors=", correctors)
-        print("terms=", terms)
-        sqc = spelling.SimpleQueryCorrector(correctors, terms, prefix=prefix,
+        sqc = spelling.SimpleQueryCorrector(correctors, terms,
+                                            prefix=prefix,
                                             maxdist=maxdist)
         return sqc.correct_query(q, qstring)
 
 
+class MultiSearcher(SearcherType):
+    def __init__(self, mreader: 'reading.MultiReader',
+                 weighting: 'scoring.WeightingModel'=None,
+                 closereader: bool=True,
+                 fromindex: 'index.Index'=None):
+        super().__init__(weighting)
+
+        self._from_index = fromindex
+        self._mreader = mreader
+        self._readers = mreader.readers
+        self._closereader = closereader
+        self._subsearchers = [
+            (Searcher(r, weighting=weighting, parent=self), offset)
+            for r, offset in self._mreader.leaf_readers()
+        ]
+
+    @property
+    def schema(self) -> 'Optional[fields.Schema]':
+        if self._readers:
+            return self._readers[0].schema
+        else:
+            return None
+
+    @property
+    def weighting(self) -> 'scoring.WeightingModel':
+        return self._weighting
+
+    def is_atomic(self):
+        return False
+
+    def index(self) -> 'index.Index':
+        return self._from_index
+
+    def leaf_searchers(self) -> 'Sequence[Tuple[Searcher, int]]':
+        return self._subsearchers
+
+    def up_to_date(self):
+        ix = self._from_index
+        if not ix:
+            raise Exception("The searcher has no reference to its index")
+        current = ix.latest_generation()
+        return all(r.generation() == current for r in self._readers)
+
+    def refresh(self):
+        if self.up_to_date():
+            return self
+
+        # Get a new reader, re-using resources from the current reader if
+        # possible
+        self.closed = True
+        newreader = self._from_index.reader(reuse=self._mreader)
+        return SearcherType.from_reader(newreader, fromindex=self._from_index,
+                                        weighting=self.weighting)
+
+    def reader(self) -> 'reading.IndexReader':
+        return self._mreader
 
 
+class Searcher(SearcherType):
+    """
+    Wraps an :class:`~whoosh.reading.IndexReader` object and provides
+    methods for searching the index.
+    """
+
+    def __init__(self, reader: 'reading.IndexReader',
+                 weighting: 'scoring.WeightingModel'=None,
+                 closereader: bool=True,
+                 fromindex: 'index.Index'=None,
+                 parent: 'SearcherType'=None):
+        """
+        :param reader: An :class:`~whoosh.reading.IndexReader` object for
+            the index to search.
+        :param weighting: A :class:`whoosh.scoring.WeightingModel` object to use
+            to score documents.
+        :param closereader: Whether the underlying reader will be closed when
+            the searcher is closed.
+        :param fromindex: An optional reference to the index of the underlying
+            reader. This is required for :meth:`Searcher.up_to_date` and
+            :meth:`Searcher.refresh` to work.
+        :param parent: the parent searcher if this is a sub-searcher.
+        """
+
+        super().__init__(weighting)
+
+        self._reader = reader
+        self._closereader = closereader
+        self._from_index = fromindex
+
+        # If this is a sub-searcher, take a weak reference to the parent, and
+        # use the parent's schema and IDFs
+        if parent:
+            self._parent = weakref.ref(parent)
+            self._schema = parent.schema
+            self.idf_cache = parent.idf_cache
+            self.field_caches = parent.field_caches
+            self.filter_cache = parent.filter_cache
+        else:
+            self._parent = None
+            self._schema = self.reader().schema
+
+    @property
+    def schema(self):
+        if self._parent:
+            return self._parent().schema
+        else:
+            return self._schema
+
+    @property
+    def weighting(self):
+        if self._parent:
+            return self._parent().weighting
+        else:
+            return self._weighting
+
+    def index(self) -> 'index.Index':
+        return self._from_index
+
+    def leaf_searchers(self) -> 'Sequence[Tuple[Searcher, int]]':
+        return [(self, 0)]
+
+    def reader(self) -> 'reading.IndexReader':
+        return self._reader
 
 
 

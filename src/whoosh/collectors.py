@@ -2,14 +2,14 @@ import typing
 from collections import defaultdict, namedtuple
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-from whoosh import results, sorting
+from whoosh import sorting
 from whoosh.query import queries
 from whoosh.matching import matchers
 from whoosh.util import now
 
 # Typing imports
 if typing.TYPE_CHECKING:
-    from whoosh import scoring, searching
+    from whoosh import results, scoring, searching
 
 
 # Typing aliases
@@ -57,7 +57,7 @@ def as_query(obj):
 class Collector:
     collector_priority = 0
 
-    def __init__(self, searcher: 'searching.Searcher', q: 'queries.Query'):
+    def __init__(self, searcher: 'searching.SearcherType', q: 'queries.Query'):
         self._searcher = searcher
         self._query = q
 
@@ -110,7 +110,7 @@ class Collector:
                           ) -> 'Collector':
         raise Exception("%s can't combine" % cls.__name__)
 
-    def searcher(self) -> 'searching.Searcher':
+    def searcher(self) -> 'searching.SearcherType':
         return self._searcher
 
     def with_query(self, newq: 'queries.Query'):
@@ -185,6 +185,7 @@ class Collector:
 
     def results(self, context: 'searching.SearchContext'=None
                 ) -> 'results.Results':
+        from whoosh import results
         searcher = self.searcher()
 
         t = now()
@@ -624,7 +625,7 @@ class TermsCollector(WrappingCollector):
 
         self._termset = None  # type: Set[bytes]
 
-    def rewrap(self, child: Collector) -> 'FilterCollector':
+    def rewrap(self, child: Collector) -> 'TermsCollectors':
         return self.__class__(child, self._fieldnames)
 
     # Collecting
@@ -664,7 +665,7 @@ class SpansCollector(WrappingCollector):
         self.child = child
         self._fieldnames = fieldnames
 
-    def rewrap(self, child: Collector) -> 'FilterCollector':
+    def rewrap(self, child: Collector) -> 'SpansCollector':
         return self.__class__(child, self._fieldnames)
 
     # Collecting
@@ -924,5 +925,7 @@ class ReversingCollector(WrappingCollector):
         items = self.child.get_items()
         items.reverse()
         return items
+
+
 
 

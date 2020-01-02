@@ -3,7 +3,6 @@ from math import ceil
 from typing import Any, Dict, Iterable, List, Sequence, Set, Tuple
 
 from whoosh import collectors, highlight
-from whoosh.compat import text_type
 from whoosh.query import queries
 
 # Typing imports
@@ -279,7 +278,7 @@ class Results:
 
         return "matched_terms" in self.data
 
-    def matched_terms(self) -> Set[Tuple[str, text_type]]:
+    def matched_terms(self) -> Set[Tuple[str, str]]:
         """
         Returns the set of ``("fieldname", "text")`` tuples representing
         terms from the query that matched one or more of the TOP N documents
@@ -302,7 +301,7 @@ class Results:
         return self.data.get("terms", frozenset())
 
     def key_terms(self, fieldname: str, docs: int=10, numterms: int=5,
-                  modelclass=None) -> Sequence[text_type]:
+                  modelclass=None) -> Sequence[str]:
         """
         Returns the 'numterms' most important terms from the top 'docs'
         documents in these results. "Most important" is generally defined as
@@ -560,7 +559,7 @@ class Hit:
         return hiliter.highlight_hit(self, fieldname, text=text, top=top,
                                      minscore=minscore)
 
-    def more_like_this(self, fieldname: str, text: text_type=None, top: int=10,
+    def more_like_this(self, fieldname: str, text: str=None, top: int=10,
                        numterms: int=5, modelclass=None) -> Results:
         """
         Returns a new Results object containing documents similar to this
@@ -599,7 +598,7 @@ class Hit:
         return more.get_results(limit=top)
 
     def key_terms(self, fieldname: str, top: int=5, modelclass=None
-                  ) -> Sequence[text_type]:
+                  ) -> Sequence[str]:
         from whoosh.classify import MoreLike
 
         more = MoreLike(self.searcher, fieldname, modelclass=modelclass)

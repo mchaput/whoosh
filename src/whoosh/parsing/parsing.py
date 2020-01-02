@@ -50,7 +50,7 @@ class QueryParser:
     word_expr = rcompile(r"\S+")
 
     def __init__(self, fieldname: str,
-                 schema: fields.Schema=None,
+                 schema: 'fields.Schema'=None,
                  termclass: type=query.Term,
                  group: type=query.And,
                  plugins: 'List[plugs.Plugin]'=None,

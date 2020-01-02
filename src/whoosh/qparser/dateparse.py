@@ -29,7 +29,6 @@ import re
 import sys
 from datetime import datetime, timedelta
 
-from whoosh.compat import string_type
 from whoosh.qparser import plugins, syntax
 from whoosh.qparser.taggers import Tagger
 from whoosh.support.relativedelta import relativedelta
@@ -74,7 +73,7 @@ class ParserBase:
     """
 
     def to_parser(self, e):
-        if isinstance(e, string_type):
+        if isinstance(e, str):
             return Regex(e)
         else:
             return e

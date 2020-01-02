@@ -41,8 +41,7 @@ from time import sleep
 from typing import Dict, Sequence, Tuple
 from typing.re import Pattern
 
-from whoosh import __version__, storage
-from whoosh import fields, writing
+from whoosh import __version__, fields, storage, writing
 from whoosh.codec import codecs
 from whoosh.metadata import MetaData
 from whoosh.util.times import datetime_to_long, long_to_datetime
@@ -55,7 +54,7 @@ if typing.TYPE_CHECKING:
 # Constants
 
 DEFAULT_INDEX_NAME = "MAIN"
-CURRENT_TOC_VERSION = -112
+CURRENT_TOC_VERSION = -113
 
 
 # Exceptions
@@ -95,6 +94,20 @@ class EmptyIndexError(WhooshIndexError):
     """
 
 
+# Configuration
+
+def from_json(data: dict) -> 'Index':
+    from whoosh import storage
+    from whoosh.codec import codecs
+
+    indexname = data.get("indexname")
+    store = storage.from_json(data["storage"])
+    codec = codecs.from_json(data["codec"])
+    ix = store.open_index(indexname=indexname, codec=codec)
+
+    return ix
+
+
 # Filename functions
 
 def make_toc_filename(indexname: str, generation: int, ext: str="toc") -> str:
@@ -107,20 +120,24 @@ def toc_regex(indexname: str, ext: str="toc") -> Pattern:
     return re.compile("^_%s_(?P<gen>[0-9]+)[.]%s$" % (indexname, ext))
 
 
-def make_segment_filename(indexname: str, segid: str, ext: str) -> str:
-    name = "%s_%s.%s" % (indexname, segid, ext)
+def make_segment_filename(indexname: str, segid: str, ext: str,
+                          subname: str=None,) -> str:
+    if subname:
+        name = "%s_%s-%s.%s" % (indexname, segid, subname, ext)
+    else:
+        name = "%s_%s.%s" % (indexname, segid, ext)
     assert segment_regex(indexname).match(name)
     return name
 
 
 def segment_regex(indexname: str) -> Pattern:
-    return re.compile("^%s_(?P<id>\\d+)[.](?P<ext>[A-Za-z0-9_.]+)$" %
+    return re.compile("^%s_(?P<id>\\d+)(-[^.]*)?[.](?P<ext>[A-Za-z0-9_.]+)$" %
                       (indexname,))
 
 
 # TOC
 
-# Length of codec name, length of segment bytes
+# Length of codec json, length of segment bytes
 segment_entry = struct.Struct("<Hi")
 
 
@@ -159,6 +176,7 @@ class Toc:
         self.filename = None
 
     def to_bytes(self) -> bytes:
+        import json
         output = bytearray()
 
         schema_bytes = self.schema.to_bytes()
@@ -181,16 +199,18 @@ class Toc:
 
         # Add the segments
         for segment in self.segments:
-            name_bytes = segment.codec_name().encode("utf8")
+            codec_bytes = json.dumps(segment.codec_json()).encode("utf8")
             segment_bytes = segment.to_bytes()
-            output += segment_entry.pack(len(name_bytes), len(segment_bytes))
-            output += name_bytes
+            output += segment_entry.pack(len(codec_bytes), len(segment_bytes))
+            output += codec_bytes
             output += segment_bytes
 
         return output
 
     @classmethod
     def from_bytes(cls, bs: bytes, offset: int=0) -> 'Toc':
+        import json
+
         head = TocHeader.decode(bs, offset)
         release = head.release_major, head.release_minor, head.release_build
         created = long_to_datetime(head.created)
@@ -206,9 +226,10 @@ class Toc:
         for _ in range(head.segment_count):
             namestart = pos + segment_entry.size
             namelen, seglen = segment_entry.unpack(bs[pos:namestart])
-            name = bytes(bs[namestart:namestart + namelen]).decode("utf8")
+            jsonstr = bytes(bs[namestart:namestart + namelen]).decode("utf8")
+            data = json.loads(jsonstr)
 
-            c = codecs.codec_by_name(name)
+            c = codecs.from_json(data)
             segstart = namestart + namelen
             segment = c.segment_from_bytes(bs[segstart:segstart + seglen])
             segments.append(segment)
@@ -326,6 +347,9 @@ class Index:
         with self.store.open(indexname=self.indexname) as session:
             return self.store.latest_generation(session)
 
+    def last_modified(self):
+        return self.store.last_modified()
+
     def up_to_date(self) -> bool:
         """
         Returns True if this object represents the latest generation of
@@ -379,10 +403,9 @@ class Index:
         :rtype: :class:`whoosh.searching.Searcher`
         """
 
-        from whoosh.searching import Searcher
-
+        from whoosh.searching import SearcherType
         reader = self.reader()
-        return Searcher(reader, fromindex=self, **kwargs)
+        return SearcherType.from_reader(reader, fromindex=self, **kwargs)
 
     def _reader(self, schema: 'fields.Schema',
                 segments: 'Sequence[codecs.Segment]',
@@ -488,32 +511,91 @@ class Index:
         :param threads: when multithreaded is True, configure the executor to
             use a pool of this many threads. The default (None) uses the
             thread pool executor's default (the number of CPUs times 5).
-        :param kwargs: keyword arguments are passed to the writer's constructor.
-            See :class:`whoosh.writing.SegmentWriter` for the options available.
+        :param schema: if you pass a Schema object, the writer will use that
+            schema when writing the new segment(s).
         :param codec: use this codec to write into storage. If you don't pass
             a codec the writer simply uses the default.
+        :param kwargs: keyword arguments are passed to the writer's constructor.
+            See :class:`whoosh.writing.IndexWriter` for the options available.
         """
 
-        from whoosh.codec import default_codec
+        return writing.IndexWriter(self, executor=executor, multiproc=multiproc,
+                                   multithreaded=multithreaded, procs=procs,
+                                   threads=threads, codec=codec, schema=schema,
+                                   **kwargs)
 
-        toc = self.toc
 
-        cls = writing.IndexWriter
-        if multiproc or multithreaded:
-            cls = writing.MultiWriter
+class MultiIndex(Index):
+    """
+    This presents the contents of two or more separate indexes as a single
+    index, with all writes going to the _last_ index in the list. The main use
+    for this is to overlay a small, dynamic index over a large, static index.
 
-        schema = schema or self.schema
+    Note that currently, this implementation only allows writing to an "overlay"
+    index, so you can't delete documents from the static index(es). A future
+    version may provide a way to "tombstone" documents so they don't appear in
+    search results.
+    """
 
-        if not executor:
-            if multiproc:
-                executor = futures.ProcessPoolExecutor(procs)
-            elif multithreaded:
-                executor = futures.ThreadPoolExecutor(threads)
+    def __init__(self, indexes: Sequence[Index]):
+        self._indexes = indexes
 
-        codec = codec or default_codec()
-        return cls(codec,
-                   self.store, self.indexname, list(toc.segments), schema,
-                   toc.generation + 1, executor=executor, **kwargs)
+    def indexes(self) -> Tuple[Index]:
+        return tuple(self._indexes)
+
+    def reader(self, reuse: 'reading.IndexReader'=None
+               ) -> 'reading.IndexReader':
+        from whoosh.reading import leaf_readers, EmptyReader, MultiReader
+
+        readers = leaf_readers([ix.reader() for ix in self._indexes
+                                if not ix.is_empty()])
+        if not readers:
+            return EmptyReader()
+        elif len(readers) == 1:
+            return readers[0]
+        else:
+            return MultiReader(readers)
+
+    def last_index(self) -> 'Index':
+        return self._indexes[-1]
+
+    def writer(self, *args, **kwargs):
+        self.last_index().writer(*args, **kwargs)
+
+    @property
+    def schema(self):
+        return self.last_index().schema
+
+    def close(self):
+        for ix in self._indexes:
+            ix.close()
+
+    def add_field(self, fieldname: str, fieldspec: 'fields.FieldType'):
+        self.last_index().add_field(fieldname, fieldspec)
+
+    def remove_field(self, fieldname: str):
+        self.last_index().remove_field(fieldname)
+
+    def latest_generation(self) -> int:
+        return max(ix.latest_generation() for ix in self.indexes())
+
+    def last_modified(self):
+        return max(ix.last_modified() for ix in self.indexes())
+
+    def up_to_date(self) -> bool:
+        return all(ix.up_to_date() for ix in self.indexes())
+
+    def creation_time(self) -> datetime:
+        return min(ix.creation_time() for ix in self.indexes())
+
+    def is_empty(self):
+        return all(ix.is_empty() for ix in self.indexes())
+
+    def doc_count(self) -> int:
+        return sum(ix.doc_count() for ix in self.indexes())
+
+    def doc_count_all(self) -> int:
+        return sum(ix.doc_count_all() for ix in self.indexes())
 
 
 # Convenience functions
@@ -639,26 +721,7 @@ def version(store: 'storage.Storage', indexname: str=None
         return toc.release, toc.toc_version
 
 
-def from_url(url: str):
-    import furl
-    from whoosh import storage
-    from whoosh.codec import codecs
 
-    store = storage.from_url(url)
-    codecs = codecs.from_url(url)
-    index = store.open_index()
-
-
-    url = furl.furl(url)
-    scheme = url.scheme
-    if "+" in scheme:
-        storage_name, codec_name = scheme.rsplit("+", 1)
-        storage = storage.from_url(url)
-    else:
-        storage_name = scheme
-        # codec_name =
-
-    # if url.scheme not in codecs.codec_registry:
 
 
 

@@ -7,9 +7,9 @@ import operator
 from abc import abstractmethod
 from array import array
 from bisect import bisect_left, bisect_right
+from itertools import zip_longest
 from typing import Iterable, List, Optional, Sequence, Tuple, Union
 
-from whoosh.compat import zip_longest
 from whoosh.util.numeric import bytes_for_bits
 
 

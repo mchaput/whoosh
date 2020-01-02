@@ -34,7 +34,6 @@ http://wordnetcode.princeton.edu/3.0/WNprolog-3.0.tar.gz
 
 from collections import defaultdict
 
-from whoosh.compat import text_type
 from whoosh.fields import Schema, ID, STORED
 
 
@@ -77,7 +76,7 @@ def make_index(storage, indexname, word2nums, num2words):
     w = ix.writer()
     for word in word2nums.keys():
         syns = synonyms(word2nums, num2words, word)
-        w.add_document(word=text_type(word), syns=syns)
+        w.add_document(word=str(word), syns=syns)
     w.commit()
     return ix
 

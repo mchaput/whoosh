@@ -5,8 +5,6 @@ import operator
 import sys
 from bisect import bisect_left
 
-from whoosh.compat import text_type
-
 
 unull = chr(0)
 
@@ -463,7 +461,7 @@ def u_to_utf8(dfa, base=0):
             elif label is ANY:
                 raise Exception
             else:
-                assert isinstance(label, text_type)
+                assert isinstance(label, str)
                 label8 = label.encode("utf8")
                 for i, byte in enumerate(label8):
                     if i < len(label8) - 1:

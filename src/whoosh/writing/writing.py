@@ -1,9 +1,12 @@
 import logging
+import os
+import pickle
 import typing
 from collections import defaultdict
 from concurrent import futures
 from contextlib import contextmanager
 from datetime import datetime, timedelta
+from tempfile import mkstemp
 from typing import Any, List, Sequence
 
 from whoosh import columns, fields, storage
@@ -15,7 +18,7 @@ from whoosh.util import now, times, unclosed
 
 # Typing imports
 if typing.TYPE_CHECKING:
-    from whoosh import reading, searching
+    from whoosh import index, reading, searching
 
 
 logger = logging.getLogger(__name__)
@@ -147,7 +150,6 @@ class SegmentWriter:
         self._flush_terms()
 
         # Close the codec writers
-        logger.info("Closing codec writers")
         self._perdoc.close()
         self._terms.close()
 
@@ -160,61 +162,184 @@ class SegmentWriter:
         self._terms.close()
 
 
+class SpoolingWriter(SegmentWriter):
+    """
+    This implements the SegmentWriter interface but all it does is record the
+    calls to `index_field()` so they can be played back in a separate process
+    for parallel indexing.
+    """
+
+    def __init__(self, segment):
+        self.segment = segment
+        self.doc_count = 0
+        self.post_count = 0
+
+        fd, self.filepath = mkstemp(suffix=".pickle", prefix="multi")
+        self._tempfile = os.fdopen(fd, "wb")
+
+        self._arglist = []
+
+    def start_document(self):
+        self._arglist = []
+
+    def index_field(self, fieldname: str, value: Any, stored_val: Any,
+                    boost=1.0):
+        self._arglist.append((fieldname, value, stored_val, boost))
+
+    def finish_document(self):
+        pickle.dump(self._arglist, self._tempfile, -1)
+        self.doc_count += 1
+
+    def finish_segment(self):
+        self._tempfile.close()
+        return self.filepath, self.segment
+
+    def cancel(self):
+        self._tempfile.close()
+        os.remove(self.filepath)
+
+
 # High-level writer object manages writing and merging multiple segments in an
 # indexing session
 
 class IndexWriter:
-    def __init__(self,
-                 codec: 'codecs.Codec',
-                 store: 'storage.Storage',
-                 indexname: str,
-                 segments: 'List[codecs.Segment]',
-                 schema: 'fields.Schema',
-                 generation: int,
-                 doc_limit: int=10000,
-                 post_limit: int=2000000,
+    def __init__(self, for_index: 'index.Index',
+                 executor: futures.Executor=None, multiproc: bool=False,
+                 multithreaded: bool=False, procs: int=None, threads: int=None,
+                 codec: 'codecs.Codec'=None, schema: 'fields.Schema'=None,
+                 doc_limit: int=10000, post_limit: int=2000000,
                  merge_strategy: merging.MergeStrategy=None,
-                 executor: futures.Executor=None,
-                 reporter: reporting.Reporter=None
-                 ):
-        self.codec = codec
-        self.session = store.open(indexname, writable=True)
-        self.schema = schema
-        self.generation = generation
+                 reporter: reporting.Reporter=None, merge: bool=True,
+                 optimize: bool=False):
+        """
+        :param for_index: the `index.Index` object representing the index to
+            write into.
+        :param executor: a `futures.Executor` object to use for multi-writing.
+            If you don't supply one, the object will create one if necessary
+            based on the other arguments. Note that even if you supply a
+            pre-configured Executor, you still need to turn on `multiproc` or
+            `multithreaded` to enable multi-writing.
+        :param multiproc: whether this object should use multiprocessing.
+        :param multithreaded: whether this object should use multithreading. If
+            you set both `multiproc` and `multithreaded` to `True`, the object
+            will use multiprocessing.
+        :param procs: when `multiproc` is `True`, the number of processors to
+            use in the pool. The default is None, which uses the executor's
+            default, the number of CPUs.
+        :param threads: when `multithreaded` is `True`, the number of threads to
+            use in the pool. The default is None, which uses the executor's
+            default, the number of CPUs.
+        :param codec: write to the index using this codec instead of the
+            default.
+        :param schema: index using this schema instead of the default.
+        :param doc_limit: the maximum number of documents to spool before
+            flushing a segment to storage.
+        :param post_limit: the maximum number of postings to spool before
+            flushing a segment to storage.
+        :param merge_strategy: use this merge strategy to decide how to merge
+            segments, overriding the default.
+        :param reporter: supply a Reporter object to get feedback on writing
+            progress.
+        """
 
-        self.doc_limit = doc_limit
-        self.post_limit = post_limit
+        from whoosh.codec import default_codec
+
+        toc = for_index.toc
+        self.codec = codec or default_codec()
+        self.store = for_index.storage()
+        self.session = self.store.open(for_index.indexname, writable=True)
+        self.schema = schema or for_index.schema
+        self.generation = toc.generation + 1
+
+        self.original_doc_limit = self.doc_limit = doc_limit
+        self.original_post_limit = self.post_limit = post_limit
         self.merge_strategy = merge_strategy or merging.default_strategy()
         self.executor = executor
-        self.reporter = reporter or reporting.default_reporter()
+        self.reporter = reporter or reporting.null_reporter()
 
         # This object keeps track of the current segments, buffered deletions,
         # and ongoing merges
         self.seglist = segmentlist.SegmentList(self.session, self.schema,
-                                               segments)
+                                               list(toc.segments))
+        self._futures = []
+
+        self.closed = False
+        self._cancelled = False
+        self._group_depth = 0
+        self._optimized_segment_count = 1
+
+        # The user can set these flags while writing to tell the writer what to
+        # do when it commits
+        self.merge = merge
+        self.optimize = optimize
+
+        self._is_multi = False
+        self.set_execution(executor, multiproc, multithreaded, procs, threads)
 
         # Low-level object that knows how to write a single segment
         self.segwriter = None  # type: SegmentWriter
         self._start_new_segment()
 
-        self.closed = False
-        self._cancelled = False
-        self._group_depth = 0
-
-        # The user can set these flags while writing to tell the writer what to
-        # do when it commits
-        self.merge = True
-        self.optimize = False
-
     def _start_new_segment(self):
         segment = self.codec.new_segment(self.session)
-        self.segwriter = SegmentWriter(self.codec, self.session, segment,
-                                       self.schema)
+        if self._is_multi:
+            w = SpoolingWriter(segment)
+        else:
+            w = SegmentWriter(self.codec, self.session, segment, self.schema)
+        self.segwriter = w
 
     # User API
 
-    def set_multiproc(self, procs=None):
-        self.executor = futures.
+    def set_execution(self, executor: futures.Executor=None,
+                      multiproc: bool=False, multithreaded: bool=False,
+                      procs: int=None, threads: int=None):
+        """
+        Sets up this writer for multiprocessing/multithreading (or not). This is
+        the same as the arguments to the initializer, however this method allows
+        you to change the set up after creating the writer object.
+
+        :param executor: a `futures.Executor` object to use. If you don't supply
+            one, the object will create one if necessary based on the other
+            arguments.
+        :param multiproc: whether this object should use multiprocessing.
+        :param multithreaded: whether this object should use multithreading. If
+            you set both `multiproc` and `multithreaded` to `True`, the object
+            will use multiprocessing.
+        :param procs: when `multiproc` is `True`, the number of processors to
+            use in the pool. The default is None, which uses the executor's
+            default, the number of CPUs.
+        :param threads: when `multithreaded` is `True`, the number of threads to
+            use in the pool. The default is None, which uses the executor's
+            default, the number of CPUs.
+        """
+
+        if multiproc and not self.store.supports_multiproc_writing():
+            raise Exception("%r does not support multiproc writing")
+
+        if multiproc or multithreaded:
+            self._is_multi = True
+
+            if multiproc:
+                workers = procs or os.cpu_count() or 1
+            elif multithreaded:
+                workers = threads or os.cpu_count() or 1
+            self.doc_limit = max(self.original_doc_limit // workers, 10)
+            self.post_limit = max(self.original_post_limit // workers, 1000)
+
+            if not executor:
+                if multiproc:
+                    executor = futures.ProcessPoolExecutor(procs)
+                elif multithreaded:
+                    executor = futures.ThreadPoolExecutor(threads)
+
+        self.executor = executor
+
+    def is_mulitwriter(self):
+        return self._is_multi and self.executor
+
+    @unclosed
+    def clear(self):
+        self.seglist.clear()
 
     @unclosed
     def delete_by_term(self, fieldname: str, text: str):
@@ -456,8 +581,8 @@ class IndexWriter:
     # Flush
 
     @unclosed
-    def flush_segment(self, merge: bool=None, optimize: bool=None,
-                      expunge_deleted: bool=False, restart: bool=True):
+    def flush_segment(self, merge: bool=None, expunge_deleted: bool=False,
+                      restart: bool=True):
         """
         Flushes any queued documents to a new segment but does not close the
         writer.
@@ -481,68 +606,88 @@ class IndexWriter:
 
         # Should we try to merge after integrating the new segment?
         merge = merge if merge is not None else self.merge
-        # Should we try to merge ALL segments after integrating the new segment?
-        optimize = optimize if optimize is not None else self.optimize
 
-        # The actual implementation is in a separate method so MultiWriter can
-        # easily override it without having to duplicate the code above and
-        # below
-        self._implement_flush(merge, optimize, expunge_deleted)
+        if self._is_multi:
+            self._flush_multi(merge, False, expunge_deleted)
+        else:
+            newsegment = self.segwriter.finish_segment()
+            # Add the new segment to the segment list
+            self.seglist.add_segment(newsegment)
+            if merge:
+                self._try_merging(False, expunge_deleted)
 
         if restart:
             self._start_new_segment()
 
-    def _implement_flush(self, merge, optimize, expunge_deleted):
-        # Subclasses that flush documents differently (MultiWriter) can override
-        # this method
+    def _flush_multi(self, merge, optimize, expunge_deleted):
+        count = self.segwriter.doc_count
+        filepath, newsegment = self.segwriter.finish_segment()
 
-        newsegment = self.segwriter.finish_segment()
+        logger.info("Submitting parallel segment flush of %r to %r",
+                    newsegment, self.executor)
+        store = self.session.store
+        if store.supports_multiproc_writing():
+            # The storage supports recursive locks, so use a version of the
+            # merge function that takes a recursive lock
+            sessionkey = self.session.read_key()
+            assert sessionkey is not None
+            args = (
+                batch_r_index,
+                filepath, count, self.codec, store, self.schema, newsegment,
+                sessionkey, self.session.indexname
+            )
+        else:
+            # We don't support multi-processing, but if this is a threading
+            # executor we will try to pass the session between threads
+            args = (
+                batch_index,
+                filepath, count, self.codec, self.session, self.schema,
+                newsegment
+            )
 
-        # Add the new segment to the segment list
-        self.seglist.add_segment(newsegment)
-        self._maybe_merge(merge, optimize, expunge_deleted)
+        future = self.executor.submit(*args)
+        self._futures = [f for f in self._futures if not f.done()]
+        self._futures.append(future)
+
+        # Add a callback to complete adding the segment when the future finishes
+        def multi_flush_callback(f):
+            self.seglist.add_segment(f.result())
+            self._try_merging(optimize, expunge_deleted)
+        future.add_done_callback(multi_flush_callback)
 
     # Merge methods
 
-    def _maybe_merge(self, merge: bool, optimize: bool,
-                     expunge_deleted: bool):
-        if optimize and len(self.seglist) > 1:
-            logger.info("Optimizing")
-            # Create a merge with every segment
-            merge_obj = merging.Merge(list(self.seglist.segments))
-            # Start the merge
-            self._start_merge(merge_obj)
-
-        elif merge:
-            logger.info("Trying to merge after flush")
-            self._try_merging(expunge_deleted=expunge_deleted)
-
-        else:
-            logger.info("Optimize and merge are off, doing nothing")
-
-    def _find_merges(self, expunge_deleted: bool = False
+    def _find_merges(self, optimize: bool=False, expunge_deleted: bool=False
                      ) -> Sequence[merging.Merge]:
         # Use the MergeStrategy object to decide which segments, if any, we
         # should merge
 
         strategy = self.merge_strategy
         merging_segment_ids = self.seglist.merging_ids()
-        merges = strategy.get_merges(self.seglist.segments,
-                                     merging_segment_ids,
-                                     expunge_deleted=expunge_deleted)
+        if optimize:
+            merges = strategy.get_forced_merges(self.seglist.segments,
+                                                self._optimized_segment_count,
+                                                merging_segment_ids)
+        else:
+            merges = strategy.get_merges(self.seglist.segments,
+                                         merging_segment_ids,
+                                         expunge_deleted=expunge_deleted)
         return merges
 
-    def _try_merging(self, expunge_deleted: bool=False):
+    def _try_merging(self, optimize: bool=False, expunge_deleted: bool=False):
         # If there are any merges to do, do them. This gets the list of merges
         # to perform from _find_merges and calls start_merge on each one.
 
-        logger.info("Trying to merge")
-        merges = self._find_merges(expunge_deleted=expunge_deleted)
+        logger.info("Trying to merge (optimize=%s)", optimize)
+        merges = self._find_merges(optimize=optimize,
+                                   expunge_deleted=expunge_deleted)
         logger.info("Found merges %r", merges)
         for merge in merges:
             self._start_merge(merge)
 
     def _start_merge(self, merge: merging.Merge):
+        from whoosh.filedb.filestore import BaseFileStorage
+
         logger.info("Starting merge %r", merge)
 
         # Sanity check
@@ -560,32 +705,38 @@ class IndexWriter:
         # If we have an executor, schedule the merge on it; otherwise, just
         # perform the merge serially right now
         if self.executor:
-            logger.info("Submitting merge %r to %r", merge, self.executor)
-
             store = self.session.store
-            if store.supports_multiproc_writing():
-                # The storage supports recursive locks, so use a version of the
-                # merge function that takes a recursive lock
-                args = (
-                    merging.perform_r_merge, self.codec, self.session.store,
-                    self.schema, merge, newsegment, self.session.read_key(),
-                    self.session.indexname
-                )
+            if isinstance(store, BaseFileStorage):
+                logger.info("Starting multi-merge of %r", merge)
+                merging.perform_multi_merge(self.executor, self.codec, store,
+                                            self.schema, merge, newsegment,
+                                            self.session.read_key(),
+                                            self.session.indexname)
+                self.seglist.integrate(newsegment, merge.merge_id)
             else:
-                # We don't support multi-processing, but if this is a threading
-                # executor we will try to pass the session between threads
-                args = (
-                    merging.perform_merge, self.codec, self.session,
-                    self.schema, merge, newsegment
-                )
-            # Submit the job to the executor
-            future = self.executor.submit(*args)
+                logger.info("Submitting merge %r to %r", merge, self.executor)
+                if store.supports_multiproc_writing():
+                    # The storage supports recursive locks, so use a version of the
+                    # merge function that takes a recursive lock
+                    args = (
+                        merging.perform_r_merge, self.codec, self.session.store,
+                        self.schema, merge, newsegment, self.session.read_key(),
+                        self.session.indexname
+                    )
+                else:
+                    # We don't support multi-processing, but if this is a threading
+                    # executor we will try to pass the session between threads
+                    args = (
+                        merging.perform_merge, self.codec, self.session,
+                        self.schema, merge, newsegment
+                    )
+                # Submit the job to the executor
+                future = self.executor.submit(*args)
 
-            # Add a callback to complete the merge when the future finishes
-            def merge_callback(f):
-                newsegment, merge_id = f.results()
-                self.seglist.integrate(newsegment, merge_id)
-            future.add_done_callback(merge_callback)
+                # Add a callback to complete the merge when the future finishes
+                def merge_callback(f):
+                    self.seglist.integrate(*f.result())
+                future.add_done_callback(merge_callback)
 
         else:
             # Do the merge serially now
@@ -615,17 +766,23 @@ class IndexWriter:
         # If there are any documents sitting in the SegmentWriter, flush them
         # out into a new segment
         if self.segwriter.doc_count:
-            self.flush_segment(merge=merge, optimize=optimize, restart=False)
-        elif optimize:
-            self._maybe_merge(merge=merge, optimize=optimize,
-                              expunge_deleted=False)
+            self.flush_segment(merge=merge, restart=False)
 
-        # Wait for background jobs to complete
+        # Wait for background jobs to complete. We do this separately from
+        # shutting down the executor below, because finishing segments may still
+        # add more work (merges) to the executor, and trying to submit work to
+        # a shutting down executor is an error.
+        futures.wait(self._futures)
+        if merge or optimize:
+            self._try_merging(optimize, False)
+
+        # Shut down the executor
         if self.executor:
             logger.info("Waiting for background jobs to complete")
             self.executor.shutdown(wait=True)
 
         # Sync the TOC to storage
+        logger.info("Syncing the new TOC to disk")
         self._sync_toc()
         self._close()
 
@@ -766,7 +923,7 @@ class IndexWriter:
         :param kwargs: keyword arguments passed to the index's reader() method.
         """
 
-        return self.seglist.multireader()
+        return self.seglist.full_reader()
 
     @unclosed
     def searcher(self, **kwargs) -> 'searching.Searcher':
@@ -781,3 +938,51 @@ class IndexWriter:
         return searching.Searcher(self.reader(), **kwargs)
 
 
+# Helper functions for indexing from a batch file in a different thread/process
+
+def batch_r_index(batch_filename: str,
+                  count: int,
+                  codec: 'codecs.Codec',
+                  store: 'storage.Storage',
+                  schema: 'fields.Schema',
+                  newsegment: 'codecs.Segment',
+                  key: int,
+                  indexname: str
+                  ) -> 'codecs.Segment':
+    session = store.recursive_write_open(key, indexname)
+    return batch_index(batch_filename, count, codec, session, schema,
+                       newsegment)
+
+
+def batch_index(batch_filename: str,
+                count: int,
+                codec: 'codecs.Codec',
+                session: 'storage.Session',
+                schema: 'fields.Schema',
+                newsegment: 'codecs.Segment',
+                ) -> 'codecs.Segment':
+    logger.info("Batching indexing file %s to %r", batch_filename, newsegment)
+    t = now()
+
+    segwriter = SegmentWriter(codec, session, newsegment, schema)
+
+    # The batch file contains a series of pickled lists of arguments to
+    # SegmentWriter.index_field
+    with open(batch_filename, "rb") as f:
+        for _ in range(count):
+            arg_list = pickle.load(f)
+            segwriter.start_document()
+            for fieldname, value, stored_val, boost in arg_list:
+                segwriter.index_field(fieldname, value, stored_val, boost)
+            segwriter.finish_document()
+
+    # Get the finished segment from the segment writer
+    newsegment = segwriter.finish_segment()
+
+    # Delete the used up batch file
+    os.remove(batch_filename)
+
+    logger.info("Batch indexed %s to %r in %0.06f s",
+                batch_filename, newsegment, now() - t)
+
+    return newsegment

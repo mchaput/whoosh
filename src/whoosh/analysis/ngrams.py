@@ -27,7 +27,6 @@
 
 from typing import Iterable
 
-from whoosh.compat import text_type
 from whoosh.analysis import filters, tokenizers, analysis
 
 
@@ -68,7 +67,7 @@ class NgramTokenizer(analysis.Tokenizer):
                  keeporiginal: bool=False, removestops: bool=True,
                  start_pos: int=0, start_char: int=0, mode: str='',
                  **kwargs) -> Iterable[analysis.Token]:
-        assert isinstance(value, text_type), "%r is not unicode" % value
+        assert isinstance(value, str), "%r is not unicode" % value
 
         inlen = len(value)
         t = analysis.Token(positions, chars, removestops=removestops, mode=mode)

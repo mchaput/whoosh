@@ -1,10 +1,9 @@
 import logging
 import typing
 from abc import abstractmethod
-from typing import Any, Iterable, List, Sequence, Tuple, Union
+from typing import Any, Callable, Iterable, List, Sequence, Tuple, Union
 
 from whoosh.analysis import analysis
-from whoosh.compat import text_type
 from whoosh.postings import postform
 from whoosh.postings.ptuples import PostTuple, RawPost
 
@@ -24,7 +23,7 @@ class UnsupportedFeature(Exception):
 
 # Helper functions
 
-def tokens(value: Union[Sequence, text_type], analyzer: 'analysis.Analyzer',
+def tokens(value: Union[Sequence, str], analyzer: 'analysis.Analyzer',
            kwargs: dict) -> 'Iterable[analysis.Token]':
     if isinstance(value, (tuple, list)):
         gen = analysis.entoken(value, **kwargs)
@@ -111,6 +110,13 @@ class DocListReader(PostingReader):
     @abstractmethod
     def max_length(self):
         raise NotImplementedError
+
+    def supports_raw_blocks(self) -> bool:
+        return False
+
+    def rewrite_raw_bytes(self, docmap_get: Callable[[int, int], int]
+                          ) -> bytes:
+        raise Exception("%s cannot rewrite raw bytes" % type(self))
 
     def id_slice(self, start: int, end: int) -> Sequence[int]:
         return [self.id(i) for i in range(start, end)]
@@ -280,14 +286,14 @@ class PostingsIO:
         # Return a list of all the values of a certain member of a list of
         # posting tuples
 
-        vals = [p[member] for p in posts]
+        vals = [p[member] if p[member] is not None else b'' for p in posts]
 
         # Check for missing values
-        if any(v is None for v in vals):
-            n = postfield_name[member]
-            for post in posts:
-                if post[member] is None:
-                    raise ValueError("Post %r is missing %s" % (post, n))
+        # if any(v is None for v in vals):
+        #     n = postfield_name[member]
+        #     for post in posts:
+        #         if post[member] is None:
+        #             raise ValueError("Post %r is missing %s" % (post, n))
 
         return vals
 
@@ -406,6 +412,9 @@ class MinimalDocListReader(DocListReader):
 
     def raw_bytes(self) -> bytes:
         return self._raw_bytes
+
+    def supports_raw_blocks(self):
+        return False
 
     def size_in_bytes(self) -> int:
         return len(self._raw_bytes)

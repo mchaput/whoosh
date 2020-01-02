@@ -1,5 +1,3 @@
-from __future__ import with_statement
-
 from whoosh import fields
 from whoosh.util.testing import TempIndex, TempStorage
 
@@ -137,34 +135,37 @@ def test_dynamic_positions():
     from whoosh.query import Term
 
     with TempStorage() as st:
-        schema1 = fields.Schema(data=fields.Text(phrase=False))
+        schema1 = fields.Schema(id=fields.Id(stored=True),
+                                data=fields.Text(phrase=False))
         with st.create_index(schema1) as ix:
             with ix.writer() as w:
-                w.add_document(data="alfa bravo charlie delta")
-                w.add_document(data="bravo charlie delta echo")
-                w.add_document(data="charlie delta echo foxtrot")
+                w.add_document(id="a", data="alfa bravo charlie delta")
+                w.add_document(id="b", data="bravo charlie delta echo")
+                w.add_document(id="c", data="charlie delta echo foxtrot")
 
-        schema2 = fields.Schema(data=fields.Text(phrase=True))
+        schema2 = fields.Schema(id=fields.Id(stored=True),
+                                data=fields.Text(phrase=True))
         with st.open_index(schema=schema2) as ix:
-            with ix.writer() as w:
-                w.add_document(data="delta echo foxtrot")
-                w.add_document(data="echo delta charlie")
-                w.add_document(data="charlie bravo alfa")
+            with ix.writer(optimize=True) as w:
+                w.add_document(id="d", data="delta echo foxtrot")
+                w.add_document(id="e", data="echo delta charlie")
+                w.add_document(id="f", data="charlie bravo alfa")
 
             with ix.searcher() as s:
                 m = Term("data", "charlie").matcher(s, s.context())
                 out = []
                 while m.is_active():
-                    out.append((m.id(), [s.start for s in m.spans()]))
+                    out.append((s.stored_fields(m.id())["id"],
+                                [s.start for s in m.spans()]))
                     m.next()
                 m.close()
 
-                assert out == [
-                    (0, []),
-                    (1, []),
-                    (2, []),
-                    (4, [2]),
-                    (5, [0])
+                assert sorted(out) == [
+                    ('a', []),
+                    ('b', []),
+                    ('c', []),
+                    ('e', [2]),
+                    ('f', [0]),
                 ]
 
 
@@ -172,34 +173,37 @@ def test_dynamic_chars():
     from whoosh.query import Term
 
     with TempStorage() as st:
-        schema1 = fields.Schema(data=fields.Text(phrase=True))
+        schema1 = fields.Schema(id=fields.Id(stored=True),
+                                data=fields.Text(phrase=True))
         with st.create_index(schema1) as ix:
             with ix.writer() as w:
-                w.add_document(data="alfa bravo charlie delta")
-                w.add_document(data="bravo charlie delta echo")
-                w.add_document(data="charlie delta echo foxtrot")
+                w.add_document(id="a", data="alfa bravo charlie delta")
+                w.add_document(id="b", data="bravo charlie delta echo")
+                w.add_document(id="c", data="charlie delta echo foxtrot")
 
-        schema2 = fields.Schema(data=fields.Text(phrase=True, chars=True))
+        schema2 = fields.Schema(id=fields.Id(stored=True),
+                                data=fields.Text(phrase=True, chars=True))
         with st.open_index(schema=schema2) as ix:
-            with ix.writer() as w:
-                w.add_document(data="delta echo foxtrot")
-                w.add_document(data="echo delta charlie")
-                w.add_document(data="charlie bravo alfa")
+            with ix.writer(optimize=True) as w:
+                w.add_document(id="d", data="delta echo foxtrot")
+                w.add_document(id="e", data="echo delta charlie")
+                w.add_document(id="f", data="charlie bravo alfa")
 
             with ix.searcher() as s:
                 m = Term("data", "charlie").matcher(s, s.context())
                 out = []
                 while m.is_active():
-                    out.append((m.id(), [s.startchar for s in m.spans()]))
+                    out.append((s.stored_fields(m.id())["id"],
+                                [s.startchar for s in m.spans()]))
                     m.next()
                 m.close()
 
-                assert out == [
-                    (0, [None]),
-                    (1, [None]),
-                    (2, [None]),
-                    (4, [11]),
-                    (5, [0])
+                assert sorted(out) == [
+                    ("a", [None]),
+                    ("b", [None]),
+                    ("c", [None]),
+                    ("e", [11]),
+                    ("f", [0])
                 ]
 
 
@@ -207,99 +211,110 @@ def test_dynamic_remove_chars():
     from whoosh.query import Term
 
     with TempStorage() as st:
-        schema1 = fields.Schema(data=fields.Text(phrase=True, chars=True))
+        schema1 = fields.Schema(id=fields.Id(stored=True),
+                                data=fields.Text(phrase=True, chars=True))
         with st.create_index(schema1) as ix:
             with ix.writer() as w:
-                w.add_document(data="alfa bravo charlie delta")
-                w.add_document(data="bravo charlie delta echo")
-                w.add_document(data="charlie delta echo foxtrot")
+                w.add_document(id="a", data="alfa bravo charlie delta")
+                w.add_document(id="b", data="bravo charlie delta echo")
+                w.add_document(id="c", data="charlie delta echo foxtrot")
 
-        schema2 = fields.Schema(data=fields.Text(phrase=True, chars=False))
+        schema2 = fields.Schema(id=fields.Id(stored=True),
+                                data=fields.Text(phrase=True, chars=False))
         with st.open_index(schema=schema2) as ix:
-            with ix.writer() as w:
-                w.add_document(data="delta echo foxtrot")
-                w.add_document(data="echo delta charlie")
-                w.add_document(data="charlie bravo alfa")
+            with ix.writer(merge=False) as w:
+                w.add_document(id="d", data="delta echo foxtrot")
+                w.add_document(id="e", data="echo delta charlie")
+                w.add_document(id="f", data="charlie bravo alfa")
 
             with ix.searcher() as s:
                 m = Term("data", "charlie").matcher(s, s.context())
                 out = []
                 while m.is_active():
-                    out.append((m.id(), [s.startchar for s in m.spans()]))
+                    out.append((s.stored_fields(m.id())["id"],
+                                [s.startchar for s in m.spans()]))
                     m.next()
                 m.close()
 
-                assert out == [
-                    (0, [11]),
-                    (1, [6]),
-                    (2, [0]),
-                    (4, [None]),
-                    (5, [None])
-                ]
+                assert [
+                    ("a", [11]),
+                    ("b", [6]),
+                    ("c", [0]),
+                    ("e", [None]),
+                    ("f", [None])
+                ] == out
 
 
 def test_dynamic_vector():
     with TempStorage() as st:
-        schema1 = fields.Schema(data=fields.Text(vector=False))
+        schema1 = fields.Schema(id=fields.Id(stored=True),
+                                data=fields.Text(vector=False))
         with st.create_index(schema1) as ix:
             with ix.writer() as w:
-                w.add_document(data="alfa bravo charlie delta")
-                w.add_document(data="bravo charlie delta echo")
-                w.add_document(data="charlie delta echo foxtrot")
+                w.add_document(id="a", data="alfa bravo charlie delta")
+                w.add_document(id="b", data="bravo charlie delta echo")
+                w.add_document(id="c", data="charlie delta echo foxtrot")
 
-        schema2 = fields.Schema(data=fields.Text(vector=True))
+        schema2 = fields.Schema(id=fields.Id(stored=True),
+                                data=fields.Text(vector=True))
         with st.open_index(schema=schema2) as ix:
-            with ix.writer() as w:
-                w.add_document(data="delta echo foxtrot")
-                w.add_document(data="echo delta charlie")
-                w.add_document(data="charlie bravo alfa")
+            with ix.writer(optimize=True) as w:
+                w.add_document(id="d", data="delta echo foxtrot")
+                w.add_document(id="e", data="echo delta charlie")
+                w.add_document(id="f", data="charlie bravo alfa")
 
             out = []
             with ix.reader() as r:
                 for docnum in r.all_doc_ids():
+                    letter = r.stored_fields(docnum)["id"]
                     v = r.vector(docnum, "data")
-                    out.append(list(v.all_terms()))
-            assert out == [
-                [],
-                [],
-                [],
-                [b"delta", b"echo", b"foxtrot"],
-                [b"charlie", b"delta", b"echo"],
-                [b"alfa", b"bravo", b"charlie"]
-            ]
+                    out.append((letter, list(v.all_terms())))
+
+            assert [
+                ("a", []),
+                ("b", []),
+                ("c", []),
+                ("d", [b"delta", b"echo", b"foxtrot"]),
+                ("e", [b"charlie", b"delta", b"echo"]),
+                ("f", [b"alfa", b"bravo", b"charlie"]),
+            ] == sorted(out)
 
 
 def test_dynamic_remove_vector():
     with TempStorage() as st:
-        schema1 = fields.Schema(data=fields.Text(vector=True))
+        schema1 = fields.Schema(id=fields.Id(stored=True),
+                                data=fields.Text(vector=True))
         with st.create_index(schema1) as ix:
             with ix.writer() as w:
-                w.add_document(data="alfa bravo charlie delta")
-                w.add_document(data="bravo charlie delta echo")
-                w.add_document(data="charlie delta echo foxtrot")
+                w.add_document(id="a", data="alfa bravo charlie delta")
+                w.add_document(id="b", data="bravo charlie delta echo")
+                w.add_document(id="c", data="charlie delta echo foxtrot")
 
             with ix.reader() as r:
                 v = r.vector(0, "data")
                 assert list(v.all_terms())
 
-        schema2 = fields.Schema(data=fields.Text(vector=False))
+        schema2 = fields.Schema(id=fields.Id(stored=True),
+                                data=fields.Text(vector=False))
         with st.open_index(schema=schema2) as ix:
-            with ix.writer() as w:
-                w.add_document(data="delta echo foxtrot")
-                w.add_document(data="echo delta charlie")
-                w.add_document(data="charlie bravo alfa")
+            with ix.writer(merge=False) as w:
+                w.add_document(id="d", data="delta echo foxtrot")
+                w.add_document(id="e", data="echo delta charlie")
+                w.add_document(id="f", data="charlie bravo alfa")
 
             out = []
             with ix.reader() as r:
                 for docnum in r.all_doc_ids():
+                    letter = r.stored_fields(docnum)["id"]
                     v = r.vector(docnum, "data")
-                    out.append(list(v.all_terms()))
-            assert out == [
-                [b"alfa", b"bravo", b"charlie", b"delta"],
-                [b"bravo", b"charlie", b"delta", b"echo"],
-                [b"charlie", b"delta", b"echo", b"foxtrot"],
-                [],
-                [],
-                []
-            ]
+                    out.append((letter, list(v.all_terms())))
+
+            assert [
+               ("a", [b'alfa', b'bravo', b'charlie', b'delta']),
+               ("b", [b'bravo', b'charlie', b'delta', b'echo']),
+               ("c", [b'charlie', b'delta', b'echo', b'foxtrot']),
+               ("d", []),
+               ("e", []),
+               ("f", []),
+            ] == sorted(out)
 

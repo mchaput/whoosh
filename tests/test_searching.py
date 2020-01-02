@@ -3,12 +3,11 @@
 from __future__ import division, with_statement
 import copy
 from datetime import datetime, timedelta
-from itertools import permutations
+from itertools import permutations, zip_longest
 
 import pytest
 
 from whoosh import analysis, fields, index, qparser, query, scoring
-from whoosh.compat import text_type, zip_longest
 from whoosh.util.testing import TempIndex, TempStorage
 
 
@@ -413,7 +412,7 @@ def test_open_date_ranges():
 
 def test_negated_unlimited_ranges():
     from string import ascii_letters
-    domain = text_type(ascii_letters)
+    domain = str(ascii_letters)
 
     # Whoosh should treat u"[to]" as if it was "*"
     schema = fields.Schema(id=fields.ID(stored=True), num=fields.NUMERIC,
@@ -513,7 +512,7 @@ def test_multireader():
             assert len(r) == 1
             assert r[0]["id"] == "bravo"
 
-        with ix.writer() as w:
+        with ix.writer(merge=False) as w:
             w.add_document(id=u"juliet", content=u"juliet")
             w.add_document(id=u"kilo", content=u"kilo")
             w.add_document(id=u"lima", content=u"lima")
@@ -524,7 +523,7 @@ def test_multireader():
             w.add_document(id=u"quebec", content=u"quebec")
             w.add_document(id=u"romeo", content=u"romeo")
 
-        assert len(ix.segments()) == 2
+        assert 2 == len(ix.segments())
 
         #r = ix.reader()
         #assert r.__class__.__name__ == "MultiReader"
@@ -614,7 +613,7 @@ def test_stop_phrase():
         with ix.searcher() as s:
             qp = qparser.QueryParser("title", schema)
             q = qp.parse(u"richard of york")
-            assert q.__unicode__() == "(title:richard AND title:york)"
+            assert str(q) == "(title:richard AND title:york)"
             assert len(s.search(q)) == 1
             #q = qp.parse(u"lily the pink")
             #assert len(s.search(q)), 1)
@@ -1126,7 +1125,7 @@ def test_fieldboost():
             q = query.Or([query.Term("a", u"alfa"),
                           query.Term("b", u"alfa")])
             q = q.accept(field_booster("a", 100.0))
-            assert text_type(q) == text_type("(a:alfa^100.0 OR b:alfa)")
+            assert str(q) == u"(a:alfa^100.0 OR b:alfa)"
             r = s.search(q)
             assert [hit["id"] for hit in r] == [2, 5, 6, 3, 0, 1, 4]
 

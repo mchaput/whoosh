@@ -36,7 +36,6 @@ from math import log
 from typing import Sequence, Set, Tuple, Union
 
 from whoosh import idsets, results
-from whoosh.compat import text_type
 from whoosh.query import queries
 from whoosh.postings import ptuples
 
@@ -137,11 +136,11 @@ class MoreLike:
         docid = self.searcher.document_number(**kwargs)
         return self.like_docid(docid, limit=limit)
 
-    def like_text(self, text: text_type, limit: int=None) -> 'results.Results':
+    def like_text(self, text: str, limit: int=None) -> 'results.Results':
         self.add_text(text)
         return self.get_results(limit=limit)
 
-    def like_docid(self, docid: int, text: text_type=None, limit: int=None
+    def like_docid(self, docid: int, text: str=None, limit: int=None
                    ) -> 'results.Results':
         if text:
             self.add_text(text)
@@ -151,12 +150,12 @@ class MoreLike:
 
     #
 
-    def add_word(self, word: text_type, weight: float):
+    def add_word(self, word: str, weight: float):
         if weight >= self.minweight:
             self.words[word] += weight
             self.total += weight
 
-    def add_text(self, text: text_type):
+    def add_text(self, text: str):
         schema = self.searcher.schema
         fieldobj = schema[self.fieldname]
         from_bytes = fieldobj.from_bytes
@@ -185,7 +184,7 @@ class MoreLike:
             raise Exception("Document does not have vector or stored field")
 
     def get_terms(self, n: int, normalize: bool=True
-                  ) -> Sequence[Tuple[text_type, float]]:
+                  ) -> Sequence[Tuple[str, float]]:
         if not self.words:
             return []
 

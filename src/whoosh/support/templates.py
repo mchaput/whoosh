@@ -3,8 +3,6 @@ import os.path
 import re
 from typing import List, Optional
 
-from whoosh.compat import text_type
-
 
 """
 A *very* simple template language for generating HTML pages for the index admin
@@ -78,7 +76,7 @@ re_tok = re.compile(_re_tok % name2token)
 re_inl = re.compile(_re_inl % name2token)
 
 
-class TemplateParser(object):
+class TemplateParser:
     """
     Parses a template file and transforms it into a Python source code string.
     """
@@ -224,7 +222,7 @@ class TemplateParser(object):
         return "".join(self.code_buffer)
 
 
-class TemplateLoader(object):
+class TemplateLoader:
     def load(self, name: str) -> str:
         raise NotImplementedError
 
@@ -282,7 +280,7 @@ class FileTemplateLoader(TemplateLoader):
             return f.read()
 
 
-class Template(object):
+class Template:
     def __init__(self, source: str, name: str="<template>",
                  loader: TemplateLoader=None):
         self.source = source
@@ -310,7 +308,7 @@ class Template(object):
         elif value is None:
             return u""
         else:
-            return text_type(value)
+            return str(value)
 
     @staticmethod
     def _escape(value: str):

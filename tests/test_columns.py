@@ -1,4 +1,3 @@
-from __future__ import with_statement
 import random
 import sys
 from array import array
@@ -8,7 +7,6 @@ from typing import List
 from whoosh import columns
 # from whoosh import fields
 # from whoosh import query
-# from whoosh.compat import BytesIO, bytes_type, text_type
 # from whoosh.filedb.filestore import RamStorage
 from whoosh.util.testing import TempIndex, TempStorage
 

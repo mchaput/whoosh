@@ -31,7 +31,6 @@ import typing
 from typing import Iterable, List, Tuple
 
 from whoosh import collectors
-from whoosh.compat import string_type, text_type
 from whoosh.matching import matchers
 from whoosh.analysis import analysis
 from whoosh.query import terms, compound, queries
@@ -146,7 +145,7 @@ class Phrase(queries.Query):
     Matches documents containing a given phrase.
     """
 
-    def __init__(self, fieldname: str, words: List[text_type], slop: int=0,
+    def __init__(self, fieldname: str, words: List[str], slop: int=0,
                  boost: float=1.0, char_ranges: List[Tuple[int, int]]=None):
         """
         :param fieldname: the field to search.
@@ -180,10 +179,8 @@ class Phrase(queries.Query):
                                                   self.fieldname, self.words,
                                                   self.slop, self.boost)
 
-    def __unicode__(self):
+    def __str__(self):
         return u'%s:"%s"' % (self.fieldname, u" ".join(self.words))
-
-    __str__ = __unicode__
 
     def __hash__(self):
         h = hash(self.fieldname) ^ hash(self.slop) ^ hash(self.boost)
@@ -198,7 +195,7 @@ class Phrase(queries.Query):
         words = args[1]
         schema = collector.searcher.schema
         field = schema[fieldname]
-        if isinstance(words, string_type):
+        if isinstance(words, str):
             words = field.tokenize(words)
         q = cls(fieldname, words, *args[2:], **kwargs)
         return collector.with_query(q)
@@ -207,7 +204,7 @@ class Phrase(queries.Query):
         return True
 
     def _terms(self, reader: 'reading.IndexReader'=None,
-               phrases: bool=True) -> Iterable[Tuple[str, text_type]]:
+               phrases: bool=True) -> Iterable[Tuple[str, str]]:
         fieldname = self.field()
         if not (phrases and fieldname):
             return

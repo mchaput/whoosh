@@ -28,11 +28,13 @@
 import typing
 from typing import Dict, Iterable, Sequence
 
-from whoosh import fields, merging, reading
+from whoosh import fields, reading
 from whoosh.codec import codecs
 from whoosh.filedb.filestore import RamStorage
 from whoosh.matching import matchers
 from whoosh.query import queries
+from whoosh.writing import merging
+
 
 # Typing imports
 if typing.TYPE_CHECKING:
@@ -81,6 +83,12 @@ class FakeSegment(codecs.Segment):
     def is_deleted(self, docnum: int) -> bool:
         return docnum in self._deleted
 
+    def deleted_count(self) -> int:
+        return len(self._deleted)
+
+    def has_deletions(self) -> bool:
+        return bool(self._deleted)
+
 
 class FakeReader(reading.IndexReader):
     def __init__(self, segment: FakeSegment):
@@ -88,8 +96,8 @@ class FakeReader(reading.IndexReader):
         self.patterns = segment.patterns
         self.schema = None
 
-    def matcher(self, fieldname: str, text: str) -> matchers.Matcher:
-        return FakeMatcher(self.patterns[text])
+    def matcher(self, fieldname: str, termbytes: bytes) -> matchers.Matcher:
+        return FakeMatcher(self.patterns[termbytes])
 
     def doc_count(self) -> int:
         return self.segment.doc_count()
@@ -150,17 +158,9 @@ def test_simulation():
         for merge in merges:
             segids = set(s.segment_id() for s in merge.segments)
             segs = [s for s in segs if s.segment_id() not in segids]
-            newseg = FakeSegment(merge.doc_count(), merge.after_size())
+            newseg = FakeSegment("xxx", merge.doc_count(), merge.after_size())
             # print("Merged", len(merge), "into", newseg)
             segs.append(newseg)
-
-
-def test_too_big():
-    segs = [FakeSegment("a", 1), FakeSegment("b", 1), FakeSegment("c", 1000000)]
-    tms = merging.TieredMergeStrategy(per_tier=2)
-
-    merges = tms.get_merges(segs, ())
-    assert not merges
 
 
 def _fake_merge(m: merging.Merge, newid: str,
@@ -174,9 +174,9 @@ def _make_list(st):
     from whoosh.writing import segmentlist
     schema = fields.Schema(text=fields.Text)
     sesh = st.open()
-    sl = segmentlist.SegmentList(sesh, schema, [])
+    seglist = segmentlist.SegmentList(sesh, schema, [])
     # Patch the SegmentList's reader() method so it returns our FakeReader
-    sl.reader = lambda seg: FakeReader(seg)
+    seglist.segment_reader = lambda seg: FakeReader(seg)
 
     initial = [
         FakeSegment("1", 1000, patterns={"a": [1, 2, 3], "b": [10, 20, 30]}),
@@ -190,9 +190,9 @@ def _make_list(st):
     ]
 
     for seg in initial:
-        sl.add_segment(seg)
+        seglist.add_segment(seg)
 
-    return initial, sl
+    return initial, seglist
 
 
 def _check_merge(initial, sl, newseg):

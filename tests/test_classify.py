@@ -1,5 +1,3 @@
-from __future__ import with_statement
-
 from whoosh import analysis, classify, fields, query
 from whoosh.filedb.filestore import RamStorage
 from whoosh.util.testing import TempIndex

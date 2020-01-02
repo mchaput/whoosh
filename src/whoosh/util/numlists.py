@@ -3,7 +3,6 @@ from abc import abstractmethod
 from array import array
 from typing import Iterable, Sequence
 
-from whoosh.compat import array_tobytes, array_frombytes
 from whoosh.support import pfor
 from whoosh.system import IS_LITTLE
 from whoosh.util.varints import varint, decode_varint
@@ -135,11 +134,11 @@ class Fixed(NumberEncoding):
         arry = array(self.typecode, numbers)
         if not IS_LITTLE:
             arry.byteswap()
-        return array_tobytes(arry)
+        return arry.tobytes()
 
     def unpack(self, source: bytes, offset: int, count: int) -> Sequence[int]:
         arry = array(self.typecode)
-        array_frombytes(arry, source[offset:offset + count * arry.itemsize])
+        arry.frombytes(source[offset:offset + count * arry.itemsize])
         if not IS_LITTLE:
             arry.byteswap()
         return arry
@@ -151,14 +150,14 @@ class MinFixed(NumberEncoding):
         arry = array(typecode, numbers)
         if not IS_LITTLE:
             arry.byteswap()
-        return typecode.encode("ascii") + array_tobytes(arry)
+        return typecode.encode("ascii") + arry.tobytes()
 
     def unpack(self, source: bytes, offset: int, count: int) -> Sequence[int]:
         typecode = str(source[offset:offset + 1].decode("ascii"))
         arry = array(typecode)
         start = offset + 1
         end = start + count * arry.itemsize
-        array_frombytes(arry, source[start:end])
+        arry.frombytes(source[start:end])
         if not IS_LITTLE:
             arry.byteswap()
         return arry
@@ -207,11 +206,11 @@ class PForDelta(NumberEncoding):
         arry = array("I", pfor.compress_one_block(numbers, len(numbers)))
         if not IS_LITTLE:
             arry.byteswap()
-        return array_tobytes(arry)
+        return arry.tobytes()
 
     def unpack(self, source: bytes, offset: int, count: int) -> Sequence[int]:
         arry = array("I")
-        array_frombytes(arry, source)
+        arry.frombytes(source)
         if not IS_LITTLE:
             arry.byteswap()
         return pfor.decompress_one_block(arry, count)

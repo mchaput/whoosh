@@ -26,7 +26,6 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from whoosh.writing.writing import *
-from whoosh.writing.multiwriting import MultiWriter
 
 
 

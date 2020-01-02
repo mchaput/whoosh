@@ -51,7 +51,8 @@ class BSD(Database):
                     raise
 
     def _env(self, create):
-        flags = db.DB_INIT_MPOOL | db.DB_INIT_LOCK | db.DB_INIT_LOG | db.DB_INIT_TXN
+        flags = (db.DB_INIT_MPOOL | db.DB_INIT_LOCK | db.DB_INIT_LOG |
+                 db.DB_INIT_TXN)
         if create:
             self._create_dir()
             flags |= db.DB_CREATE

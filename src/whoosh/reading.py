@@ -34,14 +34,12 @@ from abc import abstractmethod
 from bisect import bisect_right
 from functools import wraps
 from heapq import heapify, heapreplace, heappop
-from typing import (
-    cast, Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union,
-)
+from typing import (cast, Any, Callable, Dict, Iterable, List, Optional,
+                    Sequence, Set, Tuple, Union)
 
 import whoosh.scoring
 from whoosh import columns, fields, idsets, spelling, storage
 from whoosh.codec import codecs
-from whoosh.compat import text_type
 from whoosh.matching import matchers
 from whoosh.postings import postings, ptuples
 from whoosh.support.levenshtein import distance
@@ -55,7 +53,8 @@ if typing.TYPE_CHECKING:
 # Typing aliases
 
 TermTuple = Tuple[str, bytes]
-TermText = Union[text_type, bytes]
+TermTupleWithOptReader = 'Iterable[Tuple[TermTuple, Optional[IndexReader]]]'
+TermText = Union[str, bytes]
 
 
 # Decorators and helpers
@@ -73,6 +72,14 @@ def field_checked(f):
             raise TermNotFound("Field %r is not indexed" % fieldname)
         return f(self, fieldname, *args, **kwargs)
     return check_field_wrapper
+
+
+def leaf_readers(reader_list: 'Sequence[IndexReader]') -> 'List[IndexReader]':
+    rs = []
+    for r in reader_list:
+        for lr, _ in r.leaf_readers():
+            rs.append(lr)
+    return rs
 
 
 # Exceptions
@@ -139,6 +146,14 @@ class TermInfo:
         else:
             self._minlength = min(self._minlength, length)
 
+    def add_posting(self, docid, weight, length):
+        if self._minid is None:
+            self._minid = docid
+        self._maxid = docid
+        self._df += 1
+        self._weight += weight
+        self._maxlength = max(self._maxlength, length)
+
     def add_posting_list_stats(self, posts: Sequence[ptuples.PostTuple]):
         # Incorporate the stats from a list of postings into this object.
         # We assume the min doc id of the list > our current max doc id
@@ -174,6 +189,26 @@ class TermInfo:
         if self._minid is None:
             self._minid = r.min_id()
         self._maxid = r.max_id()
+
+    def copy_from(self, terminfo: 'TermInfo',
+                  docmap_get: Callable[[int, int], int]=None):
+        self._weight = terminfo.weight()
+        self._df = terminfo.doc_frequency()
+        self._minlength = terminfo.min_length()
+        self._maxlength = terminfo.max_length()
+        self._maxweight = terminfo.max_weight()
+
+        minid = terminfo.min_id()
+        if docmap_get:
+            minid = docmap_get(minid, minid)
+        maxid = terminfo.max_id()
+        if docmap_get:
+            maxid = docmap_get(maxid, maxid)
+        self._minid = minid
+        self._maxid = maxid
+
+    def has_blocks(self) -> bool:
+        raise NotImplementedError
 
     def shift(self, delta):
         self._minid += delta
@@ -346,12 +381,16 @@ class IndexReader:
         raise NotImplementedError
 
     @abstractmethod
-    def all_terms(self) -> Iterable[Tuple[str, bytes]]:
+    def all_terms(self) -> Iterable[TermTuple]:
         """
         Yields (fieldname, text) tuples for every term in the index.
         """
 
         raise NotImplementedError
+
+    def all_terms_with_reader(self) -> TermTupleWithOptReader:
+        for term in self.all_terms():
+            yield term, self
 
     @unclosed
     def term_range(self, fieldname: str, start: Optional[TermText],
@@ -594,7 +633,7 @@ class IndexReader:
         :param exclude: don't produce documents whose IDs are in this set.
         """
 
-        raise NotImplementedError(self.__class__)
+        raise NotImplementedError(self.__class__.__name__)
 
     @abstractmethod
     def has_vector(self, docnum: int, fieldname: str) -> bool:
@@ -606,7 +645,7 @@ class IndexReader:
         :param fieldname: the name of the field to check.
         """
 
-        raise NotImplementedError(self.__class__)
+        raise NotImplementedError(self.__class__.__name__)
 
     @abstractmethod
     def vector(self, docnum: int, fieldname: str) -> 'postings.VectorReader':
@@ -624,7 +663,7 @@ class IndexReader:
 
     @abstractmethod
     def cursor(self, fieldname: str) -> 'codecs.TermCursor':
-        raise NotImplementedError(self.__class__)
+        raise NotImplementedError(self.__class__.__name__)
 
     @unclosed
     def corrector(self, fieldname: str) -> 'spelling.ReaderCorrector':
@@ -640,8 +679,8 @@ class IndexReader:
         return spelling.ReaderCorrector(self, fieldname, fieldobj)
 
     @unclosed
-    def terms_within(self, fieldname: str, text: text_type, maxdist: int,
-                     prefix: int=0) -> Iterable[text_type]:
+    def terms_within(self, fieldname: str, text: str, maxdist: int,
+                     prefix: int=0) -> Iterable[str]:
         """
         Returns a generator of words in the given field within ``maxdist``
         Damerau-Levenshtein edit distance of the given text.
@@ -911,7 +950,7 @@ class SegmentReader(IndexReader):
     #
 
     @unclosed
-    def all_terms(self) -> Iterable[Tuple[str, bytes]]:
+    def all_terms(self) -> Iterable[TermTuple]:
         schema = self.schema
         return ((fieldname, text) for fieldname, text in self._terms.terms()
                 if fieldname in schema)
@@ -982,11 +1021,16 @@ class SegmentReader(IndexReader):
                 include: 'Union[idsets.DocIdSet, Set]'=None,
                 exclude: 'Union[idsets.DocIdSet, Set]'=None
                 ) -> 'matchers.Matcher':
-        from whoosh.matching.wrappers import FilterMatcher
-
         termbytes = self._text_to_bytes(fieldname, termbytes)
         format_ = self.schema[fieldname].format
         matcher = self._terms.matcher(fieldname, termbytes, format_, scorer)
+        return self._wrap_matcher(matcher, include, exclude)
+
+    def _wrap_matcher(self, matcher: 'matchers.Matcher',
+                      include: 'Union[idsets.DocIdSet, Set]',
+                      exclude: 'Union[idsets.DocIdSet, Set]',
+                      ) -> 'matchers.Matcher':
+        from whoosh.matching.wrappers import FilterMatcher
 
         if self._eol or self._perdoc.has_deletions():
             deleted = self.deleted_set()
@@ -1015,7 +1059,7 @@ class SegmentReader(IndexReader):
 
     @field_checked
     def terms_within(self, fieldname: str, text: TermText, maxdist: int,
-                     prefix: int=0) -> Iterable[text_type]:
+                     prefix: int=0) -> Iterable[str]:
         # Replaces the horribly inefficient base implementation with one based
         # on skipping through the word list efficiently using a DFA
 
@@ -1035,7 +1079,7 @@ class SegmentReader(IndexReader):
             return False
 
         colobj = self.schema[fieldname].column
-        return colobj and self._perdoc.has_column(fieldname)
+        return bool(colobj and self._perdoc.has_column(fieldname))
 
     @field_checked
     def column_reader(self, fieldname: str, column: columns.Column=None,
@@ -1163,7 +1207,7 @@ class MultiReader(IndexReader):
     Do not instantiate this object directly. Instead use Index.reader().
     """
 
-    def __init__(self, readers: 'List[reading.IndexReader]',
+    def __init__(self, readers: 'Sequence[reading.IndexReader]',
                  generation: int=None):
         self.readers = readers
         self._gen = generation
@@ -1215,55 +1259,6 @@ class MultiReader(IndexReader):
     def __contains__(self, term: TermTuple) -> bool:
         return any((term in r) for r in self.readers)
 
-    @staticmethod
-    def _merge_iters(iterlist: List[Iterable[Any]]
-                     ) -> Iterable[Any]:
-        # Merge-sorts terms coming from a list of term iterators
-
-        # Create a map so we can look up each iterator by its id() value
-        itermap = {}
-        for it in iterlist:
-            itermap[id(it)] = it
-
-        # Fill in the list with the head term from each iterator.
-        current = []
-        for it in iterlist:
-            try:
-                term = next(it)
-            except StopIteration:
-                continue
-            current.append((term, id(it)))
-        # Number of active iterators
-        active = len(current)
-
-        # If only one iterator is active, just yield from it and return
-        if active == 1:
-            term, itid = current[0]
-            it = itermap[itid]
-            yield term
-            for term in it:
-                yield term
-            return
-
-        # Otherwise, do a streaming heap sort of the terms from the iterators
-        heapify(current)
-        while active:
-            # Peek at the first term in the sorted list
-            term = current[0][0]
-
-            # Re-iterate on all items in the list that have that term
-            while active and current[0][0] == term:
-                it = itermap[current[0][1]]
-                try:
-                    nextterm = next(it)
-                    heapreplace(current, (nextterm, id(it)))
-                except StopIteration:
-                    heappop(current)
-                    active -= 1
-
-            # Yield the term
-            yield term
-
     def indexed_field_names(self) -> Sequence[str]:
         names = set()
         for r in self.readers:
@@ -1271,12 +1266,15 @@ class MultiReader(IndexReader):
         return sorted(names)
 
     def all_terms(self) -> Iterable[TermTuple]:
-        return self._merge_iters([r.all_terms() for r in self.readers])
+        return _merge_iters([r.all_terms() for r in self.readers])
+
+    def all_terms_with_reader(self) -> TermTupleWithOptReader:
+        return _merge_iters2(self.readers)
 
     def term_range(self, fieldname: str, start: TermText,
                    end: Optional[TermText]) -> Iterable[bytes]:
-        return self._merge_iters([r.term_range(fieldname, start, end)
-                                  for r in self.readers])
+        return _merge_iters([r.term_range(fieldname, start, end)
+                             for r in self.readers])
 
     def term_info(self, fieldname: str, termbytes: TermText):
         termbytes = self._text_to_bytes(fieldname, termbytes)
@@ -1438,3 +1436,109 @@ def combine_readers(readers):
     else:
         return EmptyReader()
 
+
+def _merge_iters(iterlist: List[Iterable[Any]]) -> Iterable[Any]:
+    # Merge-sorts terms coming from a list of term iterators
+
+    # Create a map so we can look up each iterator by its id() value
+    itermap = {}
+    for it in iterlist:
+        itermap[id(it)] = it
+
+    # Fill in the list with the head term from each iterator.
+    current = []
+    for it in iterlist:
+        try:
+            term = next(it)
+        except StopIteration:
+            continue
+        current.append((term, id(it)))
+    # Number of active iterators
+    active = len(current)
+
+    # Do a streaming heap sort of the terms from the iterators
+    heapify(current)
+    while active:
+        # If only one iterator is active, just yield from it and return
+        if active == 1:
+            term, itid = current[0]
+            it = itermap[itid]
+            yield term
+            for term in it:
+                yield term
+            return
+
+        # Peek at the first term in the sorted list
+        term = current[0][0]
+
+        # Re-iterate on all items in the list that have that term
+        while active and current[0][0] == term:
+            it = itermap[current[0][1]]
+            try:
+                nextterm = next(it)
+                heapreplace(current, (nextterm, id(it)))
+            except StopIteration:
+                heappop(current)
+                active -= 1
+
+        # Yield the term
+        yield term
+
+
+def _merge_iters2(readers: List[IndexReader]
+                  ) -> Iterable[Tuple[TermTuple, Optional[IndexReader]]]:
+    # Merge-sorts terms coming from a list of term iterators
+    iterlist = [r.all_terms() for r in readers]
+
+    # Create a map so we can look up each iterator by its id() value
+    iterlist = []
+    itermap = {}
+    readermap = {}
+    for reader in readers:
+        it = reader.all_terms()
+        iterlist.append(it)
+        itermap[id(it)] = it
+        readermap[id(it)] = reader
+
+    # Fill in the list with the head term from each iterator.
+    current = []
+    for it in iterlist:
+        try:
+            term = next(it)
+        except StopIteration:
+            continue
+        current.append((term, id(it)))
+    # Number of active iterators
+    active = len(current)
+
+    # Do a streaming heap sort of the terms from the iterators
+    heapify(current)
+    while active:
+        # If only one iterator is active, just yield from it and return
+        if active == 1:
+            term, itid = current[0]
+            it = itermap[itid]
+            reader = readermap[itid]
+            yield term, reader
+            for term in it:
+                yield term, reader
+            return
+
+        # Peek at the first term in the sorted list
+        term = current[0][0]
+        reader = readermap[current[0][1]]
+        count = 0
+
+        # Re-iterate on all items in the list that have that term
+        while active and current[0][0] == term:
+            count += 1
+            it = itermap[current[0][1]]
+            try:
+                nextterm = next(it)
+                heapreplace(current, (nextterm, id(it)))
+            except StopIteration:
+                heappop(current)
+                active -= 1
+
+        # Yield the term, and the reader if only one reader had the term
+        yield term, reader if count == 1 else None

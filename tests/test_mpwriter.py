@@ -1,4 +1,3 @@
-from __future__ import with_statement
 import random
 from collections import deque
 from itertools import permutations

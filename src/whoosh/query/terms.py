@@ -30,11 +30,9 @@ import copy
 import fnmatch
 import re
 import typing
-from typing import Iterable, Tuple
+from typing import Iterable, List, Tuple
 
-import whoosh.searching
-from whoosh import collectors
-from whoosh.compat import bytes_type, text_type
+from whoosh import collectors, searching
 from whoosh.query import queries
 from whoosh.matching import matchers
 from whoosh.analysis import analysis
@@ -46,7 +44,7 @@ if typing.TYPE_CHECKING:
 
 
 __all__ = ("Term", "MultiTerm", "PatternQuery", "Prefix", "Wildcard", "Regex",
-           "ExpandingTerm", "FuzzyTerm", "Variations")
+           "ExpandingTerm", "FuzzyTerm", "Variations", "PathListQuery")
 
 
 @collectors.register("term")
@@ -57,7 +55,7 @@ class Term(queries.Query):
     >>> Term("content", u"render")
     """
 
-    __inittypes__ = dict(fieldname=str, text=text_type, boost=float)
+    __inittypes__ = dict(fieldname=str, text=str, boost=float)
 
     def __init__(self, fieldname, text, boost=1.0, minquality=None):
         super(Term, self).__init__(boost=boost)
@@ -65,10 +63,10 @@ class Term(queries.Query):
         self.text = text
         self.minquality = minquality
 
-    def __eq__(self, other: queries.Query):
+    def __eq__(self, other: 'Term'):
         return (other
                 and self.__class__ is other.__class__
-                and self.fieldname == other.fieldname
+                and self.field() == other.field()
                 and self.text == other.text
                 and self.boost == other.boost)
 
@@ -79,9 +77,9 @@ class Term(queries.Query):
         r += ")"
         return r
 
-    def __unicode__(self):
+    def __str__(self):
         text = self.text
-        if isinstance(text, bytes_type):
+        if isinstance(text, bytes):
             try:
                 text = text.decode("ascii")
             except UnicodeDecodeError:
@@ -89,10 +87,8 @@ class Term(queries.Query):
 
         t = u"%s:%s" % (self.fieldname, text)
         if self.boost != 1:
-            t += u"^%s" % text_type(self.boost)
+            t += u"^%s" % str(self.boost)
         return t
-
-    __str__ = __unicode__
 
     def __hash__(self):
         return hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
@@ -104,7 +100,7 @@ class Term(queries.Query):
         return True
 
     def _terms(self, reader: 'reading.IndexReader'=None,
-               phrases: bool=True) -> Iterable[Tuple[str, text_type]]:
+               phrases: bool=True) -> Iterable[Tuple[str, str]]:
         fieldname = self.field()
         if not fieldname:
             return
@@ -138,7 +134,7 @@ class Term(queries.Query):
                 context: 'searching.SearchContext'=None) -> 'matchers.Matcher':
         from whoosh.matching.wrappers import WrappingMatcher
 
-        assert isinstance(searcher, whoosh.searching.Searcher)
+        assert isinstance(searcher, searching.SearcherType)
         fieldname = self.fieldname
         if fieldname not in searcher.schema:
             return matchers.NullMatcher()
@@ -189,7 +185,7 @@ class MultiTerm(queries.Query):
         raise NotImplementedError(self.__class__.__name__)
 
     def _terms(self, reader: 'reading.IndexReader'=None,
-               phrases: bool=True) -> Iterable[Tuple[str, text_type]]:
+               phrases: bool=True) -> Iterable[Tuple[str, str]]:
         fieldname = self.field()
         if reader and fieldname:
             for btext in self._btexts(reader):
@@ -241,7 +237,7 @@ class MultiTerm(queries.Query):
             q = Or(qs)
         return q
 
-    def matcher(self, searcher, context=None):
+    def matcher(self, searcher, context=None) -> 'matchers.Matcher':
         if self.constantscore:
             # To tell the sub-query that score doesn't matter, set weighting
             # to None
@@ -258,7 +254,7 @@ class PatternQuery(MultiTerm):
     An intermediate base class for common methods of Prefix and Wildcard.
     """
 
-    __inittypes__ = dict(fieldname=str, text=text_type, boost=float)
+    __inittypes__ = dict(fieldname=str, text=str, boost=float)
 
     def __init__(self, fieldname, text, boost=1.0, constantscore=True):
         super(PatternQuery, self).__init__(fieldname, text, boost=boost)
@@ -320,15 +316,13 @@ class Prefix(PatternQuery):
     >>> Prefix("content", u"comp")
     """
 
-    def __unicode__(self):
+    def __str__(self):
         return "%s:%s*" % (self.fieldname, self.text)
-
-    __str__ = __unicode__
 
     def _btexts(self, ixreader):
         return ixreader.expand_prefix(self.fieldname, self.text)
 
-    def matcher(self, searcher, context=None):
+    def matcher(self, searcher, context=None) -> 'matchers.Matcher':
         if self.text == "":
             from whoosh.query import Every
             eq = Every(self.fieldname, boost=self.boost)
@@ -347,10 +341,8 @@ class Wildcard(PatternQuery):
 
     SPECIAL_CHARS = frozenset("*?[")
 
-    def __unicode__(self):
+    def __str__(self):
         return "%s:%s" % (self.fieldname, self.text)
-
-    __str__ = __unicode__
 
     def _get_pattern(self):
         return fnmatch.translate(self.text)
@@ -374,7 +366,7 @@ class Wildcard(PatternQuery):
         else:
             return self
 
-    def matcher(self, searcher, context=None):
+    def matcher(self, searcher, context=None) -> 'matchers.Matcher':
         if self.text == "*":
             from whoosh.query import Every
             eq = Every(self.fieldname, boost=self.boost)
@@ -394,10 +386,8 @@ class Regex(PatternQuery):
 
     SPECIAL_CHARS = frozenset("{}()[].?*+^$\\")
 
-    def __unicode__(self):
+    def __str__(self):
         return '%s:r"%s"' % (self.fieldname, self.text)
-
-    __str__ = __unicode__
 
     def _get_pattern(self):
         return self.text
@@ -421,7 +411,7 @@ class Regex(PatternQuery):
             prefix = prefix[:-1]
         return prefix
 
-    def matcher(self, searcher, context=None):
+    def matcher(self, searcher, context=None) -> 'matchers.Matcher':
         if self.text == ".*":
             from whoosh.query import Every
             eq = Every(self.fieldname, boost=self.boost)
@@ -442,7 +432,7 @@ class ExpandingTerm(MultiTerm):
         return True
 
     def _terms(self, reader: 'reading.IndexReader'=None,
-               phrases: bool=True) -> Iterable[Tuple[str, text_type]]:
+               phrases: bool=True) -> Iterable[Tuple[str, str]]:
         fieldname = self.field()
         if fieldname:
             if reader:
@@ -458,7 +448,7 @@ class FuzzyTerm(ExpandingTerm):
     Matches documents containing words similar to the given term.
     """
 
-    __inittypes__ = dict(fieldname=str, text=text_type, boost=float,
+    __inittypes__ = dict(fieldname=str, text=str, boost=float,
                          maxdist=float, prefixlength=int)
 
     def __init__(self, fieldname, text, boost=1.0, maxdist=1,
@@ -494,15 +484,13 @@ class FuzzyTerm(ExpandingTerm):
         return r % (self.__class__.__name__, self.fieldname, self.text,
                     self.boost, self.maxdist, self.prefixlength)
 
-    def __unicode__(self):
+    def __str__(self):
         r = u"%s:%s" % (self.fieldname, self.text) + u"~"
         if self.maxdist > 1:
             r += u"%d" % self.maxdist
         if self.boost != 1.0:
             r += u"^%f" % self.boost
         return r
-
-    __str__ = __unicode__
 
     def __hash__(self):
         return (hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
@@ -558,13 +546,119 @@ class Variations(ExpandingTerm):
             if (fieldname, btext) in ixreader:
                 yield btext
 
-    def __unicode__(self):
+    def __str__(self):
         return u"%s:<%s>" % (self.fieldname, self.text)
-
-    __str__ = __unicode__
 
     def replace(self, fieldname, oldtext, newtext):
         q = copy.copy(self)
         if q.fieldname == fieldname and q.text == oldtext:
             q.text = newtext
         return q
+
+
+class PathListQuery(queries.Query):
+    """
+    This is essentially a single-purpose query, to find all documents whose
+    unique ID is in a list  of IDs, for bulk deletion. The twist is that the
+    query matches docs not only by the exact IDs, but also docs with IDs that
+    have a `#fragment` on the end, where except for the fragment the ID would
+    be in the set. This is to match "sub-documents" derived from the original
+    file, which should also be deleted.
+
+    For example, if the pathlist is `["/a/b", "/c/d"]`, then this will delete
+    docswith paths `/a/b` and `/c/d`, but also for example `/a/b#foo` and
+    `/c/d#bar`.
+
+    This query is not useful for scoring the results; it artificially sees the
+    weight of each matching document as 1.0.
+    """
+
+    def __init__(self, fieldname: str, pathlist: Iterable[bytes]):
+        """
+        :param fieldname: The name of the field to search in.
+        :param pathlist: A sequence of bytestrings or unicode strings to match.
+            The query will match these strings as well as strings that also have
+            an extra `#fragment` on the end.
+        """
+        self.fieldname = fieldname
+        # Make sure the list is all bytestrings, and in sorted order
+        self.pathlist = sorted((t.encode("utf8") if isinstance(t, str) else t)
+                               for t in pathlist)
+        self.boost = 1.0
+
+    def has_terms(self):
+        return True
+
+    def terms(self, reader: 'reading.IndexReader'=None, phrases: bool=True
+              ) -> Iterable[Tuple[str, str]]:
+        fieldname = self.fieldname
+        for term in self._paths(reader):
+            yield fieldname, term
+
+    def _paths(self, reader: 'reading.IndexReader'=None) -> List[bytes]:
+        # Look at all the terms in the field and return a list of the terms that
+        # match the given paths
+
+        pathlist = self.pathlist
+        found = []
+
+        # Current place in the sorted list of paths to match
+        n = 0
+        # Current path to match
+        current = pathlist[n]
+        # Current path to match plus a hash mark, to check prefix matches
+        prefix = current + b'#'
+        # Term cursor to iterate through the field's terms
+        cur = reader.cursor(self.fieldname)
+        while n < len(pathlist) and cur.is_valid():
+            # Current term
+            tbytes = cur.termbytes()
+            if tbytes < current:
+                # We ahead of the current path, seek to the current path
+                cur.seek(current)
+            elif tbytes == current:
+                # The current term matches the current path, record it as found
+                found.append(tbytes)
+                # Move to the next term (to check for prefix matches)
+                cur.next()
+            elif tbytes.startswith(prefix):
+                # The current term has a prefix match with the current path
+                found.append(tbytes)
+                # Move to the next term (to check for more prefix matches)
+                cur.next()
+            else:
+                # The current term is past the current path, move to the next
+                # path in the pathlist
+                n += 1
+                if n < len(pathlist):
+                    # Re-establish the current and prefix vars
+                    current = pathlist[n]
+                    prefix = current + b'#'
+        return found
+
+    def needs_spans(self):
+        return False
+
+    def estimate_size(self, reader: 'reading.IndexReader'):
+        return len(self._paths(reader))
+
+    def matcher(self, searcher, context) -> 'matchers.Matcher':
+        from whoosh.matching import NullMatcher, ListMatcher
+
+        fieldname = self.fieldname
+        reader = searcher.reader()
+        termlist = tuple(self._paths(reader))
+        if termlist:
+            # Look up each matching term and record the first doc ID (assumes
+            # each value is unique!). This should be fast because unique doc IDs
+            # are stored "inline" in the terminfo.
+            docids = []
+            for termbytes in termlist:
+                m = reader.matcher(fieldname, termbytes)
+                if m.is_active():
+                    docids.append(m.id())
+            docids.sort()
+            return ListMatcher(docids)
+        else:
+            return NullMatcher()
+

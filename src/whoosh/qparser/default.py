@@ -28,7 +28,6 @@
 import sys
 
 from whoosh import query
-from whoosh.compat import text_type
 from whoosh.qparser import syntax
 from whoosh.qparser.common import print_debug
 
@@ -355,7 +354,7 @@ class QueryParser:
         :rtype: :class:`whoosh.query.Query`
         """
 
-        if not isinstance(text, text_type):
+        if not isinstance(text, str):
             text = text.decode("latin1")
 
         nodes = self.process(text, debug=debug)

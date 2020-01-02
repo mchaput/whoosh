@@ -318,6 +318,9 @@ class KeyValueReader:
     def close(self):
         pass
 
+    def enable_preread(self):
+        pass
+
     @abstractmethod
     def __getitem__(self, key: bytes) -> bytes:
         raise NotImplementedError
@@ -774,6 +777,8 @@ class MultiRegion(KeyValueReader):
             memory for speed.
         """
 
+        assert reflist
+
         self._data = data
         self._refs = reflist
         self._cachesize = cachesize
@@ -933,6 +938,32 @@ class MultiRegion(KeyValueReader):
         return MultiRegionCursor(self)
 
 
+class EmptyRegion(KeyValueReader):
+    def __getitem__(self, key: bytes) -> bytes:
+        raise KeyError(key)
+
+    def __len__(self) -> int:
+        return 0
+
+    def __iter__(self) -> Iterable[bytes]:
+        return iter(())
+
+    def key_range(self, start: bytes, end: Optional[bytes]) -> Iterable[bytes]:
+        return iter(())
+
+    def items(self) -> Iterable[Tuple[bytes, bytes]]:
+        return iter(())
+
+    def min_key(self):
+        return None
+
+    def max_key(self):
+        return None
+
+    def cursor(self) -> 'Cursor':
+        return EmptyCursor()
+
+
 # Cursors
 
 class Cursor:
@@ -990,6 +1021,29 @@ class Cursor:
         """
 
         raise NotImplementedError
+
+
+class EmptyCursor(Cursor):
+    def is_valid(self):
+        return False
+
+    def first(self):
+        pass
+
+    def seek(self, key: bytes):
+        pass
+
+    def next(self):
+        raise Exception
+
+    def find(self, key, fromfirst=True):
+        pass
+
+    def key(self):
+        return None
+
+    def value(self):
+        return None
 
 
 class RegionCursor(Cursor):

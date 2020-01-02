@@ -28,7 +28,7 @@
 from __future__ import division
 import typing
 from typing import (
-    Any, Callable, Iterable, Optional, Sequence, Set, Tuple, Union,
+    Any, Dict, Callable, Iterable, Optional, Sequence, Set, Tuple, Union,
 )
 
 from whoosh import idsets
@@ -241,6 +241,24 @@ class DocOffsetMatcher(WrappingMatcher):
         change_docid = ptuples.change_docid
         for post in self.child.all_raw_postings():
             yield change_docid(post, get_id(post) + self._doc_offset)
+
+    def supports_raw_blocks(self) -> bool:
+        return self.child.supports_raw_blocks()
+
+    def raw_blocks(self) -> Iterable[bytes]:
+        return self.child.raw_blocks()
+
+    def rewrite_raw_blocks(self, docmap_get: Callable[[int, int], int]
+                           ) -> Iterable[bytes]:
+        docoffset = self._doc_offset
+
+        if docmap_get:
+            def offset_get(docid, default):
+                return docmap_get(docid + docoffset, default)
+        else:
+            offset_get = None
+
+        return self.child.rewrite_raw_blocks(offset_get)
 
 
 class MultiMatcher(matchers.Matcher):

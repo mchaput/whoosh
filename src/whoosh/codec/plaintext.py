@@ -28,13 +28,12 @@
 from ast import literal_eval
 from pickle import dumps, loads
 
-from whoosh.compat import bytes_type, text_type, integer_types
 from whoosh.codec import codecs
 from whoosh.matching import ListMatcher
 from whoosh.reading import TermInfo, TermNotFound
 
 
-_reprable = (bytes_type, text_type, integer_types, float)
+_reprable = (bytes, str, int, float)
 
 
 # Mixin classes for producing and consuming the simple text format
@@ -43,7 +42,7 @@ class LineWriter:
     def _print_line(self, indent, command, **kwargs):
         self._dbfile.write(b"  " * indent)
         self._dbfile.write(command.encode("latin1"))
-        for k, v in iteritems(kwargs):
+        for k, v in kwargs.items():
             if isinstance(v, memoryview):
                 v = bytes(v)
             if v is not None and not isinstance(v, _reprable):
