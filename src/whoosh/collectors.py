@@ -1,5 +1,6 @@
 import typing
 from collections import defaultdict, namedtuple
+from concurrent import futures
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from whoosh import sorting
@@ -9,7 +10,8 @@ from whoosh.util import now
 # Typing imports
 if typing.TYPE_CHECKING:
     from whoosh.query import queries
-    from whoosh import results, scoring, searching
+    from whoosh import fields, results, searching, scoring, storage
+    from whoosh.codec import codecs
 
 
 # Typing aliases
@@ -58,16 +60,18 @@ class Collector:
     collector_priority = 0
 
     def __init__(self, searcher: 'searching.SearcherType', q: 'queries.Query'):
+        from whoosh import searching
+
         self._searcher = searcher
         self._query = q
 
-        self._items = None  # type: List[MatchTuple]
-        self._current_data = None  # type: Dict[str, Any]
-        self._current_searcher = None  # type: searching.Searcher
+        self._items = []  # type: List[MatchTuple]
+        self._current_data = {}  # type: Dict[str, Any]
+        self._current_searcher = None  # type: Optional[searching.Searcher]
         self._current_offset = 0
-        self._current_context = None  # type: searching.SearchContext
+        self._current_context = searching.SearchContext()
         self._current_docset = None  # type: Optional[Set]
-        self._current_matcher = None  # type: matchers.Matcher
+        self._current_matcher = None  # type: Optional[matchers.Matcher]
         self._current_minscore = 0.0
 
     def __repr__(self) -> str:
@@ -100,7 +104,7 @@ class Collector:
 
                 return _combiner
 
-        raise AttributeError("No attribute %s on %r" % (name, self))
+        raise AttributeError
 
     def rewrap(self, child):
         raise Exception("%s can't rewrap" % self.__class__.__name__)
@@ -115,6 +119,10 @@ class Collector:
 
     def with_query(self, newq: 'queries.Query'):
         return self.__class__(self.searcher(), newq)
+
+    def with_searcher(self, newsearcher: 'searching.SearcherType'
+                      ) -> 'Collector':
+        return self.__class__(newsearcher, self.query())
 
     # Convenience
 
@@ -206,7 +214,10 @@ class Collector:
 
     def start(self):
         self._items = []
-        self._current_data = {}
+        self._current_data = {
+            "skipped_times": 0,
+            "replaced_times": 0,
+        }
         self._current_searcher = None
         self._current_offset = 0
         self._current_docset = None
@@ -242,7 +253,7 @@ class Collector:
     def get_items(self) -> List[MatchTuple]:
         return self._items
 
-    def matches(self):
+    def matches(self) -> Iterable[MatchTuple]:
         self.start()
         searcher = self.searcher()
         context = self.current_context()
@@ -251,69 +262,76 @@ class Collector:
         context.top_searcher = searcher
         context.top_query = q
 
-        replaced_times = 0
-        skipped_times = 0
         for subsearcher, offset in searcher.leaf_searchers():
             self.set_subsearcher(subsearcher, offset)
-            weight = context.weighting
             self.set_matcher(q.matcher(subsearcher, context))
-
-            # If the weighting model uses a final scoring adjustment, we can't
-            # use quality optimizations
-            m = self.current_matcher()
-            optimize = (weight and context.optimize and
-                        m.supports_block_quality() and not weight.use_final)
-
-            minscore = 0.0
-            replacecounter = 0
-            checkquality = False
-            # If we're not optimized, we can record all seen document IDs
-            can_record_ids = not optimize
-            # If we can record IDs, initialize the docset
-            if can_record_ids and self.current_docset() is None:
-                self.init_docset()
-
-            score = 1.0
-            while m.is_active():
-                # Try to replace the matcher with a more efficient version
-                # every once in a while
-                new_minscore = self.current_minscore()
-                if replacecounter == 0 or new_minscore != minscore:
-                    m = m.replace(new_minscore)
-                    self.set_matcher(m)
-                    replacecounter = 10
-                    replaced_times += 1
-                    minscore = new_minscore
-                    m = self.current_matcher()
-                    if not m.is_active():
-                        break
-
-                # Try to skip ahead using quality optimizations
-                if optimize and checkquality and minscore:
-                    skipped_times += m.skip_to_quality(minscore)
-                    # Skipping ahead might have moved the matcher to the end of
-                    # the posting list
-                    if not m.is_active():
-                        break
-
-                localid = m.id()
-                globalid = localid + offset
-
-                if weight:
-                    score = m.score()
-                    if weight.use_final:
-                        score = weight.final(subsearcher, localid, score)
-
-                data = {}
-                yield globalid, localid, score, data
-
-                checkquality = m.next()
-
-        rdata = self.current_data()
-        rdata["skipped_times"] = skipped_times
-        rdata["replaced_times"] = replaced_times
+            for tup in self.sub_matches(subsearcher, context, offset):
+                yield tup
 
         self.finish()
+
+    def sub_matches(self, subsearcher: 'searching.Searcher',
+                    context: 'searching.SearchContext', offset: int
+                    ) -> Iterable[MatchTuple]:
+        replaced_times = 0
+        skipped_times = 0
+        minscore = 0.0
+        replacecounter = 0
+        checkquality = False
+
+        m = self.current_matcher()
+
+        weight = context.weighting
+        # If the weighting model uses a final scoring adjustment, we can't
+        # use quality optimizations
+        optimize = (weight and context.optimize and
+                    m.supports_block_quality() and not weight.use_final)
+        # If we're not optimized, we can record all seen document IDs
+        can_record_ids = not optimize
+
+        # If we can record IDs, initialize the docset
+        if can_record_ids and self.current_docset() is None:
+            self.init_docset()
+
+        score = 1.0
+        while m.is_active():
+            # Try to replace the matcher with a more efficient version
+            # every once in a while
+            new_minscore = self.current_minscore()
+            if replacecounter == 0 or new_minscore != minscore:
+                m = m.replace(new_minscore)
+                self.set_matcher(m)
+                replacecounter = 10
+                replaced_times += 1
+                minscore = new_minscore
+                m = self.current_matcher()
+                if not m.is_active():
+                    break
+
+            # Try to skip ahead using quality optimizations
+            if optimize and checkquality and minscore:
+                skipped_times += m.skip_to_quality(minscore)
+                # Skipping ahead might have moved the matcher to the end of
+                # the posting list
+                if not m.is_active():
+                    break
+
+            localid = m.id()
+            globalid = localid + offset
+
+            if weight:
+                score = m.score()
+                if weight.use_final:
+                    score = weight.final(subsearcher, localid, score)
+
+            data = {}
+            yield globalid, localid, score, data
+
+            checkquality = m.next()
+
+        rdata = self.current_data()
+        rdata["skipped_times"] += skipped_times
+        rdata["replaced_times"] += replaced_times
 
     def run(self):
         for globalid, localid, score, data in self.matches():
@@ -344,7 +362,10 @@ class WrappingCollector(Collector):
             result = collector.rewrap(newchild)
         else:
             # Wrap this class around the existing collector
-            result = cls(collector, *args, **kwargs)
+            try:
+                result = cls(collector, *args, **kwargs)
+            except TypeError as e:
+                raise TypeError("Error on collector %r: %s" % (cls, e))
 
         return result
 
@@ -354,9 +375,13 @@ class WrappingCollector(Collector):
     def with_query(self, newq: 'queries.Query') -> 'WrappingCollector':
         return self.rewrap(self.child.with_query(newq))
 
+    def with_searcher(self, newsearcher: 'searching.SearcherType'
+                      ) -> 'WrappingCollector':
+        return self.rewrap(self.child.with_searcher(newsearcher))
+
     # Getters and setters
 
-    def searcher(self) -> 'searching.Searcher':
+    def searcher(self) -> 'searching.SearcherType':
         return self.child.searcher()
 
     def set_query(self, q: 'queries.Query'):
@@ -813,7 +838,6 @@ class CollapsingCollector(WrappingCollector):
             self.child.collect(globalid, localid, score, data)
 
 
-
 @register("sample")
 class SamplingCollector(WrappingCollector):
     """
@@ -927,5 +951,85 @@ class ReversingCollector(WrappingCollector):
         return items
 
 
+@register("concurrent")
+class ConcurrentCollector(WrappingCollector):
+    collector_priority = 1000
+
+    def __init__(self, child: Collector, executor: futures.Executor=None,
+                 multiproc: bool=True, procs: int=None,
+                 multithreaded: bool=False, threads: int=None):
+        super(ConcurrentCollector, self).__init__(child)
+
+        if not executor:
+            if multiproc:
+                executor = futures.ProcessPoolExecutor(procs)
+            elif multithreaded:
+                executor = futures.ThreadPoolExecutor(threads)
+        self.executor = executor
+
+    def rewrap(self, newchild: Collector) -> 'WrappingCollector':
+        return self.__class__(newchild, self.executor)
+
+    def results(self, context: 'searching.SearchContext' = None
+                ) -> 'results.Results':
+        self.set_context(context)
+        executor = self.executor
+        searcher = self.searcher()
+
+        subsearchers = searcher.leaf_searchers()
+        if len(subsearchers) == 1:
+            return self.child.results(context)
+
+        t = now()
+        subresults = []
+        context = context or searcher.context()
+        shared_collector = self.child.with_searcher(None)
+        weighting = searcher.weighting
+
+        for subsearcher, docoffset in subsearchers:
+            r = subsearcher.reader()
+            store = r.storage
+            schema = r.schema
+            segment = r.segment()
+            ctx = context.set(top_searcher=None)
+
+            future = executor.submit(ConcurrentCollector._results,
+                                     shared_collector, store, schema, segment,
+                                     docoffset, weighting, ctx)
+            subresults.append(future)
+
+        all_results = [future.result() for future in subresults]
+        final = all_results[0]
+        if len(all_results) == 1:
+            return final
+        else:
+            for r in all_results[1:]:
+                final.merge(r)
+
+        final.searcher = searcher
+        final.collector = self
+        final.runtime = now() - t
+        return final
+
+    @classmethod
+    def _results(cls,
+                 collector: Collector,
+                 store: 'storage.Storage',
+                 schema: 'fields.Schema',
+                 segment: 'codecs.Segment',
+                 doc_offset: int,
+                 weighting: 'scoring.WeightingModel',
+                 context: 'searching.SearchContext') -> 'results.Results':
+        from whoosh.reading import SegmentReader
+        from whoosh.searching import Searcher
+
+        reader = SegmentReader(store, schema, segment)
+        searcher = Searcher(reader, weighting)
+        collector = collector.with_searcher(searcher)
+
+        r = collector.results(context)
+        r.add_doc_offset(doc_offset)
+        r.searcher = r.collector = None
+        return r
 
 

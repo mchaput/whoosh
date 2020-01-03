@@ -22,7 +22,7 @@ class Results:
     so keeps all files used by it open.
     """
 
-    def __init__(self, searcher: 'searching.Searcher', q: 'queries.Query',
+    def __init__(self, searcher: 'searching.SearcherType', q: 'queries.Query',
                  top_n: List[Tuple[float, int, Dict[str, Any]]],
                  docset: Set[int]=None, runtime: float=0, highlighter=None,
                  collector: 'collectors.Collector'=None,
@@ -81,10 +81,20 @@ class Results:
 
         return docnum in self.docs()
 
-    def __nonzero__(self):
+    def __bool__(self):
         return not self.is_empty()
 
-    __bool__ = __nonzero__
+    __nonzero__ = __bool__
+
+    def add_doc_offset(self, offset: int):
+        top_n = self.top_n
+        for i, tup in enumerate(self.top_n):
+            ls = list(tup)
+            ls[1] += offset
+            top_n[i] = tuple(ls)
+
+        if self.docset:
+            self.docset = set((docnum + offset for docnum in self.docset))
 
     def hit(self, i: int) -> 'Hit':
         score, docnum, data = self.top_n[i]
@@ -324,6 +334,28 @@ class Results:
         for _, docid, _ in self.top_n[:docs]:
             more.add_docid(docid)
         return [word for word, score in more.get_terms(numterms)]
+
+    def merge(self, *results_list):
+        """
+        Merges the hits from the list of 'results' objects with this object
+        and re-sorts. Note that if one of the other results contains the same
+        docnum(s), the result will be duplicated. This method is for merging
+        the results of parallel searchers.
+
+        :param results_list: one or more other results objects.
+        """
+
+        docset = self.docset
+        top_n = self.top_n
+
+        for results in results_list:
+            if docset is not None:
+                docset.update(results.docs())
+            top_n.extend(results.top_n)
+        top_n.sort()
+
+        if docset is not None:
+            self._count = len(docset)
 
     def extend(self, results):
         """

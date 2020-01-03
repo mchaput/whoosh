@@ -873,6 +873,10 @@ class X1FieldWriter(codecs.FieldWriter):
             self._maxterms[self._fieldname] = self._termbytes
 
     def close(self):
+        # If we're still writing a field, finish it off
+        if self._infield:
+            self.finish_field()
+
         # Finish the terms and write the region references
         termsfile = self._termsfile
         if self._termitems:
@@ -897,15 +901,6 @@ class X1FieldWriter(codecs.FieldWriter):
             termsfile.write(fbytes)
             termsfile.write(minterm)
             termsfile.write(maxterm)
-
-        # fnames = self._fieldnames
-        # name_bytes = [name.encode("utf8") for name in fnames]
-        # name_lens = [len(bname) for bname in name_bytes]
-        # lens_format = "<" + "H" * len(fnames)
-        # termsfile.write(struct.pack(lens_format, *name_lens))
-        # # Write the field names
-        # for bname in name_bytes:
-        #     termsfile.write(bname)
 
         # Write the terms footer
         termsfile.write(TermsFileFooter(
@@ -988,21 +983,6 @@ class X1TermsReader(codecs.TermsReader):
             pos += max_len
             self._minmaxterms.append((minterm, maxterm))
 
-        # # Read the field name lengths
-        # lens_format = "<" + "H" * foot.names_count
-        # lens_start = foot.names_offset
-        # lens_end = lens_start + struct.calcsize(lens_format)
-        # name_lens = struct.unpack(lens_format,
-        #                           self._termsdata[lens_start:lens_end])
-        # # Read the field names
-        # fnames = []
-        # pos = lens_end
-        # for length in name_lens:
-        #     fname = bytes(self._termsdata[pos:pos + length]).decode("utf8")
-        #     fnames.append(fname)
-        #     pos += length
-        # self._fieldnames = fnames
-
     def _keycoder(self, fieldname: str, tbytes: bytes) -> bytes:
         assert isinstance(tbytes, bytes), "tbytes=%r" % tbytes
         try:
@@ -1016,8 +996,13 @@ class X1TermsReader(codecs.TermsReader):
         return self._fieldnames[fieldnum], keybytes[2:]
 
     def __contains__(self, term: TermTuple) -> bool:
+        fieldname, termbytes = term
+        if termbytes < self.field_min_term(fieldname) \
+                or termbytes > self.field_max_term(fieldname):
+            return False
+        
         try:
-            key = self._keycoder(*term)
+            key = self._keycoder(fieldname, termbytes)
         except reading.TermNotFound:
             return False
         return key in self._kv
@@ -1171,10 +1156,10 @@ class X1TermCursor(codecs.TermCursor):
             termbytes = self._tobytes(termbytes)
         self._cur.seek(termbytes)
 
-    def seek_exact(self, termbytes: bytes):
+    def seek_exact(self, termbytes: bytes) -> bool:
         if not isinstance(termbytes, bytes):
             termbytes = self._tobytes(termbytes)
-        self._cur.seek_exact(termbytes)
+        return self._cur.seek_exact(termbytes)
 
     def term_info(self) -> reading.TermInfo:
         try:

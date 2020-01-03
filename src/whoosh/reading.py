@@ -275,6 +275,7 @@ class IndexReader:
     """
 
     def __init__(self, schema: 'fields.Schema'):
+        self.storage = None
         self.schema = schema
         self.closed = False
 
@@ -330,6 +331,7 @@ class IndexReader:
         if isinstance(text, bytes):
             return text
 
+        assert isinstance(fieldname, str)
         if fieldname not in self.schema:
             raise TermNotFound((fieldname, text))
         return self.schema[fieldname].to_bytes(text)
@@ -347,7 +349,7 @@ class IndexReader:
         is not versioned.
         """
 
-        return None
+        return -1
 
     def set_merging_hint(self):
         """
@@ -719,25 +721,29 @@ class IndexReader:
             if k <= maxdist:
                 yield word
 
-    # def most_frequent_terms(self, fieldname, number=5, prefix=''):
-    #     """
-    #     Returns the top 'number' most frequent terms in the given field as a
-    #     list of (frequency, text) tuples.
-    #     """
-    #
-    #     gen = ((terminfo.weight(), text) for text, terminfo
-    #            in self.iter_prefix(fieldname, prefix))
-    #     return nlargest(number, gen)
-    #
-    # def most_distinctive_terms(self, fieldname, number=5, prefix=''):
-    #     """Returns the top 'number' terms with the highest `tf*idf` scores as
-    #     a list of (score, text) tuples.
-    #     """
-    #
-    #     N = float(self.doc_count())
-    #     gen = ((terminfo.weight() * log(N / terminfo.doc_frequency()), text)
-    #            for text, terminfo in self.iter_prefix(fieldname, prefix))
-    #     return nlargest(number, gen)
+    def most_frequent_terms(self, fieldname, number=5, prefix=''):
+        """
+        Returns the top 'number' most frequent terms in the given field as a
+        list of (frequency, text) tuples.
+        """
+
+        from heapq import nlargest
+
+        gen = ((terminfo.weight(), text) for text, terminfo
+               in self.iter_field(fieldname, prefix=prefix))
+        return nlargest(number, gen)
+
+    def most_distinctive_terms(self, fieldname, number=5, prefix=''):
+        """Returns the top 'number' terms with the highest `tf*idf` scores as
+        a list of (score, text) tuples.
+        """
+
+        from heapq import nlargest
+
+        N = float(self.doc_count())
+        gen = ((terminfo.weight() * log(N / terminfo.doc_frequency()), text)
+               for text, terminfo in self.iter_field(fieldname, prefix))
+        return nlargest(number, gen)
 
     def leaf_readers(self) -> 'List[Tuple[IndexReader, int]]':
         """
@@ -901,9 +907,16 @@ class SegmentReader(IndexReader):
     @unclosed
     def __contains__(self, term: TermTuple) -> bool:
         fieldname, termbytes = term
+        # We have to check the schema because if a field exists on disk but has
+        # been removed from the schema, we should pretend it doesn't exist
         if fieldname not in self.schema:
             return False
+        if fieldname not in self.indexed_field_names():
+            return False
         termbytes = self._text_to_bytes(fieldname, termbytes)
+        if termbytes < self.field_min_term(fieldname) \
+                or termbytes > self.field_max_term(fieldname):
+            return False
         return (fieldname, termbytes) in self._terms
 
     @unclosed
@@ -1164,10 +1177,6 @@ class EmptyReader(IndexReader):
                    ) -> 'Iterable[Tuple[bytes, reading.TermInfo]]':
         return iter(())
 
-    def iter_prefix(self, fieldname: str, prefix: TermText=b''
-                    )-> 'Iterable[Tuple[bytes, reading.TermInfo]]':
-        return iter(())
-
     def lexicon(self, fieldname: str) -> Iterable[bytes]:
         return iter(())
 
@@ -1258,11 +1267,6 @@ class MultiReader(IndexReader):
 
     def leaf_readers(self) -> 'List[Tuple[reading.IndexReader, int]]':
         return list(zip(self.readers, self.doc_offsets))
-
-    def add_reader(self, reader: 'reading.IndexReader'):
-        self.reading.append(reader)
-        self.doc_offsets.append(self.base)
-        self.base += reader.doc_count_all()
 
     def set_merging_hint(self):
         for r in self.readers:

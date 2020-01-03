@@ -485,7 +485,7 @@ class TermCursor:
         raise NotImplementedError
 
     @abstractmethod
-    def seek_exact(self, termbytes: bytes):
+    def seek_exact(self, termbytes: bytes) -> bool:
         raise NotImplementedError
 
     @abstractmethod
@@ -517,8 +517,8 @@ class EmptyCursor(TermCursor):
     def seek(self, termbytes: bytes):
         pass
 
-    def seek_exact(self, termbytes: bytes):
-        pass
+    def seek_exact(self, termbytes: bytes) -> bool:
+        return False
 
     def next(self):
         raise InvalidCursor
@@ -624,7 +624,13 @@ class TermsReader:
         raise NotImplementedError
 
     def term_range(self, fieldname: str, start: bytes, end: Optional[bytes]
-                   ) -> Iterable[TermTuple]:
+                   ) -> Iterable[bytes]:
+        if start > self.field_max_term(fieldname):
+            return
+        if end is not None:
+            if end < start or end < self.field_min_term(fieldname):
+                return
+
         cur = self.cursor(fieldname, None)
         cur.seek(start)
         while cur.is_valid() and ((end is None) or cur.termbytes() < end):

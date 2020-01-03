@@ -1006,15 +1006,19 @@ class Cursor:
 
         raise NotImplementedError
 
-    @abstractmethod
-    def seek_exact(self, key: bytes):
+    def seek_exact(self, key: bytes) -> bool:
         """
-        Moves the cursor to the exact key, or invalidates the cursor.
+        Moves the cursor to the exact key, or invalidates the cursor. Returns
+        True if the exact term exists.
 
         :param key: the key to move to.
         """
 
-        raise NotImplementedError
+        if key < self.min_key() or key > self.max_key():
+            return False
+        else:
+            self.seek(key)
+            return self.is_valid() and self.key() == key
 
     @abstractmethod
     def key(self) -> bytes:
@@ -1057,8 +1061,8 @@ class EmptyCursor(Cursor):
     def seek(self, key: bytes):
         pass
 
-    def seek_exact(self, key: bytes):
-        pass
+    def seek_exact(self, key: bytes) -> bool:
+        return False
 
     def next(self):
         raise Exception
@@ -1101,14 +1105,6 @@ class RegionCursor(Cursor):
 
     def seek(self, key: bytes):
         self._i = self._region.key_index(key)
-
-    def seek_exact(self, key: bytes):
-        if key < self._minkey or key > self._maxkey:
-            self._invalidate()
-        else:
-            self.seek(key)
-            if not (self.is_valid() and self.key() == key):
-                self._invalidate()
 
     def key(self) -> bytes:
         if self._i < self._length:
@@ -1216,15 +1212,6 @@ class SuffixCursor(Cursor):
     def seek(self, key: bytes):
         self._cur.seek(self._prefix + key)
         self._check()
-
-    def seek_exact(self, key: bytes):
-        if key < self._minkey or key > self._maxkey:
-            self._valid = False
-        else:
-            self.seek(key)
-            if not (self.is_valid() and self.key() == key):
-                self._valid = False
-
 
     def key(self) -> bytes:
         if not self._valid:
