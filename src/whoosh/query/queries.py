@@ -298,8 +298,8 @@ class Query:
 
         The Token objects will have the ``fieldname``, ``text``, and ``boost``
         attributes set. If the query was built by the query parser, they Token
-        objects will also have ``startchar`` and ``endchar`` attributes
-        indexing into the original user query.
+        objects will also have ``range_start`` and ``range_end`` attributes
+        indexing into the original user query string.
 
         This method allows highlighting words in a query string based on the
         parsed query, for example to highlight possible spelling mistakes.

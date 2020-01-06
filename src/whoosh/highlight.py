@@ -69,9 +69,9 @@ def mkfrag(text, tokens, startchar=None, endchar=None,
     """
 
     if startchar is None:
-        startchar = tokens[0].startchar if tokens else 0
+        startchar = tokens[0].range_start if tokens else 0
     if endchar is None:
-        endchar = tokens[-1].endchar if tokens else len(text)
+        endchar = tokens[-1].range_end if tokens else len(text)
 
     startchar = max(0, startchar - charsbefore)
     endchar = min(len(text), endchar + charsafter)
@@ -232,7 +232,7 @@ class WholeFragmenter(Fragmenter):
         charlimit = self.charlimit
         matches = []
         for t in tokens:
-            if charlimit and t.endchar > charlimit:
+            if charlimit and t.range_end > charlimit:
                 break
             if t.matched:
                 matches.append(t.copy())
@@ -280,8 +280,8 @@ class SentenceFragmenter(Fragmenter):
         currentlen = 0
 
         for t in tokens:
-            startchar = t.startchar
-            endchar = t.endchar
+            startchar = t.range_start
+            endchar = t.range_end
             if charlimit and endchar > charlimit:
                 break
 
@@ -355,8 +355,8 @@ class ContextFragmenter(Fragmenter):
         currentlen = 0
 
         for t in tokens:
-            startchar = t.startchar
-            endchar = t.endchar
+            startchar = t.range_start
+            endchar = t.range_end
             tlength = endchar - startchar
             if charlimit and endchar > charlimit:
                 break
@@ -450,8 +450,8 @@ class PinpointFragmenter(Fragmenter):
             endchar = lastspace
 
         if fragment.matches:
-            startchar = min(startchar, fragment.matches[0].startchar)
-            endchar = max(endchar, fragment.matches[-1].endchar)
+            startchar = min(startchar, fragment.matches[0].range_start)
+            endchar = max(endchar, fragment.matches[-1].range_end)
 
         fragment.startchar = startchar
         fragment.endchar = endchar
@@ -468,8 +468,8 @@ class PinpointFragmenter(Fragmenter):
             if j >= i:
                 continue
             j = i
-            left = t.startchar
-            right = t.endchar
+            left = t.range_start
+            right = t.range_end
             if charlimit and right > charlimit:
                 break
 
@@ -546,7 +546,7 @@ def get_text(original, token, replace):
     if replace:
         return token.text
     else:
-        return original[token.startchar:token.endchar]
+        return original[token.range_start:token.range_end]
 
 
 class Formatter:
@@ -599,14 +599,14 @@ class Formatter:
         text = fragment.text
 
         for t in fragment.matches:
-            if t.startchar is None:
+            if t.range_start is None:
                 continue
-            if t.startchar < index:
+            if t.range_start < index:
                 continue
-            if t.startchar > index:
-                output.append(self._text(text[index:t.startchar]))
+            if t.range_start > index:
+                output.append(self._text(text[index:t.range_start]))
             output.append(self.format_token(text, t, replace))
-            index = t.endchar
+            index = t.range_end
         output.append(self._text(text[index:fragment.endchar]))
 
         out_string = "".join(output)
@@ -805,7 +805,7 @@ def highlight(text, terms, analyzer, fragmenter, formatter, top=3,
         scorer = BasicFragmentScorer()
 
     termset = frozenset(terms)
-    tokens = analyzer(text, chars=True, mode=mode, removestops=False)
+    tokens = analyzer(text, ranges=True, mode=mode, removestops=False)
     tokens = set_matched_filter(tokens, termset)
     fragments = fragmenter.fragment_tokens(text, tokens)
     fragments = top_fragments(fragments, top, scorer, order, minscore)
@@ -877,7 +877,7 @@ class Highlighter:
         words = frozenset(from_bytes(term[1]) for term in bterms)
 
         # If we can do "pinpoint" highlighting...
-        if "spans" in hitdata and field.format.has_chars:
+        if "spans" in hitdata and field.format.has_ranges:
             from collections import defaultdict
 
             # Make a word->[(pos, startchar, endchar)] map for this document
@@ -904,7 +904,7 @@ class Highlighter:
         else:
             # Retokenize the text
             analyzer = results.searcher.schema[fieldname].analyzer
-            tokens = analyzer(text, positions=True, chars=True, mode="index",
+            tokens = analyzer(text, positions=True, ranges=True, mode="index",
                               removestops=False)
             # Set Token.matched attribute for tokens that match a query term
             tokens = set_matched_filter(tokens, words)

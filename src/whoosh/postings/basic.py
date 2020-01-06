@@ -33,7 +33,7 @@ from typing import Callable, Iterable, List, Sequence, Tuple
 from whoosh.postings import postform, postings, ptuples
 from whoosh.postings.postings import RawPost, PostTuple
 from whoosh.postings.ptuples import (DOCID, TERMBYTES, LENGTH, WEIGHT,
-                                     POSITIONS, CHARS, PAYLOADS)
+                                     POSITIONS, RANGES, PAYLOADS)
 from whoosh.system import IS_LITTLE
 from whoosh.util.numlists import delta_encode, delta_decode, min_array_code
 
@@ -51,7 +51,7 @@ tcodes_and_len = struct.Struct("<ccI")
 HAS_LENGTHS = 1 << 0
 HAS_WEIGHTS = 1 << 1
 HAS_POSITIONS = 1 << 2
-HAS_CHARS = 1 << 3
+HAS_RANGES = 1 << 3
 HAS_PAYLOADS = 1 << 4
 
 # When the "flags" byte is this value, it means the post block has only one
@@ -64,12 +64,12 @@ MIN_TYPE_CODES = ("B", "H", "I", "q")
 
 
 def make_flags(has_lengths=False, has_weights=False, has_positions=False,
-               has_chars=False, has_payloads=False) -> int:
+               has_ranges=False, has_payloads=False) -> int:
     return (
         (HAS_LENGTHS if has_lengths else 0) |
         (HAS_WEIGHTS if has_weights else 0) |
         (HAS_POSITIONS if has_positions else 0) |
-        (HAS_CHARS if has_chars else 0) |
+        (HAS_RANGES if has_ranges else 0) |
         (HAS_PAYLOADS if has_payloads else 0)
     )
 
@@ -93,7 +93,7 @@ class BasicIO(postings.PostingsIO):
     # H   - Number of postings in block
     # 2c  - IDs and weights typecodes
     # ii  - Min/max length
-    # iii - positions, characters, payloads data lengths
+    # iii - positions, ranges, payloads data lengths
     doc_header = struct.Struct("<BH2ciiiii")
 
     # B   - Flags (has_*)
@@ -104,55 +104,55 @@ class BasicIO(postings.PostingsIO):
     # B   - Flags (has_*)
     # H   - Number of terms in vector
     # 2c  - IDs and weights typecodes
-    # iii - positions, characters, payloads data lengths
+    # iii - positions, ranges, payloads data lengths
     vector_header = struct.Struct("<Bi2ciii")
 
     @classmethod
     def pack_doc_header(cls, flags: int, count: int, minlen: int, maxlen: int,
                         ids_typecode: str, weights_typecode: str,
-                        poslen: int, charlen: int, paylen: int
+                        poslen: int, rangeslen: int, paylen: int
                         ) -> bytes:
         return cls.doc_header.pack(
             flags, count,
             ids_typecode.encode("ascii"), weights_typecode.encode("ascii"),
             minlen, maxlen,
-            poslen, charlen, paylen
+            poslen, rangeslen, paylen
         )
 
     @classmethod
     def unpack_doc_header(cls, src: bytes, offset: int) -> Tuple:
         h = cls.doc_header
-        flags, count, idc, wc, minlen, maxlen, poslen, charlen, paylen = \
+        flags, count, idc, wc, minlen, maxlen, poslen, rangeslen, paylen = \
             h.unpack(src[offset:offset + h.size])
 
         ids_typecode = str(idc.decode("ascii"))
         weights_typecode = str(wc.decode("ascii"))
 
         return (flags, count, ids_typecode, weights_typecode, minlen, maxlen,
-                poslen, charlen, paylen, offset + h.size)
+                poslen, rangeslen, paylen, offset + h.size)
 
     @classmethod
     def pack_vector_header(cls, flags: int, count: int,
                            terms_typecode: str, weights_typecode: str,
-                           poslen: int, charlen: int, paylen: int
+                           poslen: int, rangeslen: int, paylen: int
                            ) -> bytes:
         return cls.vector_header.pack(
             flags, count,
             terms_typecode.encode("ascii"), weights_typecode.encode("ascii"),
-            poslen, charlen, paylen
+            poslen, rangeslen, paylen
         )
 
     @classmethod
     def unpack_vector_header(cls, src: bytes, offset: int) -> Tuple:
         h = cls.vector_header
-        flags, count, idc, wc, poslen, charlen, paylen = \
+        flags, count, idc, wc, poslen, rangeslen, paylen = \
             h.unpack(src[offset:offset + h.size])
 
         ids_typecode = str(idc.decode("ascii"))
         weights_typecode = str(wc.decode("ascii"))
 
         return (flags, count, ids_typecode, weights_typecode,
-                poslen, charlen, paylen,
+                poslen, rangeslen, paylen,
                 offset + h.size)
 
     def can_copy_raw_to(self, from_fmt: 'postform.Format',
@@ -219,18 +219,18 @@ class BasicIO(postings.PostingsIO):
         # Otherwise, build up the bytes using a flags byte, the header,
         # and the encoded information
         flags = make_flags(fmt.has_lengths, fmt.has_weights, fmt.has_positions,
-                           fmt.has_chars, fmt.has_payloads)
+                           fmt.has_ranges, fmt.has_payloads)
         ids_code, ids_bytes = self.encode_docids([p[DOCID] for p in posts])
         minlen, maxlen, len_bytes = self.extract_lengths(fmt, posts)
         weights_code, weight_bytes = self.extract_weights(fmt, posts)
-        pos_bytes, char_bytes, pay_bytes = self.extract_features(fmt, posts)
+        pos_bytes, range_bytes, pay_bytes = self.extract_features(fmt, posts)
 
         header = self.pack_doc_header(
             flags, len(posts), minlen, maxlen, ids_code, weights_code,
-            len(pos_bytes), len(char_bytes), len(pay_bytes)
+            len(pos_bytes), len(range_bytes), len(pay_bytes)
         )
         return b''.join((header, ids_bytes, len_bytes, weight_bytes,
-                         pos_bytes, char_bytes, pay_bytes))
+                         pos_bytes, range_bytes, pay_bytes))
 
     def vector_to_bytes(self, fmt: postform.Format,
                         posts: List[ptuples.PostTuple]) -> bytes:
@@ -239,17 +239,17 @@ class BasicIO(postings.PostingsIO):
 
         posts = [self.condition_post(p) for p in posts]
         flags = make_flags(fmt.has_lengths, fmt.has_weights, fmt.has_positions,
-                           fmt.has_chars, fmt.has_payloads)
+                           fmt.has_ranges, fmt.has_payloads)
         t_code, t_bytes = self.encode_terms(self._extract(posts, TERMBYTES))
         weights_code, weight_bytes = self.extract_weights(fmt, posts)
-        pos_bytes, char_bytes, pay_bytes = self.extract_features(fmt, posts)
+        pos_bytes, range_bytes, pay_bytes = self.extract_features(fmt, posts)
 
         header = self.pack_vector_header(
             flags, len(posts), t_code, weights_code,
-            len(pos_bytes), len(char_bytes), len(pay_bytes)
+            len(pos_bytes), len(range_bytes), len(pay_bytes)
         )
         return b''.join((header, t_bytes, weight_bytes,
-                         pos_bytes, char_bytes, pay_bytes))
+                         pos_bytes, range_bytes, pay_bytes))
 
     def extract_lengths(self, fmt: postform.Format,
                         posts: Sequence[RawPost]
@@ -281,25 +281,25 @@ class BasicIO(postings.PostingsIO):
             poslists = self._extract(posts, POSITIONS)  # type: Sequence[bytes]
             pos_bytes = self.encode_chunk_list(poslists)
 
-        char_bytes = b''
-        if fmt.has_chars:
-            charlists = self._extract(posts, CHARS)  # type: Sequence[bytes]
-            char_bytes = self.encode_chunk_list(charlists)
+        range_bytes = b''
+        if fmt.has_ranges:
+            rnglists = self._extract(posts, RANGES)  # type: Sequence[bytes]
+            range_bytes = self.encode_chunk_list(rnglists)
 
         pay_bytes = b''
         if fmt.has_payloads:
             paylists = self._extract(posts, PAYLOADS)  # type: Sequence[bytes]
             pay_bytes = self.encode_chunk_list(paylists)
 
-        return pos_bytes, char_bytes, pay_bytes
+        return pos_bytes, range_bytes, pay_bytes
 
     # Encoding methods
 
     def condition_post(self, post: PostTuple) -> RawPost:
         poses = post[POSITIONS]
         enc_poses = self.encode_positions(poses) if poses else None
-        chars = post[CHARS]
-        enc_chars = self.encode_chars(chars) if chars else None
+        ranges = post[RANGES]
+        enc_ranges = self.encode_ranges(ranges) if ranges else None
         pays = post[PAYLOADS]
         enc_pays = self.encode_payloads(pays) if pays else None
 
@@ -309,7 +309,7 @@ class BasicIO(postings.PostingsIO):
             post[LENGTH],
             post[WEIGHT],
             enc_poses,
-            enc_chars,
+            enc_ranges,
             enc_pays,
         )
 
@@ -440,26 +440,25 @@ class BasicIO(postings.PostingsIO):
         return tuple(delta_decode(deltas))
 
     @staticmethod
-    def encode_chars(chars: Sequence[Tuple[int, int]]) -> bytes:
+    def encode_ranges(ranges: Sequence[Tuple[int, int]]) -> bytes:
         base = 0
         deltas = []
-        for startchar, endchar in chars:
-            if startchar < base:
-                raise ValueError("Chars out of order: %s %s"
-                                 % (base, startchar))
-            if endchar < startchar:
-                raise ValueError("Negative char range: %s %s"
-                                 % (startchar, endchar))
+        for start, end in ranges:
+            if start < base:
+                raise ValueError("range indices out of order: %s %s"
+                                 % (base, start))
+            if end < start:
+                raise ValueError("Negative range: %s %s" % (start, end))
 
-            deltas.append(startchar - base)
-            deltas.append(endchar - startchar)
-            base = endchar
+            deltas.append(start - base)
+            deltas.append(end - start)
+            base = end
         deltas = min_array(deltas)
         return deltas.typecode.encode("ascii") + deltas.tobytes()
 
     @staticmethod
-    def decode_chars(src: bytes, offset: int, size: int
-                     ) -> Sequence[Tuple[int, int]]:
+    def decode_ranges(src: bytes, offset: int, size: int
+                      ) -> Sequence[Tuple[int, int]]:
         if size == 0:
             return ()
 
@@ -470,7 +469,7 @@ class BasicIO(postings.PostingsIO):
             indices.byteswap()
 
         if len(indices) % 2:
-            raise Exception("Odd number of char indices: %r" % indices)
+            raise Exception("Odd number of range indices: %r" % indices)
 
         # Zip up the linear list into pairs, and at the same time delta-decode
         # the numbers
@@ -573,8 +572,8 @@ class BasicPostingReader(postings.PostingReader):
 
         self._poses_offset = None  # type: int
         self._poses_size = None  # type: int
-        self._chars_offset = None  # type: int
-        self._chars_size = None  # type: int
+        self._ranges_offset = None  # type: int
+        self._ranges_size = None  # type: int
         self._pays_offset = None  # type: int
         self._pays_size = None  # type: int
 
@@ -602,8 +601,8 @@ class BasicPostingReader(postings.PostingReader):
 
         # Compute the offset of feature sections based on their sizes
         self._poses_offset = offset + self._weights_size
-        self._chars_offset = self._poses_offset + self._poses_size
-        self._pays_offset = self._chars_offset + self._chars_size
+        self._ranges_offset = self._poses_offset + self._poses_size
+        self._pays_offset = self._ranges_offset + self._ranges_size
         self._end_offset = self._pays_offset + self._pays_size
 
     def raw_bytes(self) -> bytes:
@@ -675,20 +674,20 @@ class BasicPostingReader(postings.PostingReader):
                                              self._poses_size, 0)
         return self._src[offset: offset + length]
 
-    def chars(self, n: int) -> Sequence[Tuple[int, int]]:
-        if not self._chars_size:
+    def ranges(self, n: int) -> Sequence[Tuple[int, int]]:
+        if not self._ranges_size:
             return ()
 
-        offset, length = self._chunk_offsets(n, self._chars_offset,
-                                             self._chars_size, 1)
-        return BasicIO.decode_chars(self._src, offset, length)
+        offset, length = self._chunk_offsets(n, self._ranges_offset,
+                                             self._ranges_size, 1)
+        return BasicIO.decode_ranges(self._src, offset, length)
 
-    def raw_chars(self, n: int) -> bytes:
-        if not self._chars_size:
+    def raw_ranges(self, n: int) -> bytes:
+        if not self._ranges_size:
             return b''
 
-        offset, length = self._chunk_offsets(n, self._chars_offset,
-                                             self._chars_size, 1)
+        offset, length = self._chunk_offsets(n, self._ranges_offset,
+                                             self._ranges_size, 1)
         return self._src[offset: offset + length]
 
     def payloads(self, n: int) -> Sequence[bytes]:
@@ -715,14 +714,14 @@ class BasicDocListReader(BasicPostingReader, postings.DocListReader):
 
         # Unpack the header
         (flags, self._count, self._ids_tc, self._weights_tc, self._min_len,
-         self._max_len, self._poses_size, self._chars_size, self._pays_size,
+         self._max_len, self._poses_size, self._ranges_size, self._pays_size,
          self._h_end) = BasicIO.unpack_doc_header(src, offset)
 
         # Copy feature flags from flags
         self.has_lengths = bool(flags & HAS_LENGTHS)
         self.has_weights = bool(flags & HAS_WEIGHTS)
         self.has_positions = bool(flags & HAS_POSITIONS)
-        self.has_chars = bool(flags & HAS_CHARS)
+        self.has_ranges = bool(flags & HAS_RANGES)
         self.has_payloads = bool(flags & HAS_PAYLOADS)
 
         # Read the IDs
@@ -762,7 +761,6 @@ class BasicDocListReader(BasicPostingReader, postings.DocListReader):
         docids = self.all_ids()
         if docmap_get:
             docids = [docmap_get(docid, docid) for docid in docids]
-            print("docids=", docids)
         newtc, newbytes = BasicIO.encode_docids(docids)
         if newtc != self._ids_tc:
             raise ValueError
@@ -799,8 +797,8 @@ class BasicDocListReader(BasicPostingReader, postings.DocListReader):
         posbytes = charbytes = paybytes = None
         if self.has_positions:
             posbytes = self.raw_positions(n)
-        if self.has_chars:
-            charbytes = self.raw_chars(n)
+        if self.has_ranges:
+            charbytes = self.raw_ranges(n)
         if self.has_payloads:
             paybytes = self.raw_payloads(n)
 
@@ -809,7 +807,7 @@ class BasicDocListReader(BasicPostingReader, postings.DocListReader):
     def can_copy_raw_to(self, to_io: 'postings.PostingsIO',
                         to_fmt: 'postform.Format') -> bool:
         fmt = postform.Format(self.has_lengths, self.has_weights,
-                              self.has_positions, self.has_chars,
+                              self.has_positions, self.has_ranges,
                               self.has_payloads)
         return BasicIO().can_copy_raw_to(fmt, to_io, to_fmt)
 
@@ -820,14 +818,14 @@ class BasicVectorReader(BasicPostingReader, postings.VectorReader):
 
         # Unpack the header
         (flags, self._count, t_typecode, self._weights_tc,
-         self._poses_size, self._chars_size, self._pays_size,
+         self._poses_size, self._ranges_size, self._pays_size,
          h_end) = BasicIO.unpack_vector_header(src, offset)
 
         # Copy feature flags from flags
         self.has_lengths = bool(flags & HAS_LENGTHS)
         self.has_weights = bool(flags & HAS_WEIGHTS)
         self.has_positions = bool(flags & HAS_POSITIONS)
-        self.has_chars = bool(flags & HAS_CHARS)
+        self.has_ranges = bool(flags & HAS_RANGES)
         self.has_payloads = bool(flags & HAS_PAYLOADS)
 
         # Read the terms
@@ -863,7 +861,7 @@ class BasicVectorReader(BasicPostingReader, postings.VectorReader):
     def can_copy_raw_to(self, to_io: 'postings.PostingsIO',
                         to_fmt: 'postform.Format') -> bool:
         from_fmt = postform.Format(self.has_lengths, self.has_weights,
-                                   self.has_positions, self.has_chars,
+                                   self.has_positions, self.has_ranges,
                                    self.has_payloads)
         return BasicIO().can_copy_raw_to(from_fmt, to_io, to_fmt)
 

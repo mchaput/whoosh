@@ -43,7 +43,7 @@ class PostingReader:
         self.has_lengths = False
         self.has_weights = False
         self.has_positions = False
-        self.has_chars = False
+        self.has_ranges = False
         self.has_payloads = False
 
     def __len__(self) -> int:
@@ -78,11 +78,11 @@ class PostingReader:
         raise NotImplementedError
 
     @abstractmethod
-    def chars(self, n: int) -> List[Tuple[int, int]]:
+    def ranges(self, n: int) -> Sequence[Tuple[int, int]]:
         raise NotImplementedError
 
     @abstractmethod
-    def payloads(self, n: int) -> List[bytes]:
+    def payloads(self, n: int) -> Sequence[bytes]:
         raise NotImplementedError
 
     @abstractmethod
@@ -144,11 +144,11 @@ class DocListReader(PostingReader):
         weight = self.weight(i) if self.has_weights else None
         length = self.length(i) if self.has_lengths else None
         poses = self.positions(i) if self.has_positions else None
-        chars = self.chars(i) if self.has_chars else None
+        ranges = self.ranges(i) if self.has_ranges else None
         pays = self.payloads(i) if self.has_payloads else None
 
         return posting(self.id(i), termbytes=termbytes, length=length,
-                       weight=weight, positions=poses, chars=chars,
+                       weight=weight, positions=poses, ranges=ranges,
                        payloads=pays)
 
     @abstractmethod
@@ -219,7 +219,7 @@ class VectorReader(PostingReader):
 
     def items_as(self, feature: str) -> Iterable[Tuple[bytes, Any]]:
         termbytes = self.termbytes
-        if feature not in ("weight", "lengths", "positions", "chars",
+        if feature not in ("weight", "lengths", "positions", "ranges",
                            "payloads"):
             raise ValueError("Unknown feature %r" % feature)
         if not self.supports(feature):
@@ -247,7 +247,7 @@ class VectorReader(PostingReader):
 
         weight = self.weight(i) if self.has_weights else None
         poses = self.positions(i) if self.has_positions else None
-        chars = self.chars(i) if self.has_chars else None
+        chars = self.ranges(i) if self.has_ranges else None
         pays = self.payloads(i) if self.has_payloads else None
 
         return posting(docid, termbytes=self.termbytes(i),
@@ -259,7 +259,7 @@ class VectorReader(PostingReader):
 
         has_weights = self.has_weights
         has_poses = self.has_positions
-        has_chars = self.has_chars
+        has_chars = self.has_ranges
         has_payloads = self.has_payloads
 
         for i in range(len(self)):
@@ -267,7 +267,7 @@ class VectorReader(PostingReader):
                 docid, termbytes=self.termbytes(i),
                 weight=self.weight(i) if has_weights else None,
                 positions=self.positions(i) if has_poses else None,
-                chars=self.chars(i) if has_chars else None,
+                chars=self.ranges(i) if has_chars else None,
                 payloads=self.payloads(i) if has_payloads else None,
             )
 
@@ -342,7 +342,7 @@ class EmptyVectorReader(VectorReader):
     def positions(self, n: int) -> List[int]:
         raise IndexError("No items in this reader")
 
-    def chars(self, n: int) -> List[Tuple[int, int]]:
+    def ranges(self, n: int) -> List[Tuple[int, int]]:
         raise IndexError("No items in this reader")
 
     def payloads(self, n: int) -> List[bytes]:
@@ -374,7 +374,7 @@ class MinimalDocListReader(DocListReader):
         self.has_lengths = False
         self.has_weights = False
         self.has_positions = False
-        self.has_chars = False
+        self.has_ranges = False
         self.has_payloads = False
 
     def __len__(self) -> int:
@@ -451,7 +451,7 @@ class MinimalDocListReader(DocListReader):
         return []
 
     @staticmethod
-    def chars(n: int) -> List[Tuple[int, int]]:
+    def ranges(n: int) -> List[Tuple[int, int]]:
         return []
 
     @staticmethod

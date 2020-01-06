@@ -152,8 +152,8 @@ class WrappingMatcher(matchers.Matcher):
     def has_positions(self) -> bool:
         return self.child.has_positions()
 
-    def has_chars(self) -> bool:
-        return self.child.has_chars()
+    def has_ranges(self) -> bool:
+        return self.child.has_ranges()
 
     def has_payloads(self) -> bool:
         return self.child.has_payloads()
@@ -449,8 +449,8 @@ class MultiMatcher(matchers.Matcher):
     def has_positions(self) -> bool:
         return self._matchers[self._current].has_positions()
 
-    def has_chars(self) -> bool:
-        return self._matchers[self._current].has_chars()
+    def has_ranges(self) -> bool:
+        return self._matchers[self._current].has_ranges()
 
     def has_payloads(self) -> bool:
         return self._matchers[self._current].has_payloads()
@@ -462,7 +462,7 @@ class MultiMatcher(matchers.Matcher):
         return self._matchers[self._current].positions()
 
     def chars(self) -> Sequence[Tuple[int]]:
-        return self._matchers[self._current].chars()
+        return self._matchers[self._current].ranges()
 
     def payloads(self) -> Sequence[bytes]:
         return self._matchers[self._current].payloads()
@@ -714,7 +714,6 @@ class CoordMatcher(WrappingMatcher):
 
         super(CoordMatcher, self).__init__(child)
         self._termcount = termcount or len(list(child.term_matchers()))
-        self._maxqual = child.max_quality()
         self._scale = scale
 
     def _rewrap(self, newchild):

@@ -151,20 +151,20 @@ class QueryParser:
     def syntaxes(self) -> 'List[peg.Expr]':
         return self._priorized("syntaxes")
 
-    def filters(self) -> 'List[Callable[QueryParser, query.Query], query.Query]':
+    def filters(self) -> 'List[Callable[[QueryParser, query.Query], query.Query]]':
         return self._priorized("filters")
 
     def context(self, fieldname: str=None) -> 'peg.Context':
         # Put the main expr and current fieldname on the context so deeply
         # nested exprs can read and/or override them as they parse
-        context = peg.Context(self.main_expr(), fieldname=None)
+        context = peg.Context(self.main_expr(), fieldname=fieldname)
 
         # Copy any custom per-field exprs set up on this parser to the context
         context.field_exprs.update(self._field_exprs)
 
         # Give the plugins a chance to modify the context
         for plugin in self.plugins:
-            plugin.modify_context(context)
+            plugin.modify_context(self, context)
 
         return context
 
@@ -334,8 +334,8 @@ class QueryParser:
                                      removestops=removestops)
         return tokens[0][0]
 
-    def text_to_tokens(self, fieldname: str, text: str, startchar: int=0,
-                       tokenize: bool=True, removestops: bool=True,
+    def text_to_tokens(self, fieldname: str, text: str, tokenize: bool=True,
+                       startchar: int=0, removestops: bool=True,
                        tag: str="_") -> 'List[Tuple[str, int, int]]':
         """
         Analyzes the given text and returns a list of
@@ -343,11 +343,11 @@ class QueryParser:
 
         :param fieldname: the name of the field to use to analyze the text.
         :param text: the text to analyze
-        :param startchar: treat tokens as if the analysis started at this
-            character index in a larger text.
         :param tokenize: break the text into tokens. If this is False, the
             text is not tokenized but the analysis is applied to the entire
             string.
+        :param startchar: treat tokens as if the analysis started at this
+            character index in a larger text.
         :param removestops: the analyzer should remove stop-words if it's
             configured to do so.
         """
@@ -360,16 +360,15 @@ class QueryParser:
         else:
             # Get the field
             field = schema[fieldname]
-
             logger.debug("%s: Converting %r to tokens using field %r",
                          tag, text, field)
             if isinstance(field, fields.TokenizedField):
                 tokens = [
                     (token.text,
-                     startchar + token.startchar,
-                     startchar + token.endchar)
-                    for token in field.tokenize(text, mode="query", chars=True,
-                                                tokenize=tokenize,
+                     startchar + token.range_start,
+                     startchar + token.range_end)
+                    for token in field.tokenize(text, tokenize=tokenize,
+                                                mode="query", ranges=True,
                                                 removestops=removestops)
                 ]
             else:
@@ -442,7 +441,22 @@ class QueryParser:
         return tokens
 
 
-
-
+class MultifieldParser(QueryParser):
+    def __init__(self, fieldnames: Sequence[str],
+                 schema: 'fields.Schema'=None,
+                 termclass: type=query.Term,
+                 group: type=query.And,
+                 plugins: 'List[plugs.Plugin]'=None,
+                 esc_char: str="\\",
+                 base_datetime: datetime=None,
+                 multifield_boosts=Dict[str, float],
+                 multifield_group=query.Or,
+                 ):
+        super(MultifieldParser, self).__init__(None, schema, termclass, group,
+                                               plugins, esc_char, base_datetime)
+        mfp = plugs.MultifieldPlugin(fieldnames,
+                                     fieldboosts=multifield_boosts,
+                                     group=multifield_group)
+        self.add_plugin(mfp)
 
 

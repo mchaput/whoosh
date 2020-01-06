@@ -223,9 +223,9 @@ class Expr:
         obj.name = name
         return obj
 
-    def _debug(self, ctx: Context, msg: str, *args):
-        logger.debug(("  " * ctx.depth) + type(self).__name__ + ": " + msg,
-                     *args)
+    def _debug(self, ctx: Context, *args):
+        if self.debug or ctx.debug:
+            print(("  " * ctx.depth) + type(self).__name__ + ":", *args)
 
     @abstractmethod
     def _parse(self, s: str, at: int, ctx: Context) -> Tuple[int, Any]:
@@ -482,11 +482,16 @@ class Str(Token):
 
         if self.ignore_case:
             target = s[at:at + match_len]
+            self._debug(ctx, "Comparing", match, "to", target)
             if target.lower() == match:
+                self._debug(ctx, "Found ->", at + match_len)
                 return at + match_len, target
 
-        elif s.startswith(match, at):
-            return at + len(self.match), match
+        else:
+            self._debug(ctx, "Looking for", match, "at", at)
+            if s.startswith(match, at):
+                self._debug(ctx, "Found ->", at + match_len)
+                return at + match_len, match
 
         raise Miss(s, at, self.error, self)
 
@@ -507,9 +512,12 @@ class Regex(Token):
         return "<%s %r>" % (type(self).__name__, self.pattern)
 
     def _parse(self, s: str, at: int, ctx: Context) -> Tuple[int, Any]:
+        self._debug(ctx, "Trying", self.expr, "at", at)
         match = self.expr.match(s, at)
         if match:
-            ctx.update(match.groupdict())
+            gd = match.groupdict()
+            self._debug(ctx, "Found", gd, "->", match.end())
+            ctx.update(gd)
             return match.end(), match.group(0)
 
         raise Miss(s, at, self.error, self)
@@ -524,6 +532,7 @@ class Patterns(Expr):
     """
 
     def __init__(self, patterns, may_be_empty=False):
+        super(Patterns, self).__init__()
         self.exprs = [rcompile(pattern, re.IGNORECASE) for pattern in patterns]
         self.error_template = "Expected one of %r" % (patterns, )
         self.may_be_empty = may_be_empty
@@ -535,8 +544,10 @@ class Patterns(Expr):
 
     def _parse(self, s: str, at: int, ctx: Context):
         for i, e in enumerate(self.exprs):
+            self._debug(ctx, "Trying", e, "at", at)
             match = e.match(s, at)
             if match:
+                self._debug(ctx, "Found", i, "->", match.end())
                 return match.end(), i
 
         raise Miss(s, at, self.error, self)
@@ -794,10 +805,14 @@ class Seq(Compound):
         self.may_be_empty = all(e.may_be_empty for e in self.exprs)
 
     def _parse(self, s: str, at: int, ctx: Context) -> Tuple[int, Any]:
+        debug = self.debug
         value = None
         ctx = ctx.push()
         for e in self.exprs:
+            self._debug(ctx, "Trying", e, "at", at)
             at, new_value = e.parse(s, at, ctx)
+            if debug:
+                self._debug(ctx, "Found", new_value, "->", at)
             if not e.hidden:
                 value = new_value
 
@@ -812,6 +827,33 @@ class Seq(Compound):
             e.check_recursion(tmp)
             if not e.may_be_empty:
                 break
+
+
+class Progress(Compound):
+    def __init__(self, exprs: Sequence[Expr], at_least_one=True):
+        super(Progress, self).__init__(exprs)
+        if len(exprs) < 1:
+            raise Exception("Progress must have at least one expr")
+        self.may_be_empty = all(e.may_be_empty for e in self.exprs)
+        self.at_least_one = at_least_one
+
+    def _parse(self, s: str, at: int, ctx: Context) -> Tuple[int, Any]:
+        values = []
+        ctx = ctx.push()
+        matched = 0
+        try:
+            for e in self.exprs[:-1]:
+                at, value = e.parse(s, at, ctx)
+                if not e.hidden:
+                    matched += 1
+                    values.append(value)
+        except Miss:
+            pass
+
+        if self.at_least_one and matched < 1:
+            raise Miss(s, at)
+
+        return self.exprs[-1].parse(s, at, ctx)
 
 
 class Collect(Compound):
@@ -859,8 +901,9 @@ class Or(Compound):
         ctx = ctx.push()
 
         for e in self.exprs:
+            self._debug(ctx, "Trying", e, "at", at)
             try:
-                return e.parse(s, at, ctx)
+                at, value = e.parse(s, at, ctx)
             except ParseException as err:
                 if err.at > max_exc_at:
                     max_exc = err
@@ -869,6 +912,9 @@ class Or(Compound):
                 if len(s) > max_exc_at:
                     max_exc = ParseException(s, len(s), e.error, self)
                     max_exc_at = len(s)
+            else:
+                self._debug(ctx, "Found", value, "->", at)
+                return at, value
 
         # Nothing matched
         if max_exc is not None:
@@ -899,28 +945,43 @@ class Bag(Or):
         first = True
         output = []
         while at < len(s):
+            newat = at
             if not first and sep:
+                # After the first expr, optionally start looking for separators
+                self._debug(ctx, "Checking for sep", sep, "at", newat)
                 try:
-                    at, _ = sep.parse(s, at, ctx)
+                    newat, sepv = sep.parse(s, newat, ctx)
+                    self._debug(ctx, "Found", repr(sepv), "->", newat)
                 except ParseException:
                     break
 
+            # Try each remaining expr in the bag
             for i in range(len(exprs)):
                 e = exprs[i]
                 try:
-                    at, value = e.parse(s, at, ctx)
+                    self._debug(ctx, "Trying", e, "at", newat)
+                    at, value = e.parse(s, newat, ctx)
                 except ParseException:
+                    # Didn't match, try the next one
                     continue
                 else:
+                    # Matched, record the value and remove the expr from the bag
+                    self._debug(ctx, "Found", value, "->", at)
                     output.append(value)
                     del exprs[i]
                     break
+            else:
+                # None of the exprs in the bag matched, break out of the while
+                break
 
             if not exprs:
+                # No exprs left in the bag, break out of the while
                 break
+
             first = False
 
         if output:
+            self._debug(ctx, "Bag output", output, "->", at)
             return at, output
         else:
             raise ParseException(
@@ -1281,16 +1342,17 @@ integer = Apply(Regex("[0-9]+"), lambda s: int(s))
 
 
 class Do(Expr):
-    def __init__(self, fn: FuncType):
+    def __init__(self, fn: FuncType, *extra_args):
         super(Do, self).__init__()
         self.fn = fn
+        self.extra_args = extra_args
         self.may_be_empty = True
 
     def __repr__(self):
         return "<%s %r>" % (type(self).__name__, self.fn)
 
     def _parse(self, s: str, at: int, ctx: Context) -> Tuple[int, Any]:
-        return at, self.fn(ctx)
+        return at, self.fn(ctx, *self.extra_args)
 
 
 class If(Expr):
@@ -1335,6 +1397,19 @@ class Get(Expr):
             raise FatalError(s, at, "Unknown name %r" % self.name, self)
 
 
+class Promote(Expr):
+    def __init__(self, *names):
+        super(Promote, self).__init__()
+        self.names = names
+        self.may_be_empty = True
+
+    def __repr__(self):
+        return "<%s %r>" % (type(self).__name__, self.names)
+
+    def _parse(self, s: str, at: int, ctx: Context) -> Tuple[int, Any]:
+        return at, tuple(ctx.get(name) for name in self.names)
+
+
 class Guard(Wrapper):
     """
     Prevents an expression from matching recursively -- if the expressions is
@@ -1375,7 +1450,7 @@ class Parsed(Expr):
                  end_expr: Expr=None, field_from: str=None,
                  tokenize: bool=True):
         super(Parsed, self).__init__()
-        self.parser = parser  #
+        self.parser = parser
         self.name = name
         self.end_expr = end_expr
         self.field_from = field_from

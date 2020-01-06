@@ -31,9 +31,9 @@ from typing import Optional, Sequence, Tuple
 
 # Typing aliases
 
-# docid, termbytes, length, weight, positions, chars, payloads
+# docid, termbytes, length, weight, positions, ranges, payloads
 PosList = Sequence[int]
-CharList = Sequence[Tuple[int, int]]
+RangeList = Sequence[Tuple[int, int]]
 PayList = Sequence[bytes]
 PostTuple = Tuple[
     Optional[int],  # docid
@@ -41,7 +41,7 @@ PostTuple = Tuple[
     Optional[int],  # encoded length
     Optional[float],  # weight
     Optional[PosList],  # positions
-    Optional[CharList],  # chars
+    Optional[RangeList],  # ranges
     Optional[PayList],  # payloads
 ]
 RawPost = Tuple[
@@ -50,7 +50,7 @@ RawPost = Tuple[
     Optional[int],  # length
     Optional[float],  # weight
     Optional[bytes],  # positions
-    Optional[bytes],  # chars
+    Optional[bytes],  # ranges
     Optional[bytes],  # payloads
 ]
 
@@ -62,7 +62,7 @@ RawPost = Tuple[
 # slower to instantiate than a tuple.
 
 def posting(docid: int=None, termbytes: bytes=None, length: int=None,
-            weight: float=None, positions: PosList=None, chars: CharList=None,
+            weight: float=None, positions: PosList=None, ranges: RangeList=None,
             payloads: PayList=None) -> PostTuple:
     """
     Returns a standardized tuple representing a posting.
@@ -72,11 +72,11 @@ def posting(docid: int=None, termbytes: bytes=None, length: int=None,
     :param length: the length of the document field.
     :param weight: the term weight.
     :param positions: a list of positions in the document.
-    :param chars: a list of (startchar, endchar) tuples.
+    :param ranges: a list of (start, end) tuples.
     :param payloads: a list of payloads for each position.
     """
 
-    return docid, termbytes, length, weight, positions, chars, payloads
+    return docid, termbytes, length, weight, positions, ranges, payloads
 
 
 def change_docid(post: PostTuple, newdocid: int) -> PostTuple:
@@ -84,7 +84,7 @@ def change_docid(post: PostTuple, newdocid: int) -> PostTuple:
 
 
 def repr_post(p):
-    return "<ID=%s term=%r len=%s weight=%s poses=%s chars=%s pays=%s>" % p
+    return "<ID=%s term=%r len=%s weight=%s poses=%s ranges=%s pays=%s>" % p
 
 
 def repr_postlist(ps):
@@ -97,10 +97,10 @@ TERMBYTES = 1
 LENGTH = 2
 WEIGHT = 3
 POSITIONS = 4
-CHARS = 5
+RANGES = 5
 PAYLOADS = 6
 postfield_name = (
-    "docid termbytes length weight positions chars payloads"
+    "docid termbytes length weight positions ranges payloads"
 ).split()
 
 post_docid = itemgetter(DOCID)
@@ -110,7 +110,7 @@ post_length = itemgetter(LENGTH)
 
 def update_post(post, docid: int=None, termbytes: bytes=None, length: int=None,
                 weight: float=None, positions: PosList=None,
-                chars: CharList=None, payloads: PayList=None) -> PostTuple:
+                ranges: RangeList=None, payloads: PayList=None) -> PostTuple:
     """
     Returns a new tuple with the given keywords replaced.
     """
@@ -121,6 +121,6 @@ def update_post(post, docid: int=None, termbytes: bytes=None, length: int=None,
         length if length is not None else post[LENGTH],
         weight if weight is not None else post[WEIGHT],
         positions if positions is not None else post[POSITIONS],
-        chars if chars is not None else post[CHARS],
+        ranges if ranges is not None else post[RANGES],
         payloads if payloads is not None else post[PAYLOADS]
     )

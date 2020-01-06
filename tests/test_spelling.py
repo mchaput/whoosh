@@ -94,14 +94,14 @@ def test_query_highlight():
     def do(text, terms):
         q = qp.parse(text)
         tks = [tk for tk in q.tokens() if tk.text in terms]
-        for tk in tks:
-            if tk.startchar is None or tk.endchar is None:
-                assert False, tk
         fragment = highlight.Fragment(text, tks)
         return hf.format_fragment(fragment)
 
     assert do("a b c d", ["b"]) == 'a <strong class="match term0">b</strong> c d'
-    assert do('a (x:b OR y:"c d") e', ("b", "c")) == 'a (x:<strong class="match term0">b</strong> OR y:"<strong class="match term1">c</strong> d") e'
+    print()
+    print(do('a (x:b OR y:"c d") e', ("b", "c")))
+    assert (do('a (x:b OR y:"c d") e', ("b", "c")) ==
+            'a (x:<strong class="match term0">b</strong> OR y:"<strong class="match term1">c</strong> d") e')
 
 
 def test_query_terms():

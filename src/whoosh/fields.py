@@ -99,7 +99,8 @@ class FieldType:
               ) -> 'Tuple[int, Sequence[ptuples.PostTuple]]':
         raise NotImplementedError
 
-    def process_text(self, qstring: str, mode='', **kwargs) -> Iterable[str]:
+    def process_text(self, qstring: str, mode='', tokenize=True, **kwargs
+                     ) -> Iterable[str]:
         raise Exception("This field type does not implement process_text")
 
     def separate_spelling(self) -> bool:
@@ -235,7 +236,7 @@ class TokenizedField(FieldType):
         return self.format.index(self.analyzer, to_b, value, docid=docid,
                                  **kwargs)
 
-    def tokenize(self, value: str, **kwargs
+    def tokenize(self, value: str, tokenize=True, **kwargs
                  ) -> 'Iterable[analysis.Token]':
         """
         Analyzes the given string and returns an iterator of Token objects
@@ -245,9 +246,9 @@ class TokenizedField(FieldType):
         :param value: The string to tokenize.
         """
 
-        return self.analyzer(value, **kwargs)
+        return self.analyzer(value, tokenize=tokenize, **kwargs)
 
-    def process_text(self, qstring: str, mode='', **kwargs
+    def process_text(self, qstring: str, mode='', tokenize=True, **kwargs
                      ) -> Iterable[str]:
         """
         Analyzes the given string and returns an iterator of token texts.
@@ -262,7 +263,8 @@ class TokenizedField(FieldType):
             on this value.
         """
 
-        return (t.text for t in self.tokenize(qstring, mode=mode, **kwargs))
+        return (t.text for t in self.tokenize(qstring, mode=mode,
+                                              tokenize=tokenize, **kwargs))
 
     def default_column(self) -> columns.Column:
         return columns.VarBytesColumn()
@@ -310,7 +312,7 @@ class Text(TokenizedField):
                  chars: bool=False,
                  field_boost: float=1.0):
         fmt = postform.Format(has_weights=True, has_positions=phrase,
-                              has_chars=chars)
+                              has_ranges=chars)
         super(Text, self).__init__(
             fmt, analyzer or analyzers.StandardAnalyzer(), stored=stored,
             column=column, sortable=sortable, field_boost=field_boost,
@@ -536,7 +538,7 @@ class Numeric(TokenizedField):
         i = intsizes.index(self.bits)
         return intcodes[i]
 
-    def _min_max(self) -> Tuple[int, int]:
+    def _min_max(self) -> Tuple[float, float]:
         numtype = self.numtype
         bits = self.bits
         signed = self.signed

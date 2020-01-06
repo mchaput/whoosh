@@ -65,7 +65,7 @@ class Plugin:
     def __repr__(self):
         return "<%s %r>" % (type(self).__name__, self.name)
 
-    def modify_context(self, context: 'peg.Context'):
+    def modify_context(self, p: 'parsing.QueryParser', ctx: 'peg.Context'):
         """
         This is called on each plugin by the parser when it creates a new PEG
         context, to give the plugins a chance to modify it or add their own
@@ -479,36 +479,37 @@ class RangePlugin(Plugin):
                             may_be_empty=False)
         ).named("rangeend").set("end")
 
-        # The lower or upper limit may be optional, but not both. These rules
-        # cover the three cases.
-        # 1. lower limit followed by "to" -- [a TO]
-        open_end = (
-            start_expr +
-            ws + to + peg.Peek(close) +
-            peg.Do(lambda ctx: (ctx["start"], None))
-        ).named("range_open_end")
-        # 2. "to" followed by upper limit -- [TO z]
-        open_start = (
-             to + ws +
-             end_expr +
-             peg.Do(lambda ctx: (None, ctx["end"]))
-        ).named("range_open_start")
-        # 3. lower, "to" upper -- [a TO z]
-        dbl_end = (
-            start_expr +
-            ws + to + ws +
-            end_expr +
-            peg.Do(lambda ctx: (ctx["start"], ctx["end"]))
-        ).named("closed_range")
-        # Wrap the three possibilities in an Or rule
-        body = (dbl_end | open_start | open_end).named("range_body")
+        # # The lower or upper limit may be optional, but not both. These rules
+        # # cover the three cases.
+        # # 1. lower limit followed by "to" -- [a TO]
+        # open_end = (
+        #     start_expr +
+        #     ws + to + peg.Peek(close) +
+        #     peg.Do(lambda ctx: (ctx["start"], None))
+        # ).named("range_open_end")
+        # # 2. "to" followed by upper limit -- [TO z]
+        # open_start = (
+        #      to + ws +
+        #      end_expr +
+        #      peg.Do(lambda ctx: (None, ctx["end"]))
+        # ).named("range_open_start")
+        # # 3. lower, "to" upper -- [a TO z]
+        # dbl_end = (
+        #     start_expr +
+        #     ws + to + ws +
+        #     end_expr +
+        #     peg.Do(lambda ctx: (ctx["start"], ctx["end"]))
+        # ).named("closed_range")
+        # # Wrap the three possibilities in an Or rule
+        # body = (dbl_end | open_start | open_end).named("range_body")
 
         def make_range(ctx: peg.Context):
             fieldname = ctx.fieldname
             startchar = ctx["openext"][0]
             endchar = ctx["closeext"][1]
 
-            start, end = ctx["body"]
+            start = ctx.get("start")
+            end = ctx.get("end")
 
             # What kind of open and close brackets were used?
             startexcl = ctx["open"] == "{"
@@ -522,10 +523,19 @@ class RangePlugin(Plugin):
 
         return (
             open.set("open").set_ext("openext") +
-            body.set("body") +
+            peg.Optional(start_expr) +
+            ws.opt() + to + ws.opt() +
+            peg.Optional(end_expr) +
             close.set("close").set_ext("closeext") +
             peg.Do(make_range)
         ).named("range")
+
+        # return (
+        #     open.set("open").set_ext("openext") +
+        #     body.set("body") +
+        #     close.set("close").set_ext("closeext") +
+        #     peg.Do(make_range)
+        # ).named("range")
 
     @analysis_filter((query.Range, query.TermRange), 190)
     def analyze_ranges(self, parser: 'parsing.QueryParser', qs: query.Range,
@@ -549,6 +559,8 @@ class RangePlugin(Plugin):
                 ).set_extent(qs.startchar, qs.endchar)
             except query.QueryParserError:
                 qs = query.ErrorQuery(sys.exc_info()[1], qs)
+        elif type(qs) is query.Range:
+            qs = qs.specialize(schema)
 
         return qs
 

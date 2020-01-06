@@ -1314,7 +1314,7 @@ class X1Matcher(matchers.LeafMatcher):
         return self._posts.positions(self._i)
 
     def chars(self) -> Sequence[Tuple[int, int]]:
-        return self._posts.chars(self._i)
+        return self._posts.ranges(self._i)
 
     def payloads(self) -> Sequence[bytes]:
         return self._posts.payloads(self._i)

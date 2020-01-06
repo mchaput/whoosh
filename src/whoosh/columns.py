@@ -53,8 +53,8 @@ from abc import abstractmethod
 from array import array
 from bisect import bisect_right
 from pickle import dumps, loads
-from typing import (Any, Callable, Iterable, List, Optional, Sequence, Tuple,
-                    Union, cast)
+from typing import (Any, Callable, Dict, Iterable, List, Optional, Sequence,
+                    Tuple, Union, cast)
 
 try:
     import zlib
@@ -245,7 +245,6 @@ class VarBytesWriter(ColumnWriter):
         lengths = self._lengths.array
         offsets = self._offsets.array
         self._fill(doccount)
-
         output.write_array(lengths)
 
         # Only write the offsets if there is a large number of items in the
@@ -257,8 +256,8 @@ class VarBytesWriter(ColumnWriter):
             output.write_array(offsets)
 
         # Write the typecodes for the offsets and lengths at the end
-        self._output.write(lengths.typecode.encode("ascii"))
-        self._output.write(offsets_tc.encode("ascii"))
+        output.write(lengths.typecode.encode("ascii"))
+        output.write(offsets_tc.encode("ascii"))
 
 
 class VarBytesReader(ColumnReader):
@@ -268,14 +267,14 @@ class VarBytesReader(ColumnReader):
                                              native)
 
         self.had_stored_offsets = False  # for testing
-        self._read_offsets_and_lengths()
+        self._read_offsets_and_lengths(self._basepos, self._length)
 
-    def _read_offsets_and_lengths(self) -> Union[memoryview, FileArray]:
+    def _read_offsets_and_lengths(self, basepos, length):
         data = self._data
         doccount = self._doccount
 
         # Read the two typecodes from the end of the column
-        end = self._basepos + self._length - 2
+        end = basepos + length - 2
         lens_code, offsets_tc = data.unpack("cc", end)
         lens_code = str(lens_code.decode("ascii"))
         offsets_code = str(offsets_tc.decode("ascii"))
@@ -605,6 +604,117 @@ class RefBytesReader(ColumnReader):
             if hasattr(uniq, "release"):
                 uniq.release()
         self._refs.release()
+
+
+# Annotations column
+
+class AnnotationColumn(Column):
+    """
+    Stores per-doc named position spans.
+    """
+
+    def default_value(self, reverse: bool=False):
+        pass
+
+    def writer(self, output: OutputFile) -> 'AnnotationWriter':
+        return AnnotationWriter(output)
+
+    def reader(self, data: Data, basepos: int, length: int, doccount: int,
+               native: bool, reverse: bool=False) -> 'AnnotationReader':
+        return AnnotationReader(data, basepos, length, doccount, native,
+                                reverse)
+
+
+class AnnotationWriter(VarBytesWriter):
+    def __init__(self, output: OutputFile):
+        super(AnnotationWriter, self).__init__(output)
+        self._basepos = output.tell()
+        self._namelist = []
+        self._names = {}  # type: Dict[str, int]
+
+    def add(self, docnum: int, annos: Iterable[Tuple[str, int, int]]):
+        from whoosh.util.numlists import min_array_code
+
+        addbytes = super(AnnotationWriter, self).add
+        names = self._names
+        reflist = []
+        for key, startpos, endpos in annos:
+            try:
+                ref = names[key]
+            except KeyError:
+                ref = names[key] = len(names)
+                self._namelist.append(key)
+
+            reflist.extend((ref, startpos, endpos))
+
+        if reflist:
+            assert not len(reflist) % 3
+            mincode = min_array_code(max(reflist))
+            addbytes(docnum, (mincode.encode("ascii") +
+                              array(mincode, reflist).tobytes()))
+
+    def finish(self, doccount: int):
+        super(AnnotationWriter, self).finish(doccount)
+        output = self._output
+        varlength = output.tell() - self._basepos
+
+        # Write the annotation names
+        for name in self._namelist:
+            namebytes = name.encode("utf8")
+            output.write_ushort_le(len(namebytes))
+            output.write(namebytes)
+
+        output.write_uint_le(varlength)
+
+
+class AnnotationReader(VarBytesReader):
+    def __init__(self, data: Data, basepos: int, length: int,
+                 doccount: int, native: bool, reverse: bool = False):
+        self._data = data
+        self._basepos = basepos
+        self._length = length
+        self._doccount = doccount
+        self._native = native
+        self._reverse = reverse
+
+        # Read varbytes length from end of column
+        self._varlength = data.get_uint_le(basepos + length - 4)
+        self._read_anno_names()
+
+        self.had_stored_offsets = False  # for testing
+        self._read_offsets_and_lengths(self._basepos, self._varlength)
+
+    def _read_anno_names(self):
+        # Read annotation type names between end of varbytes and end of column
+        data = self._data
+        basepos = self._basepos
+        length = self._length
+
+        namelist = []
+        pos = self._varlength
+        while pos < length - 4:
+            namelen = data.get_ushort_le(basepos + pos)
+            namebytes = data[pos + 2:pos + 2 + namelen]
+            namelist.append(namebytes.decode("utf8"))
+            pos += namelen + 2
+        self._names = tuple(namelist)
+
+    def names(self):
+        return self._names
+
+    def __getitem__(self, docnum: int) -> Iterable[Tuple[str, int, int]]:
+        if docnum >= self._doccount:
+            return
+
+        names = self._names
+        annobytes = super(AnnotationReader, self).__getitem__(docnum)
+        if annobytes:
+            typecode = annobytes[0:1].decode("ascii")
+            arry = array(typecode)
+            arry.frombytes(annobytes[1:])
+            for i in range(0, len(arry), 3):
+                name = names[arry[i]]
+                yield name, arry[i + 1], arry[i + 2]
 
 
 # Numeric column

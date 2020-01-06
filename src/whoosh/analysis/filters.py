@@ -413,8 +413,8 @@ class DelimitedAttributeFilter(analysis.Filter):
             pos = text.find(delim)
             if pos > -1:
                 setattr(t, attr, type_(text[pos + 1:]))
-                if t.chars:
-                    t.endchar -= len(t.text) - pos
+                if t.ranges:
+                    t.range_end -= len(t.text) - pos
                 t.text = text[:pos]
             else:
                 setattr(t, attr, default)
@@ -479,7 +479,7 @@ class HyphenFilter(analysis.Filter):
 
     def set_options(self, kwargs):
         # This filter needs characters on the tokens to work
-        kwargs["chars"] = True
+        kwargs["ranges"] = True
 
     def filter(self, tokens: Iterable[analysis.Token]
                ) -> Iterable[analysis.Token]:
@@ -489,21 +489,21 @@ class HyphenFilter(analysis.Filter):
         for t in tokens:
             if t.mode != "query":
                 is_hy = False
-                if t.startchar > 0 and t.source and prev:
+                if t.range_start > 0 and t.source and prev:
                     last_end = prev[-1][3]
-                    is_hy = (t.source[t.startchar - 1:t.startchar] == "-" and
-                             last_end == t.startchar - 1)
+                    is_hy = (t.source[t.range_start - 1:t.range_start] == "-" and
+                             last_end == t.range_start - 1)
 
                 if is_hy:
-                    prev.append((t.text, t.pos, t.startchar, t.endchar))
+                    prev.append((t.text, t.pos, t.range_start, t.range_end))
                     tt = t.copy()
-                    tt.endchar = t.endchar
+                    tt.range_end = t.range_end
                     for i in range(len(prev) - 1):
                         tt.pos = prev[i][1]
-                        tt.startchar = prev[i][2]
+                        tt.range_start = prev[i][2]
                         tt.text = "".join(p[0] for p in prev[i:])
                         yield tt
                 else:
-                    prev = [(t.text, t.pos, t.startchar, t.endchar)]
+                    prev = [(t.text, t.pos, t.range_start, t.range_end)]
 
             yield t

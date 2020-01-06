@@ -643,11 +643,10 @@ def test_empty_ranges():
 
 def test_empty_numeric_range():
     schema = fields.Schema(id=fields.ID, num=fields.NUMERIC)
-    qp = default.QueryParser("num", schema)
+    qp = default.QueryParser("id", schema)
     q = qp.parse("num:[to]")
-    assert q.__class__ == query.NumericRange
-    assert q.start is None
-    assert q.end is None
+    assert q.__class__ == query.Every
+    assert q.field() == "num"
 
 
 def test_numrange_multi():
@@ -657,7 +656,7 @@ def test_numrange_multi():
 
     q = qp.parse("start:[2008 to]")
     assert q.__class__ == query.NumericRange
-    assert q.fieldname == "start"
+    assert q.field() == "start"
     assert q.start == 2008
     assert q.end is None
 

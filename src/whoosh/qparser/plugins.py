@@ -704,12 +704,13 @@ class PhrasePlugin(Plugin):
                 if field.analyzer:
                     # We have a field with an analyzer, so use it to parse
                     # the phrase into tokens
-                    tokens = field.tokenize(text, mode="query", chars=True)
+                    tokens = field.tokenize(text, mode="query", ranges=True)
                     words = []
                     char_ranges = []
                     for t in tokens:
                         words.append(t.text)
-                        char_ranges.append((sc + t.startchar, sc + t.endchar))
+                        char_ranges.append((sc + t.range_start,
+                                            sc + t.range_end))
                 else:
                     # We have a field but it doesn't have a format object,
                     # for some reason (it's self-parsing?), so use process_text

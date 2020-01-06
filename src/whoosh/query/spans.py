@@ -285,7 +285,7 @@ def posting_to_spans(post: 'ptuples.PostTuple') -> 'List[Span]':
 
     weight = post[ptuples.WEIGHT] or 1.0
     poses = post[ptuples.POSITIONS]
-    chars = post[ptuples.CHARS]
+    chars = post[ptuples.RANGES]
     pays = post[ptuples.PAYLOADS]
     # if not poses:
     #     raise Exception("No positions")

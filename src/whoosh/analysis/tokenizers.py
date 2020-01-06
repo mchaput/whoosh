@@ -48,13 +48,13 @@ class IDTokenizer(analysis.Tokenizer):
     def is_token_start(self, s: str, at: int) -> bool:
         return True
 
-    def __call__(self, value: str,
-                 positions: bool=False, chars: bool=False,
+    def __call__(self, value: str, tokenize=True,
+                 positions: bool=False, ranges: bool=False,
                  keeporiginal: int=False, removestops: bool=True,
                  start_pos: int=0, start_char: int=0,
                  mode: str='', **kwargs) -> Iterable[analysis.Token]:
         assert isinstance(value, str), "%r is not unicode" % value
-        t = analysis.Token(positions=positions, chars=chars,
+        t = analysis.Token(positions=positions, ranges=ranges,
                            removestops=removestops, mode=mode,
                            **kwargs)
         t.source = value
@@ -64,9 +64,9 @@ class IDTokenizer(analysis.Tokenizer):
             t.original = value
         if positions:
             t.pos = start_pos + 1
-        if chars:
-            t.startchar = start_char
-            t.endchar = start_char + len(value)
+        if ranges:
+            t.range_start = start_char
+            t.range_end = start_char + len(value)
         yield t
     
 
@@ -102,16 +102,15 @@ class RegexTokenizer(analysis.Tokenizer):
     def is_token_start(self, s: str, at: int) -> bool:
         return bool(self.expression.match(s, at))
 
-    def __call__(self, value: str,
-                 positions: bool=False, chars: bool=False, keeporiginal=False,
-                 removestops: bool=True, tokenize: bool=True,
-                 start_pos: int=0, start_char: int=0,
-                 mode: str='', **kwargs
+    def __call__(self, value: str, tokenize=True,
+                 positions: bool=False, ranges: bool=False, keeporiginal=False,
+                 removestops: bool=True, start_pos: int=0, start_char: int=0,
+                 mode: str='', chars=None, **kwargs
                  ) -> Iterable[analysis.Token]:
         """
         :param value: The unicode string to tokenize.
         :param positions: Whether to record token positions in the token.
-        :param chars: Whether to record character offsets in the token.
+        :param ranges: Whether to record character offsets in the token.
         :param start_pos: The position number of the first token. For example,
             if you set start_pos=2, the tokens will be numbered 2,3,4,...
             instead of 0,1,2,...
@@ -121,10 +120,12 @@ class RegexTokenizer(analysis.Tokenizer):
         :param tokenize: if True, the text should be tokenized.
         """
 
+        assert chars is None
+
         assert isinstance(value, str), "%s is not unicode" % repr(value)
 
-        t = analysis.Token(positions, chars, removestops=removestops, mode=mode,
-                           **kwargs)
+        t = analysis.Token(positions=positions, ranges=ranges,
+                           removestops=removestops, mode=mode, **kwargs)
         t.source = value
 
         if not tokenize:
@@ -132,10 +133,11 @@ class RegexTokenizer(analysis.Tokenizer):
             t.boost = t.field_boost
             if positions:
                 t.pos = start_pos
-            if chars:
-                t.startchar = start_char
-                t.endchar = start_char + len(value)
+            if ranges:
+                t.range_start = start_char
+                t.range_end = start_char + len(value)
             yield t
+
         elif not self.gaps:
             # The default: expression matches are used as tokens
             for pos, match in enumerate(self.expression.finditer(value)):
@@ -146,10 +148,11 @@ class RegexTokenizer(analysis.Tokenizer):
                 t.stopped = False
                 if positions:
                     t.pos = start_pos + pos
-                if chars:
-                    t.startchar = start_char + match.start()
-                    t.endchar = start_char + match.end()
+                if ranges:
+                    t.range_start = start_char + match.start()
+                    t.range_end = start_char + match.end()
                 yield t
+
         else:
             # When gaps=True, iterate through the matches and
             # yield the text between them.
@@ -168,9 +171,9 @@ class RegexTokenizer(analysis.Tokenizer):
                     if positions:
                         t.pos = pos
                         pos += 1
-                    if chars:
-                        t.startchar = start_char + start
-                        t.endchar = start_char + end
+                    if ranges:
+                        t.range_start = start_char + start
+                        t.range_end = start_char + end
 
                     yield t
 
@@ -186,9 +189,9 @@ class RegexTokenizer(analysis.Tokenizer):
                 t.stopped = False
                 if positions:
                     t.pos = pos
-                if chars:
-                    t.startchar = prevend
-                    t.endchar = len(value)
+                if ranges:
+                    t.range_start = prevend
+                    t.range_end = len(value)
                 yield t
 
 
@@ -233,15 +236,15 @@ class CharsetTokenizer(analysis.Tokenizer):
     def is_token_start(self, s: str, at: int) -> bool:
         return bool(self.charmap[ord(s[at])])
 
-    def __call__(self, value: str,
-                 positions: bool=False, chars: bool=False,
+    def __call__(self, value: str, tokenize=True,
+                 positions: bool=False, ranges: bool=False,
                  keeporiginal: bool=False, removestops: bool=True,
-                 start_pos: int=0, start_char: int=0, tokenize: bool=True,
-                 mode: str='', **kwargs) -> Iterable[analysis.Token]:
+                 start_pos: int=0, start_char: int=0, mode: str='', **kwargs
+                 ) -> Iterable[analysis.Token]:
         """
         :param value: The unicode string to tokenize.
         :param positions: Whether to record token positions in the token.
-        :param chars: Whether to record character offsets in the token.
+        :param ranges: Whether to record character offsets in the token.
         :param start_pos: The position number of the first token. For example,
             if you set start_pos=2, the tokens will be numbered 2,3,4,...
             instead of 0,1,2,...
@@ -253,19 +256,18 @@ class CharsetTokenizer(analysis.Tokenizer):
 
         assert isinstance(value, str), "%r is not unicode" % value
 
-        t = analysis.Token(positions, chars, removestops=removestops, mode=mode,
-                           **kwargs)
+        t = analysis.Token(positions=positions, ranges=ranges,
+                           removestops=removestops, mode=mode, **kwargs)
         t.source = value
 
         if not tokenize:
             t.original = t.text = value
             t.boost = 1.0
-            if positions:
-                t.pos = start_pos
-            if chars:
-                t.startchar = start_char
-                t.endchar = start_char + len(value)
+            t.pos = start_pos
+            t.range_start = start_char
+            t.range_end = start_char + len(value)
             yield t
+
         else:
             text = u""
             charmap = self.charmap
@@ -284,9 +286,9 @@ class CharsetTokenizer(analysis.Tokenizer):
                         if positions:
                             t.pos = pos
                             pos += 1
-                        if chars:
-                            t.startchar = startchar
-                            t.endchar = currentchar
+                        if ranges:
+                            t.range_start = startchar
+                            t.range_end = currentchar
                         yield t
                     startchar = currentchar + 1
                     text = u""
@@ -300,9 +302,9 @@ class CharsetTokenizer(analysis.Tokenizer):
                     t.original = t.text
                 if positions:
                     t.pos = pos
-                if chars:
-                    t.startchar = startchar
-                    t.endchar = currentchar
+                if ranges:
+                    t.range_start = startchar
+                    t.range_end = currentchar
                 yield t
 
 
@@ -350,17 +352,26 @@ class PathTokenizer(analysis.Tokenizer):
     def is_token_start(self, s: str, at: int):
         return s.startswith("/", at)
 
-    def __call__(self, value: str, positions: bool=False,
+    def __call__(self, value: str, tokenize=True, positions: bool=False,
                  start_pos: int=0, **kwargs):
         assert isinstance(value, str), "%r is not unicode" % value
-        token = analysis.Token(positions, **kwargs)
-        token.source = value
+        t = analysis.Token(positions=positions, **kwargs)
+        t.source = value
 
-        pos = start_pos
-        for match in self.expr.finditer(value):
-            token.text = value[:match.end()]
-            if positions:
-                token.pos = pos
-                pos += 1
-            yield token
+        if not tokenize:
+            t.original = t.text = value
+            t.boost = 1.0
+            t.pos = 0
+            t.range_start = 0
+            t.range_end = len(value)
+            yield t
+
+        else:
+            pos = start_pos
+            for match in self.expr.finditer(value):
+                t.text = value[:match.end()]
+                if positions:
+                    t.pos = pos
+                    pos += 1
+                yield t
 

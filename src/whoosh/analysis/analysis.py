@@ -26,7 +26,7 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from abc import abstractmethod
-from typing import Iterable, List, Sequence
+from typing import Iterable, List, Sequence, Tuple
 
 
 # Exceptions
@@ -47,26 +47,26 @@ def unstopped(tokenstream: 'Iterable[Token]') -> 'Iterable[Token]':
 
 
 def entoken(textstream: Iterable[str], positions: bool=False,
-            chars: bool=False, start_pos: int=0, start_char: int=0,
+            ranges: bool=False, start_pos: int=0, range_start: int=0,
             **kwargs) -> 'Iterable[Token]':
     """
     Takes a sequence of unicode strings and yields a series of Token objects
     (actually the same Token object over and over, for performance reasons),
     with the attributes filled in with reasonable values (for example, if
-    ``positions`` or ``chars`` is True, the function assumes each token was
+    ``positions`` or ``ranges`` is True, the function assumes each token was
     separated by one space).
 
     :param textstream: an iterable of unicode strings.
     :param positions: whether to store positions on the tokens.
-    :param chars: whether to store character extents on the tokens.
+    :param ranges: whether to store character extents on the tokens.
     :param start_pos: the position to start with when numbering tokens.
-    :param start_char: the index to start with when recording chars.
+    :param range_start: the index to start with when recording chars.
     :param kwargs: passed as keyword arguments to the Token object.
     """
 
     pos = start_pos
-    char = start_char
-    t = Token(positions=positions, chars=chars, **kwargs)
+    range_index = range_start
+    t = Token(positions=positions, ranges=ranges, **kwargs)
 
     for text in textstream:
         t.text = text
@@ -75,10 +75,10 @@ def entoken(textstream: Iterable[str], positions: bool=False,
             t.pos = pos
             pos += 1
 
-        if chars:
-            t.startchar = char
-            char += len(text)
-            t.endchar = char
+        if ranges:
+            t.range_start = range_index
+            range_index += len(text)
+            t.range_end = range_index
 
         yield t
 
@@ -114,51 +114,113 @@ class Token:
     ...or, call token.copy() to get a copy of the token object.
     """
 
-    def __init__(self, positions: bool=False, chars: bool=False,
-                 payloads: bool=False, removestops: bool=True, mode: str='',
-                 no_morph: bool=False, field_boost: float=1.0,
-                 source: str=None, **kwargs):
+    __slots__ = ("fieldname", "positions", "ranges", "payloads", "removestops",
+                 "mode", "no_morph", "field_boost", "stopped", "boost",
+                 "source", "text", "pos", "range_start", "range_end", "payload",
+                 "matched", "original")
+
+    def __init__(self,
+                 fieldname: str=None,
+                 positions: bool=False,
+                 ranges: bool=False,
+                 payloads: bool=False,
+                 removestops: bool=True,
+                 mode: str='',
+                 no_morph: bool=False,
+                 field_boost: float=1.0,
+                 source: str=None,
+                 text: str=u'',
+                 original: str=None,
+                 boost=1.0,
+                 stopped=False,
+                 pos=-1,
+                 range_start=-1,
+                 range_end=-1,
+                 payload=b'',
+                 matched=False):
         """
+        :param fieldname: The name of the field this token is for. Usually this
+            is implied and equal to None, however in some applications (for
+            example spelling) it is filled out.
         :param positions: Whether tokens should have the token position in the
             'pos' attribute.
-        :param chars: Whether tokens should have character offsets in the
-            'startchar' and 'endchar' attributes.
+        :param ranges: Whether tokens should have range offsets in the
+            'range_start' and 'range_end' attributes.
+        :param payloads: Whether tokens should have payloads filled in.
         :param removestops: whether to remove stop words from the stream (if
             the tokens pass through a stop filter).
         :param mode: contains a string describing the purpose for which the
             analyzer is being called, i.e. 'index' or 'query'.
         :param no_morph: whether to skip filters that morphologically change
             tokens (e.g. stemming).
+        :param field_boost: the default boost value of the field. This is used
+            as the initial value for `.boost` when the token resets.
         :param source: the original string being tokenized.
+        :param text: the text of the token.
+        :param original: contains the original (pre-morophologized) word string.
+        :param boost: the weight of this individual occurance.
+        :param stopped: whether this is a stop-word. Usually stopped words are
+            removed from the token stream, but sometimes they are left in (for
+            example, for highlighting), in which case they can be excluded from
+            certain operations by checking this attribute.
+        :param pos: the position of this token in the stream.
+        :param range_start: the start of this token's "range". For words, this
+            is the character index of the start of the word. For annotation
+            ranges, this is the start position.
+        :param range_end: the end of this token's "range". For words, this is
+            the character index of the end of the word. For annoation ranges,
+            this is the end position.
+        :param payload: an arbitrary bytestring associated with this occurance
+            of the word.
+        :param matched: used in highlighting to mark a token that should be
+            highlighted.
         """
 
+        self.fieldname = fieldname
         self.positions = positions
-        self.chars = chars
+        self.ranges = ranges
         self.payloads = payloads
-        self.stopped = False
-        self.field_boost = field_boost
-        self.boost = 1.0
         self.removestops = removestops
         self.mode = mode
         self.no_morph = no_morph
+        self.field_boost = field_boost
         self.source = source
 
-        self.text = u''
-        self.pos = -1
-        self.startchar = -1
-        self.endchar = -1
-        self.payload = b''
+        self.text = text
+        self.boost = boost
+        self.stopped = stopped
+        self.pos = pos
+        self.range_start = range_start
+        self.range_end = range_end
+        self.payload = payload
 
-        self.__dict__.update(kwargs)
+        self.matched = matched
+        self.original = original
 
     def __repr__(self):
-        parms = ", ".join("%s=%r" % (name, value)
-                          for name, value in self.__dict__.items())
+        parms = ", ".join("%s=%r" % (name, getattr(self, name))
+                          for name in self.__slots__)
         return "%s(%s)" % (self.__class__.__name__, parms)
 
     def copy(self) -> 'Token':
-        # This is faster than using the copy module
-        return Token(**self.__dict__)
+        return Token(fieldname=self.fieldname,
+                     positions=self.positions,
+                     ranges=self.ranges,
+                     payloads=self.payloads,
+                     removestops=self.removestops,
+                     mode=self.mode,
+                     no_morph=self.no_morph,
+                     field_boost=self.field_boost,
+                     source=self.source,
+                     text=self.text,
+                     boost=self.boost,
+                     stopped=self.stopped,
+                     pos=self.pos,
+                     range_start=self.range_start,
+                     range_end=self.range_end,
+                     payload=self.payload,
+                     matched=self.matched,
+                     original=self.original)
 
 
 # Base class
@@ -179,11 +241,8 @@ class Analyzer:
     def __ne__(self, other: 'Analyzer'):
         return not self == other
 
-    def is_token_start(self, s: str, at: int) -> bool:
-        raise NotImplementedError
-
     @abstractmethod
-    def __call__(self, value: str, **kwargs):
+    def __call__(self, value: str, tokenize=True, **kwargs):
         raise NotImplementedError
 
     def components(self) -> 'Iterable[Analyzer]':
@@ -219,7 +278,7 @@ class Filter(Analyzer):
     def __call__(self, value: str, **kwargs):
         raise TypeError("Can't call a Filter, use the filter method")
 
-    def __or__(self, other: 'Filter') -> 'CompositeAnalyzer':
+    def __or__(self, other: 'Filter') -> 'FilterChain':
         if not isinstance(other, Filter):
             raise CompositionError("Cannot compose %r and %r" % (self, other))
         return FilterChain(self, other)
@@ -236,7 +295,7 @@ class FilterChain(Filter):
     def __init__(self, *filters):
         self._filters = filters  # type: Tuple[Filter]
 
-    def __or__(self, other: 'Filter') -> 'CompositeAnalyzer':
+    def __or__(self, other: 'Filter') -> 'FilterChain':
         if not isinstance(other, Filter):
             raise CompositionError("Cannot compose %r and %r" % (self, other))
         fs = list(self._filters) + [other]
@@ -257,7 +316,7 @@ class CompositeAnalyzer(Tokenizer):
         self._filters = []  # type: List[Filter]
         self.extend(filters)
 
-    def __eq__(self, other):
+    def __eq__(self, other: 'CompositeAnalyzer'):
         return (
             type(self) is type(other) and
             self._tokenizer == other._tokenizer and
@@ -288,14 +347,14 @@ class CompositeAnalyzer(Tokenizer):
     def is_token_start(self, s: str, at: int) -> bool:
         return self._tokenizer.is_token_start(s, at)
 
-    def __call__(self, value: str, no_morph: bool=False,
-                 **kwargs) -> Iterable[Token]:
+    def __call__(self, value: str, tokenize=True, no_morph: bool=False, **kwargs
+                 ) -> Iterable[Token]:
         # Allow filters to change options
         for f in self._filters:
             f.set_options(kwargs)
 
         # Start with tokenizer
-        gen = self._tokenizer(value, **kwargs)
+        gen = self._tokenizer(value, tokenize=tokenize, **kwargs)
 
         # Add the filters
         for f in self._filters:

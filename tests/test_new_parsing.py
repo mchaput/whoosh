@@ -47,10 +47,7 @@ def test_esc():
     p = parsing.QueryParser("content")
     qs = p.parse(u"foo\\ bar baz", normalize=False)
     assert qs == query.And([
-        query.And([
-            query.Term("content", "foo"),
-            query.Term("content", "bar"),
-        ]),
+        query.Term("content", "foo bar"),
         query.Term("content", "baz")
     ])
 
@@ -404,7 +401,7 @@ def test_sequence():
     sp = plugs.SequencePlugin(start="<", end=">")
     p.add_plugin(sp)
 
-    ctx = p.context("text")
+    ctx = p.context(None)
     syn = list(sp.syntaxes(p))[0][0]
     at, value = syn.parse(qst, 4, ctx)
     # query.dump(value)
@@ -439,7 +436,7 @@ def test_range():
     # query.dump(qs)
     assert qs == query.And([
         query.Term("text", "aa"),
-        query.Range("text", "b", "c", False, False),
+        query.TermRange("text", "b", "c", False, False),
         query.Term("text", "dd")
     ])
 
@@ -447,28 +444,28 @@ def test_range():
     # query.dump(qs)
     assert qs == query.And([
         query.Term("text", "aa"),
-        query.Range("text", "b", "c", False, True),
+        query.TermRange("text", "b", "c", False, True),
         query.Term("text", "dd")
     ])
 
     qs = p.parse("aa [to c} dd", normalize=False)
     assert qs == query.And([
         query.Term("text", "aa"),
-        query.Range("text", None, "c", False, True),
+        query.TermRange("text", None, "c", False, True),
         query.Term("text", "dd")
     ])
 
     qs = p.parse("aa [b to} dd", normalize=False)
     assert qs == query.And([
         query.Term("text", "aa"),
-        query.Range("text", "b", None, False, True),
+        query.TermRange("text", "b", None, False, True),
         query.Term("text", "dd")
     ])
 
     qs = p.parse("aa {b to] dd", normalize=False)
     assert qs == query.And([
         query.Term("text", "aa"),
-        query.Range("text", "b", None, True, False),
+        query.TermRange("text", "b", None, True, False),
         query.Term("text", "dd")
     ])
 
@@ -477,32 +474,32 @@ def test_weird_range_values():
     p = parsing.QueryParser("text", default_schema)
 
     qs = p.parse("['to' to ']']", normalize=False)
-    assert qs == query.Range("text", "to", "]", False, False)
+    assert qs == query.TermRange("text", "to", "]", False, False)
 
     qs = p.parse("[to to TO]", normalize=False)
-    assert qs == query.Range("text", "to", "to", False, False)
+    assert qs == query.TermRange("text", "to", "to", False, False)
 
     qs = p.parse("[to to]", normalize=False)
-    assert qs == query.Range("text", None, "to", False, False)
+    assert qs == query.TermRange("text", "to", None, False, False)
 
     qs = p.parse("[\\to to]", normalize=False)
-    assert qs == query.Range("text", "to", None, False, False)
+    assert qs == query.TermRange("text", "to", None, False, False)
 
     qs = p.parse("[\\to to \\]]", normalize=False)
-    assert qs == query.Range("text", "to", "]", False, False)
+    assert qs == query.TermRange("text", "to", "]", False, False)
 
     qs = p.parse("[aa bb to cc dd]", normalize=False)
-    assert qs == query.Range("text", "aa bb", "cc dd", False, False)
+    assert qs == query.TermRange("text", "aa bb", "cc dd", False, False)
 
     qs = p.parse("['a b' to c\\ d]", normalize=False)
-    assert qs == query.Range("text", "a b", "c d", False, False)
+    assert qs == query.TermRange("text", "a b", "c d", False, False)
 
     qs = p.parse("[AND to OR]", normalize=False)
-    assert qs == query.Range("text", "and", "or", False, False)
+    assert qs == query.TermRange("text", "and", "or", False, False)
 
     qst = '["foo bar" to "baz"]'
     qs = p.parse(qst, normalize=False)
-    assert qs == query.Range("text", "foo bar", "baz", False, False)
+    assert qs == query.TermRange("text", "foo bar", "baz", False, False)
 
 
 def test_num_range():

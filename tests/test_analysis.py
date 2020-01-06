@@ -165,14 +165,14 @@ def test_intraword_chars():
     ana = tokenizers.RegexTokenizer(r"\S+") | iwf | filters.LowercaseFilter()
 
     target = u"WiKiWo-rd"
-    tokens = [(t.text, t.startchar, t.endchar)
-              for t in ana(target, chars=True)]
+    tokens = [(t.text, t.range_start, t.range_end)
+              for t in ana(target, ranges=True)]
     assert tokens == [("wi", 0, 2), ("ki", 2, 4), ("wo", 4, 6),
                       ("rd", 7, 9), ("wikiword", 0, 9)]
 
     target = u"Zo WiKiWo-rd"
-    tokens = [(t.text, t.startchar, t.endchar)
-              for t in ana(target, chars=True)]
+    tokens = [(t.text, t.range_start, t.range_end)
+              for t in ana(target, ranges=True)]
     assert tokens == [("zo", 0, 2), ("wi", 3, 5), ("ki", 5, 7),
                       ("wo", 7, 9), ("rd", 10, 12), ("wikiword", 3, 12)]
 
@@ -182,8 +182,8 @@ def test_intraword_possessive():
     ana = tokenizers.RegexTokenizer(r"\S+") | iwf | filters.LowercaseFilter()
 
     target = u"O'Malley's-Bar"
-    tokens = [(t.text, t.startchar, t.endchar)
-              for t in ana(target, chars=True)]
+    tokens = [(t.text, t.range_start, t.range_end)
+              for t in ana(target, ranges=True)]
     assert tokens == [("o", 0, 1), ("malley", 2, 8), ("bar", 11, 14),
                       ("omalleybar", 0, 14)]
 
@@ -209,9 +209,9 @@ def test_word_segments():
 def test_biword():
     ana = tokenizers.RegexTokenizer(r"\w+") | intraword.BiWordFilter()
     result = [t.copy() for t
-              in ana(u"the sign of four", chars=True, positions=True)]
+              in ana(u"the sign of four", ranges=True, positions=True)]
     assert ["the-sign", "sign-of", "of-four"] == [t.text for t in result]
-    assert [(0, 8), (4, 11), (9, 16)] == [(t.startchar, t.endchar)
+    assert [(0, 8), (4, 11), (9, 16)] == [(t.range_start, t.range_end)
                                           for t in result]
     assert [0, 1, 2] == [t.pos for t in result]
 
@@ -223,14 +223,14 @@ def test_biword():
 def test_shingles():
     ana = tokenizers.RegexTokenizer(r"\w+") | intraword.ShingleFilter(3, " ")
     source = u"better a witty fool than a foolish wit"
-    results = [t.copy() for t in ana(source, positions=True, chars=True)]
+    results = [t.copy() for t in ana(source, positions=True, ranges=True)]
     assert [t.text for t in results] == [u'better a witty', u'a witty fool',
                                          u'witty fool than', u'fool than a',
                                          u'than a foolish',
                                          u'a foolish wit']
     assert [t.pos for t in results] == list(range(len(results)))
     for t in results:
-        assert t.text == source[t.startchar:t.endchar]
+        assert t.text == source[t.range_start:t.range_end]
 
 
 def test_unicode_blocks():
@@ -379,7 +379,7 @@ def test_url():
 
 
 def test_name_field():
-    from whoosh import qparser
+    from whoosh import parsing
 
     ana = (tokenizers.RegexTokenizer(r"\S+") |
            filters.LowercaseFilter() |
@@ -394,7 +394,7 @@ def test_name_field():
         w.commit()
 
         s = ix.searcher()
-        qp = qparser.QueryParser("name", schema)
+        qp = parsing.QueryParser("name", schema)
         q = qp.parse(u"leaf eriksen", normalize=False)
         r = s.search(q)
         assert len(r) == 1
@@ -432,7 +432,7 @@ def test_ngrams():
 
     def dotest(f):
         ana = tk | f
-        tokens = ana(s, positions=True, chars=True)
+        tokens = ana(s, positions=True, ranges=True)
         return "/".join(t.text for t in tokens)
 
     f = ngrams.NgramFilter(3, 4)
@@ -445,7 +445,7 @@ def test_ngrams():
     assert dotest(f) == "defg/efg/klm"
 
     ana = tk | ngrams.NgramFilter(2, 5, at="end")
-    tokens = [(t.text, t.startchar, t.endchar) for t in ana(s, chars=True)]
+    tokens = [(t.text, t.range_start, t.range_end) for t in ana(s, ranges=True)]
     assert tokens == [("cdefg", 2, 7), ("defg", 3, 7), ("efg", 4, 7),
                       ("fg", 5, 7), ("ij", 10, 12), ("klm", 13, 16),
                       ("lm", 14, 16)]
@@ -611,6 +611,7 @@ def test_hyphens():
            filters.HyphenFilter())
 
     source = "The gribble-plunk has a show-me-your-stuff attitude."
+    print(type(ana))
     texts = " ".join(t.text for t in ana(source))
     assert texts == (
         "the gribble gribbleplunk plunk has a show showme me showmeyour meyour "

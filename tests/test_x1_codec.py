@@ -393,7 +393,7 @@ def test_matcher():
 
             m = tr.matcher("a", tbytes, field.format)
             assert m.has_positions()
-            assert not m.has_chars()
+            assert not m.has_ranges()
             allids = []
             i = 0
             while m.is_active():

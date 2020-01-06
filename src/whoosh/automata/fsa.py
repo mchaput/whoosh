@@ -236,7 +236,6 @@ class DFA(FSA):
             for label in sorted(xs):
                 dest = xs[label]
                 end = "||" if self.is_final(dest) else ""
-                print("    -> %s -> %s %s" % (label, dest, end))
 
     def __eq__(self, other):
         return (

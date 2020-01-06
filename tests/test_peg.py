@@ -147,7 +147,7 @@ def test_bag():
     assert v == ["baz", "bar"]
 
     at, v = e.parse("baz bar quux", 0, peg.Context(e))
-    assert at == 8
+    assert at == 7
     assert v == ["baz", "bar"]
 
     at, v = e.parse("foo", 0, peg.Context(e))

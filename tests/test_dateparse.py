@@ -258,8 +258,8 @@ def test_ranges(p=english.torange):
                          dict(year=None, month=10, day=12))
 
     assert_datespan(p.date_from("-2d to +1w", basedate),
-                         basedate + relativedelta(days=-2),
-                         basedate + relativedelta(weeks=1))
+                    basedate + relativedelta(days=-2),
+                    basedate + relativedelta(weeks=1))
 
 
 def test_all():

@@ -39,18 +39,18 @@ class Format:
     """
 
     def __init__(self, has_lengths: bool=False, has_weights: bool=False,
-                 has_positions: bool=False, has_chars: bool=False,
+                 has_positions: bool=False, has_ranges: bool=False,
                  has_payloads: bool=False, boost=1.0):
         self.has_lengths = has_lengths
         self.has_weights = has_weights
         self.has_positions = has_positions
-        self.has_chars = has_chars
+        self.has_ranges = has_ranges
         self.has_payloads = has_payloads
         self.boost = boost
 
     def __repr__(self):
         r = "<%s" % type(self).__name__
-        for feature in "lengths weights positions chars payloads".split():
+        for feature in "lengths weights positions ranges payloads".split():
             if getattr(self, "has_" + feature):
                 r += " " + feature
         if self.boost != 1.0:
@@ -58,12 +58,12 @@ class Format:
         r += ">"
         return r
 
-    def __eq__(self, other):
+    def __eq__(self, other: 'Format'):
         return (type(self) is type(other) and
                 self.has_lengths == other.has_lengths and
                 self.has_weights == other.has_weights and
                 self.has_positions == other.has_positions and
-                self.has_chars == other.has_chars and
+                self.has_ranges == other.has_ranges and
                 self.has_payloads == other.has_payloads and
                 self.boost == other.boost)
 
@@ -72,21 +72,22 @@ class Format:
 
     def only_docids(self) -> bool:
         return not(self.has_lengths or self.has_weights or self.has_positions or
-                   self.has_chars or self.has_payloads)
+                   self.has_ranges or self.has_payloads)
 
     def json_info(self) -> dict:
         return {
             "has_lengths": self.has_lengths,
             "has_weights": self.has_weights,
             "has_positions": self.has_positions,
-            "has_chars": self.has_chars,
+            "has_ranges": self.has_ranges,
             "has_payloads": self.has_payloads,
         }
 
     def can_copy_raw_to(self, fmt: 'Format') -> bool:
         # If the format we want to copy to has a feature this object doesn't
         # have, then we can't copy the raw data
-        for feature in ("lengths", "weights", "positions", "chars", "payloads"):
+        for feature in ("lengths", "weights", "positions", "ranges",
+                        "payloads"):
             if fmt.supports(feature) and not self.supports(feature):
                 return False
         return True
@@ -94,7 +95,7 @@ class Format:
     def supports(self, feature: str) -> bool:
         """
         Returns True if this format object supports the named information type:
-        "lengths", "weights", "positions", "chars", or "payloads".
+        "lengths", "weights", "positions", "ranges", or "payloads".
 
         :param feature: a string naming a posting feature to check.
         :rtype: bool
@@ -129,10 +130,10 @@ class Format:
 
         hasweights = self.has_weights
         hasposes = self.has_positions
-        haschars = self.has_chars
+        hasranges = self.has_ranges
         haspayloads = self.has_payloads
 
-        weights = poses = chars = payloads = None
+        weights = poses = ranges = payloads = None
 
         # Turn on analyzer features based and set up buffers on what information
         # this format is configured to store
@@ -142,9 +143,9 @@ class Format:
         if hasposes:
             kwargs["positions"] = True
             poses = defaultdict(list)
-        if haschars:
-            kwargs["chars"] = True
-            chars = defaultdict(list)
+        if hasranges:
+            kwargs["ranges"] = True
+            ranges = defaultdict(list)
         if haspayloads:
             kwargs["payloads"] = True
             payloads = defaultdict(list)
@@ -167,8 +168,8 @@ class Format:
                 weights[text] += token.boost
             if hasposes:
                 poses[text].append(token.pos)
-            if haschars:
-                chars[text].append((token.startchar, token.endchar))
+            if hasranges:
+                ranges[text].append((token.range_start, token.range_end))
             if haspayloads:
                 payloads[text].append(token.payload)
 
@@ -182,7 +183,7 @@ class Format:
                          length=fieldlen,
                          weight=weights[text] if hasweights else None,
                          positions=poses[text] if hasposes else None,
-                         chars=chars[text] if haschars else None,
+                         ranges=ranges[text] if hasranges else None,
                          payloads=payloads[text] if haspayloads else None)
                  for text in sterms]
         return fieldlen, posts

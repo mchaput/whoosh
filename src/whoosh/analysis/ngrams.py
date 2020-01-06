@@ -60,20 +60,30 @@ class NgramTokenizer(analysis.Tokenizer):
         self.min = minsize
         self.max = maxsize or minsize
 
-    def is_token_start(self, s: str, at: int):
+    def is_token_start(self, s: str, at: int) -> bool:
         return True
 
-    def __call__(self, value, positions: bool=False, chars: bool=False,
-                 keeporiginal: bool=False, removestops: bool=True,
+    def __call__(self, value, tokenize=True, positions: bool=False,
+                 chars: bool=False, keeporiginal: bool=False,
+                 removestops: bool=True,
                  start_pos: int=0, start_char: int=0, mode: str='',
                  **kwargs) -> Iterable[analysis.Token]:
         assert isinstance(value, str), "%r is not unicode" % value
 
         inlen = len(value)
-        t = analysis.Token(positions, chars, removestops=removestops, mode=mode)
+        t = analysis.Token(positions=positions, ranges=chars,
+                           removestops=removestops, mode=mode)
         pos = start_pos
 
-        if mode == "query":
+        if not tokenize:
+            t.original = t.text = value
+            t.boost = 1.0
+            t.pos = 0
+            t.range_start = 0
+            t.range_end = len(value)
+            yield t
+
+        elif mode == "query":
             size = min(self.max, inlen)
             for start in range(0, inlen - size + 1):
                 end = start + size
@@ -86,8 +96,8 @@ class NgramTokenizer(analysis.Tokenizer):
                 if positions:
                     t.pos = pos
                 if chars:
-                    t.startchar = start_char + start
-                    t.endchar = start_char + end
+                    t.range_start = start_char + start
+                    t.range_end = start_char + end
                 yield t
                 pos += 1
         else:
@@ -103,8 +113,8 @@ class NgramTokenizer(analysis.Tokenizer):
                     if positions:
                         t.pos = pos
                     if chars:
-                        t.startchar = start_char + start
-                        t.endchar = start_char + end
+                        t.range_start = start_char + start
+                        t.range_end = start_char + end
 
                     yield t
                 pos += 1
@@ -149,9 +159,9 @@ class NgramFilter(analysis.Filter):
             if len(text) < self.min:
                 continue
 
-            chars = t.chars
+            chars = t.ranges
             if chars:
-                startchar = t.startchar
+                startchar = t.range_start
             # Token positions don't mean much for N-grams,
             # so we'll leave the token's original position
             # untouched.
@@ -161,19 +171,19 @@ class NgramFilter(analysis.Filter):
                 if at == -1:
                     t.text = text[:size]
                     if chars:
-                        t.endchar = startchar + size
+                        t.range_end = startchar + size
                     yield t
                 elif at == 1:
                     t.text = text[0 - size:]
                     if chars:
-                        t.startchar = t.endchar - size
+                        t.range_start = t.range_end - size
                     yield t
                 else:
                     for start in range(0, len(text) - size + 1):
                         t.text = text[start:start + size]
                         if chars:
-                            t.startchar = startchar + start
-                            t.endchar = startchar + start + size
+                            t.range_start = startchar + start
+                            t.range_end = startchar + start + size
                         yield t
             else:
                 if at == -1:
@@ -181,17 +191,17 @@ class NgramFilter(analysis.Filter):
                     for size in range(self.min, limit + 1):
                         t.text = text[:size]
                         if chars:
-                            t.endchar = startchar + size
+                            t.range_end = startchar + size
                         yield t
 
                 elif at == 1:
                     if chars:
-                        original_startchar = t.startchar
+                        original_startchar = t.range_start
                     start = max(0, len(text) - self.max)
                     for i in range(start, len(text) - self.min + 1):
                         t.text = text[i:]
                         if chars:
-                            t.startchar = original_startchar + i
+                            t.range_start = original_startchar + i
                         yield t
                 else:
                     for start in range(0, len(text) - self.min + 1):
@@ -203,8 +213,8 @@ class NgramFilter(analysis.Filter):
                             t.text = text[start:end]
 
                             if chars:
-                                t.startchar = startchar + start
-                                t.endchar = startchar + end
+                                t.range_start = startchar + start
+                                t.range_end = startchar + end
 
                             yield t
 

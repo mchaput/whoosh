@@ -183,7 +183,7 @@ def test_pinpoint():
         with ix.writer() as w:
             w.add_document(text=domain)
 
-        assert ix.schema["text"].supports("chars")
+        assert ix.schema["text"].supports("ranges")
         with ix.searcher() as s:
             r = s.search(query.Term("text", "juliet"), terms=True)
             hit = r[0]

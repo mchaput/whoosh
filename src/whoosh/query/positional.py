@@ -231,8 +231,9 @@ class Phrase(queries.Query):
                 startchar, endchar = char_ranges[i]
 
             yield analysis.Token(fieldname=fieldname, text=word,
-                                 boost=boost * self.boost, startchar=startchar,
-                                 endchar=endchar, chars=True)
+                                 boost=boost * self.boost,
+                                 range_start=startchar,
+                                 range_end=endchar, ranges=True)
 
     def with_fieldname(self, fieldname: str) -> 'Phrase':
         c = self.copy()

@@ -142,6 +142,17 @@ class Range(terms.MultiTerm):
             second = -1 if self.endexcl else 0
             return self.end, second
 
+    def normalize(self):
+        from whoosh.query import Every
+
+        if self.start in ('', None) and self.end in (u'\uffff', None):
+            return Every(self.fieldname, boost=self.boost)
+
+        if self.start == self.end and (self.startexcl or self.endexcl):
+            return queries.NullQuery()
+
+        return self
+
     def overlaps(self, other):
         if not isinstance(other, self.__class__):
             return False
@@ -194,29 +205,41 @@ class Range(terms.MultiTerm):
                               endexcl, boost=boost,
                               constantscore=constantscore)
 
+    def specialize(self, schema):
+        from whoosh import fields
+
+        fieldname = self.field()
+        if fieldname in schema:
+            field = schema[fieldname]
+
+            if self.start is None and self.end is None:
+                q = Every(fieldname, boost=self.boost)
+            elif isinstance(self.start, bytes) or isinstance(self.end, bytes):
+                q = TermRange(fieldname, self.start, self.end, self.startexcl,
+                              self.endexcl, self.boost, self.constantscore)
+            elif isinstance(field, fields.DateTime):
+                q = DateRange(fieldname, self.start, self.end, self.startexcl,
+                              self.endexcl, self.boost, self.constantscore)
+            elif isinstance(field, fields.Numeric):
+                q = NumericRange(fieldname, self.start, self.end, self.startexcl,
+                                 self.endexcl, self.boost, self.constantscore)
+            else:
+                q = TermRange(fieldname, self.start, self.end, self.startexcl,
+                              self.endexcl, self.boost, self.constantscore)
+            return q
+        else:
+            return self
+
     def matcher(self, searcher, context=None):
         # The default implementation looks at the field type and picks the
         # appropriate subclass to generate the matcher
-        from whoosh import fields
 
         fieldname = self.field()
         schema = searcher.schema
         if not fieldname in schema:
             return matchers.NullMatcher()
-        field = schema[fieldname]
 
-        if isinstance(self.start, bytes) or isinstance(self.end, bytes):
-            q = TermRange(fieldname, self.start, self.end, self.startexcl,
-                          self.endexcl, self.boost, self.constantscore)
-        elif isinstance(field, fields.DateTime):
-            q = DateRange(fieldname, self.start, self.end, self.startexcl,
-                          self.endexcl, self.boost, self.constantscore)
-        elif isinstance(field, fields.Numeric):
-            q = NumericRange(fieldname, self.start, self.end, self.startexcl,
-                             self.endexcl, self.boost, self.constantscore)
-        else:
-            q = TermRange(fieldname, self.start, self.end, self.startexcl,
-                          self.endexcl, self.boost, self.constantscore)
+        q = self.specialize(schema)
         return q.matcher(searcher, context)
 
 

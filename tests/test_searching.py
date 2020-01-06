@@ -7,7 +7,7 @@ from itertools import permutations, zip_longest
 
 import pytest
 
-from whoosh import analysis, fields, index, qparser, query, scoring
+from whoosh import analysis, fields, index, parsing, query, scoring
 from whoosh.util.testing import TempIndex, TempStorage
 
 
@@ -216,7 +216,7 @@ def test_not2():
             w.add_document(name=u"e", value=u"echo golf hotel india juliet")
 
         with ix.searcher() as s:
-            p = qparser.QueryParser("value", None)
+            p = parsing.QueryParser("value", None)
             results = s.search(p.parse("echo NOT golf"))
             assert sorted([d["name"] for d in results]) == ["a", "b"]
 
@@ -267,12 +267,12 @@ def test_range():
                            content=u"echo foxtrot golf hotel india")
 
         with ix.searcher() as s:
-            qp = qparser.QueryParser("content", schema)
+            qp = parsing.QueryParser("content", schema)
 
             q = qp.parse(u"charlie [delta TO foxtrot]")
             assert q.__class__ == query.And
-            assert q[0].__class__ == query.Term
-            assert q[1].__class__ == query.TermRange
+            assert isinstance(q[0], query.Term)
+            assert isinstance(q[1], query.TermRange)
             assert q[1].start == "delta"
             assert q[1].end == "foxtrot"
             assert not q[1].startexcl
@@ -333,7 +333,7 @@ def test_open_ranges():
                 w.add_document(id=letter)
 
         with ix.searcher() as s:
-            qp = qparser.QueryParser("id", schema)
+            qp = parsing.QueryParser("id", schema)
 
             def check(qstring, result):
                 q = qp.parse(qstring)
@@ -357,7 +357,7 @@ def test_open_numeric_ranges():
             for i in domain:
                 w.add_document(num=i)
 
-        qp = qparser.QueryParser("num", schema)
+        qp = parsing.QueryParser("num", schema)
         with ix.searcher() as s:
             q = qp.parse("[100 to]")
             r = [hit["num"] for hit in s.search(q, limit=None)]
@@ -380,7 +380,7 @@ def test_open_date_ranges():
 
         with ix.searcher() as s:
             # Without date parser
-            qp = qparser.QueryParser("date", schema)
+            qp = parsing.QueryParser("date", schema)
             q = qp.parse("[2011-01-10 to]")
             r = [hit["date"] for hit in s.search(q, limit=None)]
             assert len(r) > 0
@@ -394,16 +394,20 @@ def test_open_date_ranges():
             assert r == target
 
             # With date parser
-            from whoosh.qparser.dateparse import DateParserPlugin
-            qp.add_plugin(DateParserPlugin(basedate))
+            from whoosh.parsing.parsedate import DatetimePlugin
+            qp.add_plugin(DatetimePlugin("en"))
 
             q = qp.parse("[10 jan 2011 to]")
+            assert type(q) == query.DateRange
+            assert q.startdate == datetime(2011, 1, 10, 0, 0, 0, 0)
             r = [hit["date"] for hit in s.search(q, limit=None)]
             assert len(r) > 0
             target = [d for d in domain if d >= datetime(2011, 1, 10, 6, 25)]
             assert r == target
 
             q = qp.parse("[to 30 jan 2011]")
+            assert type(q) == query.DateRange
+            assert q.enddate == datetime(2011, 1, 30, 23, 59, 59, 999999)
             r = [hit["date"] for hit in s.search(q, limit=None)]
             assert len(r) > 0
             target = [d for d in domain if d <= datetime(2011, 1, 30, 6, 25)]
@@ -424,23 +428,22 @@ def test_negated_unlimited_ranges():
                 w.add_document(id=letter, num=i, date=dt + timedelta(days=i))
 
         with ix.searcher() as s:
-            qp = qparser.QueryParser("id", schema)
+            qp = parsing.QueryParser("id", schema)
 
-            nq = qp.parse(u"NOT [to]")
+            q = qp.parse("[TO]")
+            assert q.__class__ == query.Every
+
+            nq = qp.parse(u"NOT [TO]")
             assert nq.__class__ == query.Not
             q = nq.child
             assert q.__class__ == query.Every
             assert "".join(h["id"] for h in s.search(q, limit=None)) == domain
             assert not list(nq.docs(s))
 
-            nq = qp.parse(u"NOT num:[to]")
+            nq = qp.parse(u"NOT num:[TO]")
             assert nq.__class__ == query.Not
             q = nq.child
-            assert q.__class__ == query.NumericRange
-            assert q.start is None
-            assert q.end is None
-            assert "".join(h["id"] for h in s.search(q, limit=None)) == domain
-            assert not list(nq.docs(s))
+            assert q.__class__ == query.Every
 
             nq = qp.parse(u"NOT date:[to]")
             assert nq.__class__ == query.Not
@@ -458,7 +461,7 @@ def test_keyword_or():
             w.add_document(a=u"Second", b=u"aaa ddd")
             w.add_document(a=u"Third", b=u"ccc eee")
 
-        qp = qparser.QueryParser("b", schema)
+        qp = parsing.QueryParser("b", schema)
         with ix.searcher() as s:
             qr = qp.parse(u"b:ccc OR b:eee")
             assert qr.__class__ == query.Or
@@ -611,7 +614,7 @@ def test_stop_phrase():
             w.add_document(title=u"Lily the Pink")
 
         with ix.searcher() as s:
-            qp = qparser.QueryParser("title", schema)
+            qp = parsing.QueryParser("title", schema)
             q = qp.parse(u"richard of york")
             assert str(q) == "(title:richard AND title:york)"
             assert len(s.search(q)) == 1
@@ -689,7 +692,7 @@ def test_missing_field_scoring():
             assert s.field_length("hobbies") == 2
             assert s.field_length("name") == 2
 
-            parser = qparser.MultifieldParser(['name', 'hobbies'], schema)
+            parser = parsing.MultifieldParser(['name', 'hobbies'], schema)
             q = parser.parse(u"baseball")
             result = s.search(q)
             assert len(result) == 1
@@ -704,7 +707,7 @@ def test_search_fieldname_underscores():
             w.add_document(my_name=u"Red",
                            my_value=u"Hopping mad like a playground ball")
 
-        qp = qparser.QueryParser("my_value", schema=s)
+        qp = parsing.QueryParser("my_value", schema=s)
         with ix.searcher() as s:
             r = s.search(qp.parse(u"my_name:Green"))
             assert r[0]['my_name'] == "Green"
@@ -712,7 +715,7 @@ def test_search_fieldname_underscores():
 
 def test_short_prefix():
     s = fields.Schema(name=fields.ID, value=fields.TEXT)
-    qp = qparser.QueryParser("value", schema=s)
+    qp = parsing.QueryParser("value", schema=s)
     q = qp.parse(u"s*")
     assert q.__class__.__name__ == "Prefix"
     assert q.text == "s"
@@ -842,7 +845,7 @@ def test_finalweighting():
                 return ncomments
 
         with ix.searcher(weighting=CommentWeighting()) as s:
-            q = qparser.QueryParser("summary", None).parse("alfa OR bravo")
+            q = parsing.QueryParser("summary", None).parse("alfa OR bravo")
             r = s.search(q)
             ids = [fs["id"] for fs in r]
             assert ["2", "4", "1", "3"] == ids
@@ -883,7 +886,7 @@ def test_find_missing():
             w.add_document(text=u"golf")
 
         with ix.searcher() as s:
-            qp = qparser.QueryParser("text", schema)
+            qp = parsing.QueryParser("text", schema)
             q = qp.parse(u"NOT id:*")
             r = s.search(q, limit=None)
             assert list(h["text"] for h in r) == ["charlie", "echo", "golf"]
@@ -900,7 +903,7 @@ def test_ngram_phrase():
                            path=u'sample')
 
         with ix.searcher() as s:
-            p = qparser.QueryParser("text", schema)
+            p = parsing.QueryParser("text", schema)
 
             q = p.parse(u'\u6771\u4EAC\u5927\u5B66')
             assert len(s.search(q)) == 1
@@ -1144,7 +1147,7 @@ def test_andmaybe_quality():
                 w.add_document(title=title, year=year)
 
         with ix.searcher() as s:
-            qp = qparser.QueryParser("title", ix.schema)
+            qp = parsing.QueryParser("title", ix.schema)
             q = qp.parse(u"title:bravo ANDMAYBE year:2004")
 
             titles = [hit["title"] for hit in s.search(q, limit=None)[:2]]
@@ -1505,18 +1508,21 @@ def test_coord():
             w.add_document(id=8, hits=0, tags=u"foxtrot foxtrot foo foo")
             w.add_document(id=9, hits=0, tags=u"foo foo foo foo")
 
-        scale = 0.99
-        og = qparser.OrGroup.factory(scale)
-        qp = qparser.QueryParser("tags", schema, group=og)
-        q = qp.parse("golf foxtrot echo")
-        assert q.__class__ == query.Or
-        assert q.scale == scale
+        scale = 0.95
+        oq = query.Or([], scale=scale)
+        qp = parsing.QueryParser("tags", schema, group=oq)
+        q = qp.parse("(golf foxtrot echo) AND (alfa bravo charlie)")
+        assert type(q) is query.And
+        assert type(q[0]) is query.Or
+        assert q[0].scale == scale
+        assert type(q[1]) is query.Or
+        assert q[1].scale == scale
 
         with ix.searcher() as s:
-            m = q.matcher(s)
+            m = q[0].matcher(s)
             assert type(m) == CoordMatcher
 
-            r = s.search(q, optimize=False)
+            r = s.search(q[0], optimize=False)
             assert [hit["id"] for hit in r] == [4, 5, 6, 3, 1, 8, 7, 2]
 
 
@@ -1540,7 +1546,7 @@ def test_groupedby_with_terms():
             w.add_document(organism=u"hs", content=u"This is the first document we've added!")
 
         with ix.searcher() as s:
-            q = qparser.QueryParser("content", schema=ix.schema).parse(u"IPFSTD1")
+            q = parsing.QueryParser("content", schema=ix.schema).parse(u"IPFSTD1")
             r = s.search(q, groupedby=["organism"], terms=True)
             assert r.scored_length() == 2
             assert len(r) == 2
@@ -1685,7 +1691,7 @@ def test_find_decimals():
             w.add_document(name=u"echo", num=Decimal("3.00001"))
             w.add_document(name=u"foxtrot", num=Decimal("3"))
 
-        qp = qparser.QueryParser("name", ix.schema)
+        qp = parsing.QueryParser("name", ix.schema)
         q = qp.parse("num:3.0")
         assert isinstance(q, query.Term)
 

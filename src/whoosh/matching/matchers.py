@@ -260,7 +260,7 @@ class Matcher:
     def supports(self, name: str) -> bool:
         """
         Returns True if the field's format supports the given feature,
-        for example 'weight' or 'chars'.
+        for example 'weight' or 'ranges'.
 
         :param name: a string containing the name of the feature to check for.
         """
@@ -466,7 +466,7 @@ class Matcher:
 
         raise NotLeafMatcher(self.__class__.__name__)
 
-    def has_chars(self) -> bool:
+    def has_ranges(self) -> bool:
         """
         Returns True if this matcher has character ranges. You can get the
         character ranges for the current document using ``chars()``. This is
@@ -655,7 +655,7 @@ class LeafMatcher(Matcher):
         # Create a Format object from this matcher's capabilities, to compare
         # it to the destination format
         from_fmt = postform.Format(self.has_lengths(), self.has_weights(),
-                                   self.has_positions(), self.has_chars(),
+                                   self.has_positions(), self.has_ranges(),
                                    self.has_payloads())
         return self._io.can_copy_raw_to(from_fmt, other_io, to_fmt)
 
@@ -671,8 +671,8 @@ class LeafMatcher(Matcher):
     def has_positions(self) -> bool:
         return self._posts.has_positions
 
-    def has_chars(self) -> bool:
-        return self._posts.has_chars
+    def has_ranges(self) -> bool:
+        return self._posts.has_ranges
 
     def has_payloads(self) -> bool:
         return self._posts.has_payloads
@@ -807,7 +807,7 @@ class PostReaderMatcher(LeafMatcher):
         return self._posts.positions(self._i)
 
     def chars(self) -> Sequence[Tuple[int, int]]:
-        return self._posts.chars(self._i)
+        return self._posts.ranges(self._i)
 
     def payloads(self) -> Sequence[bytes]:
         return self._posts.payloads(self._i)

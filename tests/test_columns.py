@@ -496,3 +496,32 @@ def test_sparse_block_compressed():
             assert vs == [ddict.get(i) for i in range(maxdoc + 1)]
 
 
+def test_annotation_column():
+    domain = [
+        (0, [("foo", 0, 2), ("bar", 10, 20), ("corp", 0, 1)]),
+        (2, [("person", 15, 20)]),
+        (7, [("person", 30, 35), ("corp", 60, 80)]),
+        (12, [("foo", 6, 7), ("bar", 8, 12), ("person", 15, 56)]),
+        (18, [("boof", 0, 8)]),
+    ]
+
+    col = columns.AnnotationColumn()
+    with TempStorage() as st:
+        with st.create_file("test") as f:
+            cw = col.writer(f)
+            for docnum, annos in domain:
+                cw.add(docnum, annos)
+            cw.finish(20)
+            length = f.tell()
+
+        with st.map_file("test") as m:
+            cr = col.reader(m, 0, length, 20, True)
+            assert cr.names() == ("foo", "bar", "corp", "person", "boof")
+            assert domain[4][1] == list(cr[18])
+            assert domain[0][1] == list(cr[0])
+            assert domain[2][1] == list(cr[7])
+            assert domain[1][1] == list(cr[2])
+            assert domain[3][1] == list(cr[12])
+            assert [] == list(cr[5])
+            assert [] == list(cr[25])
+

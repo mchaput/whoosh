@@ -128,7 +128,7 @@ class BiWordFilter(analysis.Filter):
                ) -> Iterable[analysis.Token]:
         sep = self.sep
         prev_text = None
-        prev_startchar = None
+        prev_start = None
         prev_pos = None
         atleastone = False
 
@@ -142,16 +142,16 @@ class BiWordFilter(analysis.Filter):
                 ps = token.pos
 
             # Save the original start char
-            chars = token.chars
+            chars = token.ranges
             if chars:
-                sc = token.startchar
+                sc = token.range_start
 
             if prev_text is not None:
-                # Use the pos and startchar from the previous token
+                # Use the pos and range_start from the previous token
                 if positions:
                     token.pos = prev_pos
                 if chars:
-                    token.startchar = prev_startchar
+                    token.range_start = prev_start
 
                 # Join the previous token text and the current token text to
                 # form the biword token
@@ -162,7 +162,7 @@ class BiWordFilter(analysis.Filter):
             # Save the originals and the new "previous" values
             prev_text = text
             if chars:
-                prev_startchar = sc
+                prev_start = sc
             if positions:
                 prev_pos = ps
 
@@ -208,8 +208,8 @@ class ShingleFilter(analysis.Filter):
         def make_token():
             tk = buf[0]
             tk.text = sep.join([t.text for t in buf])
-            if tk.chars:
-                tk.endchar = buf[-1].endchar
+            if tk.ranges:
+                tk.range_end = buf[-1].range_end
             return tk
 
         for token in tokens:
@@ -490,15 +490,15 @@ class IntraWordFilter(analysis.Filter):
                         self._merge(parts)
 
                 # Yield tokens for the parts
-                chars = t.chars
+                chars = t.ranges
                 if chars:
-                    base = t.startchar
+                    base = t.range_start
                 for text, pos, startchar, endchar in parts:
                     t.text = text
                     t.pos = pos
-                    if t.chars:
-                        t.startchar = base + startchar
-                        t.endchar = base + endchar
+                    if t.ranges:
+                        t.range_start = base + startchar
+                        t.range_end = base + endchar
                     yield t
 
                 if parts:

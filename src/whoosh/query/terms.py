@@ -121,8 +121,9 @@ class Term(queries.Query):
             return
 
         yield analysis.Token(fieldname=fieldname, text=self.text,
-                             boost=boost * self.boost, startchar=self.startchar,
-                             endchar=self.endchar, chars=True)
+                             boost=boost * self.boost,
+                             range_start=self.startchar,
+                             range_end=self.endchar, ranges=True)
 
     def estimate_size(self, ixreader: 'reading.IndexReader') -> int:
         fieldname = self.fieldname
@@ -207,8 +208,9 @@ class MultiTerm(queries.Query):
         for text in texts:
             yield analysis.Token(fieldname=fieldname, text=text,
                                  boost=boost * self.boost,
-                                 startchar=self.startchar, endchar=self.endchar,
-                                 chars=True)
+                                 range_start=self.startchar,
+                                 range_end=self.endchar,
+                                 ranges=True)
 
     def estimate_size(self, ixreader: 'reading.IndexReader') -> int:
         fieldname = self.field()

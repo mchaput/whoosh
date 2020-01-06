@@ -107,12 +107,12 @@ def test_encode_positions():
 
 def test_encode_chars():
     def _roundtrip(cs):
-        bs = Bio.encode_chars(cs)
-        result = list(Bio.decode_chars(bs, 0, len(bs)))
+        bs = Bio.encode_ranges(cs)
+        result = list(Bio.decode_ranges(bs, 0, len(bs)))
         assert result == cs
 
         bs = b'12345678' + bs
-        result = list(Bio.decode_chars(bs, 8, len(bs)))
+        result = list(Bio.decode_ranges(bs, 8, len(bs)))
         assert result == cs
 
     _roundtrip([(0, 5), (7, 10), (12, 73), (75, 100)])
@@ -162,7 +162,7 @@ def test_roundtrip_docs():
         assert br.length(i) == posts[i][pt.LENGTH]
         assert br.weight(i) == posts[i][pt.WEIGHT]
         assert list(br.positions(i)) == posts[i][pt.POSITIONS]
-        assert list(br.chars(i)) == posts[i][pt.CHARS]
+        assert list(br.ranges(i)) == posts[i][pt.RANGES]
         assert list(br.payloads(i)) == posts[i][pt.PAYLOADS]
 
 
@@ -187,7 +187,7 @@ def test_payloads():
 def test_lengths():
     bio = basic.BasicIO()
     fmt = postform.Format(has_weights=True, has_lengths=True,
-                          has_positions=True, has_chars=True)
+                          has_positions=True, has_ranges=True)
     ba = bytearray()
     for _ in range(3):
         ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
@@ -198,7 +198,7 @@ def test_lengths():
             ps = [10, 20, 30, 40]
             cs = [(10, 11), (12, 13), (14, 15), (16, 17)]
             post = pt.posting(docid=i, length=ln, weight=w, positions=ps,
-                              chars=cs)
+                              ranges=cs)
             rawpost = bio.condition_post(post)
             posts.append(rawpost)
 
@@ -245,7 +245,7 @@ def test_combos():
             pys = [random.choice((b'a', b'b', b'c')) for _ in range(ln)]
 
             posts.append(pt.posting(docid=i, length=ln, weight=w, positions=ps,
-                                    chars=cs, payloads=pys))
+                                    ranges=cs, payloads=pys))
 
         origs.append((fmt, len(bs), ids, posts))
         raw_posts = [bio.condition_post(x) for x in posts]
@@ -261,8 +261,8 @@ def test_combos():
                 assert br.weight(n) == posts[n][pt.WEIGHT]
             if fmt.has_positions:
                 assert list(br.positions(n)) == posts[n][pt.POSITIONS]
-            if fmt.has_chars:
-                assert list(br.chars(n)) == posts[n][pt.CHARS]
+            if fmt.has_ranges:
+                assert list(br.ranges(n)) == posts[n][pt.RANGES]
             if fmt.has_payloads:
                 assert list(br.payloads(n)) == posts[n][pt.PAYLOADS]
 
@@ -292,13 +292,13 @@ def test_roundtrip_vector():
     fmt = postform.Format(True, True, True, True, True)
     posts = [
         pt.posting(termbytes=b'abc', length=2, weight=2.0, positions=[1, 2],
-                   chars=[(0, 1), (2, 3)], payloads=[b'N', b'V']),
+                   ranges=[(0, 1), (2, 3)], payloads=[b'N', b'V']),
         pt.posting(termbytes=b'd', length=1, weight=2.5, positions=[2],
-                   chars=[(7, 9)], payloads=[b'Q']),
+                   ranges=[(7, 9)], payloads=[b'Q']),
         pt.posting(termbytes=b'ef', length=2, weight=1.5, positions=[6, 7],
-                   chars=[(0, 1), (1, 4)], payloads=[b'X', b'Y']),
+                   ranges=[(0, 1), (1, 4)], payloads=[b'X', b'Y']),
         pt.posting(termbytes=b'ghi', length=1, weight=1.0, positions=[3],
-                   chars=[(4, 6)], payloads=[b'R']),
+                   ranges=[(4, 6)], payloads=[b'R']),
     ]
     bs = bio.vector_to_bytes(fmt, posts)
 
@@ -307,7 +307,7 @@ def test_roundtrip_vector():
         # assert br.length(i) == post[p.LENGTH]
         assert br.weight(i) == post[pt.WEIGHT]
         assert list(br.positions(i)) == post[pt.POSITIONS]
-        assert list(br.chars(i)) == post[pt.CHARS]
+        assert list(br.ranges(i)) == post[pt.RANGES]
         assert list(br.payloads(i)) == post[pt.PAYLOADS]
 
 
@@ -357,14 +357,14 @@ def test_position_postings():
 def test_character_postings():
     content = u"alfa bravo charlie bravo alfa alfa"
     form = postform.Format(has_lengths=True, has_weights=True,
-                           has_positions=True, has_chars=True)
+                           has_positions=True, has_ranges=True)
     target = [
         pt.posting(termbytes=b"alfa", weight=3, length=6, positions=[0, 4, 5],
-                   chars=[(0, 4), (25, 29), (30, 34)]),
+                   ranges=[(0, 4), (25, 29), (30, 34)]),
         pt.posting(termbytes=b"bravo", weight=2, length=6, positions=[1, 3],
-                   chars=[(5, 10), (19, 24)]),
+                   ranges=[(5, 10), (19, 24)]),
         pt.posting(termbytes=b"charlie", weight=1, length=6, positions=[2],
-                   chars=[(11, 18)])
+                   ranges=[(11, 18)])
     ]
     assert _check_index(content, form) == target
 
@@ -372,23 +372,23 @@ def test_character_postings():
 def test_payload_postings():
     def ana(value, **kwargs):
         for token in analysis.StandardAnalyzer()(value, **kwargs):
-            following = value[token.endchar:token.endchar + 2]
+            following = value[token.range_end:token.range_end + 2]
             token.payload = following.encode("ascii")
             yield token
 
     content = u"alfa bravo charlie bravo alfa alfa"
     form = postform.Format(has_lengths=True, has_weights=True,
-                           has_positions=True, has_chars=True,
+                           has_positions=True, has_ranges=True,
                            has_payloads=True)
     target = [
         pt.posting(termbytes=b"alfa", weight=3, length=6, positions=[0, 4, 5],
-                   chars=[(0, 4), (25, 29), (30, 34)],
+                   ranges=[(0, 4), (25, 29), (30, 34)],
                    payloads=[b" b", b" a", b""]),
         pt.posting(termbytes=b"bravo", weight=2, length=6, positions=[1, 3],
-                   chars=[(5, 10), (19, 24)],
+                   ranges=[(5, 10), (19, 24)],
                    payloads=[b" c", b" a"]),
         pt.posting(termbytes=b"charlie", weight=1, length=6, positions=[2],
-                   chars=[(11, 18)], payloads=[b" b"])
+                   ranges=[(11, 18)], payloads=[b" b"])
     ]
     assert _check_index(content, form, ana) == target
 
@@ -396,16 +396,16 @@ def test_payload_postings():
 def test_from_disk():
     bio = basic.BasicIO()
     fmt = postform.Format(has_lengths=True, has_weights=True,
-                          has_positions=True, has_chars=True, has_payloads=True)
+                          has_positions=True, has_ranges=True, has_payloads=True)
     target = [
         pt.posting(docid=1, weight=3, length=6, positions=[0, 4, 5],
-                   chars=[(0, 4), (25, 29), (30, 34)],
+                   ranges=[(0, 4), (25, 29), (30, 34)],
                    payloads=[b" b", b" a", b""]),
         pt.posting(docid=2, weight=2, length=6, positions=[1, 3],
-                   chars=[(5, 10), (19, 24)],
+                   ranges=[(5, 10), (19, 24)],
                    payloads=[b" c", b" a"]),
         pt.posting(docid=3, weight=1, length=6, positions=[2],
-                   chars=[(11, 18)], payloads=[b" b"])
+                   ranges=[(11, 18)], payloads=[b" b"])
     ]
 
     with TempStorage() as st:
@@ -422,7 +422,7 @@ def test_from_disk():
                 assert post[pt.LENGTH] == target[i][pt.LENGTH]
                 assert post[pt.WEIGHT] == target[i][pt.WEIGHT]
                 assert list(post[pt.POSITIONS]) == target[i][pt.POSITIONS]
-                assert list(post[pt.CHARS]) == target[i][pt.CHARS]
+                assert list(post[pt.RANGES]) == target[i][pt.RANGES]
                 assert list(post[pt.PAYLOADS]) == target[i][pt.PAYLOADS]
 
 
@@ -478,7 +478,7 @@ def test_formats_equal():
     fmt2 = postform.Format(has_weights=True, has_positions=True)
     assert fmt1 == fmt2
 
-    fmt3 = postform.Format(has_positions=True, has_chars=True)
+    fmt3 = postform.Format(has_positions=True, has_ranges=True)
     assert fmt1 != fmt3
 
 
@@ -520,9 +520,9 @@ def test_minimal_multipost():
 
 def test_vector_block():
     fmt = postform.Format(has_lengths=True, has_weights=True,
-                          has_positions=True, has_chars=True, has_payloads=True)
+                          has_positions=True, has_ranges=True, has_payloads=True)
     posts = [
-        pt.posting(termbytes=tb, weight=w, positions=ps, chars=cs, payloads=ys)
+        pt.posting(termbytes=tb, weight=w, positions=ps, ranges=cs, payloads=ys)
         for tb, w, ps, cs, ys in [
             (b"alfa", 1.5, [1, 2], [(1, 2), (3, 4)], [b"a", b"b"]),
             (b"bravo", 2.5, [3, 4], [(5, 6), (7, 8)], [b"c", b"d"]),
@@ -540,7 +540,7 @@ def test_vector_block():
     assert r.termbytes(0) == b"alfa"
     assert r.weight(1) == 2.5
     assert r.positions(2) == (5,)
-    assert r.chars(3) == [(11, 12)]
+    assert r.ranges(3) == [(11, 12)]
     assert r.payloads(4) == (b"g", b"h")
 
 
