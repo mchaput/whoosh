@@ -52,9 +52,9 @@ class NestedBase(qwrappers.WrappingQuery):
         q = self.child.normalize()
 
         if isinstance(p, queries.NullQuery) or isinstance(q, queries.NullQuery):
-            return queries.NullQuery()
+            return queries.NullQuery().set_extent(self.startchar, self.endchar)
 
-        return self.__class__(p, q)
+        return self.__class__(p, q).set_extent(self.startchar, self.endchar)
 
     def children(self) -> Iterable[queries.Query]:
         yield self.parents

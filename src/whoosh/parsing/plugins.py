@@ -124,7 +124,8 @@ class FieldsPlugin(Plugin):
             peg.Regex(self.pattern) +
             peg.If(lambda ctx: not schema or ctx["fname"] in schema) +
             peg.Not(peg.stringend) +
-            peg.Parsed(parser, self.name, field_from="fname")
+            peg.Parsed(parser, self.name, field_from="fname",
+                       take_plaintext=True)
         ).named("fields")
 
     @qfilter(100)
@@ -204,32 +205,24 @@ class WildcardPlugin(Plugin):
         self.stars = stars
         self.qmarks = qmarks
 
-    @syntax(-1)
-    def find_wildcards(self, parser: 'parsing.QueryParser'):
-        def make_wildcard(ctx):
-            fieldname = ctx.fieldname
-            text = "".join(ctx["reps"]) + ctx.get("last", "")
-            return query.Wildcard(fieldname, text)
+    @qfilter(50)
+    def replace_wildcards(self, parser: 'parsing.QueryParser', qs: query.Query
+                          ) -> query.Query:
+        if qs.is_leaf():
+            text = qs.query_text()
+            if isinstance(text, str):
+                is_wild = (any(ch in text for ch in self.stars) or
+                           any(ch in text for ch in self.qmarks))
+                if is_wild:
+                    wq = query.Wildcard(qs.field(), text, boost=qs.boost)
+                    wq.set_extent(qs.startchar, qs.endchar)
+                    return wq
+        else:
+            qs = qs.with_children([
+                self.replace_wildcards(parser, q) for q in qs.children()
+            ])
 
-        wildexpr = peg.Regex("[%s%s]+" % (self.stars, self.qmarks),
-                             may_be_empty=False)
-        textexpr = peg.StringUntil(wildexpr, esc_char=parser.esc_char,
-                                   matches_end=False, add_context_expr=True,
-                                   may_be_empty=True)
-        lastexpr = peg.StringUntil(peg.NoMatch(), esc_char=parser.esc_char,
-                                   matches_end=True, add_context_expr=True,
-                                   may_be_empty=False)
-
-        return peg.Guard("__wildcard",
-            peg.OneOrMore(
-                peg.TokenStart(parser) +
-                textexpr.set("txt") +
-                wildexpr.set("wild") +
-                peg.Do(lambda ctx: ctx["txt"] + ctx["wild"])
-            ).set("reps") +
-            lastexpr.set("last").opt() +
-            peg.Do(make_wildcard)
-        ).named("wildcard")
+        return qs
 
 
 class RegexPlugin(Plugin):
@@ -326,7 +319,7 @@ class GroupPlugin(Plugin):
         self.start = start
         self.end = end
 
-    @syntax()
+    @syntax(-1)
     def find_brackets(self, parser: 'parsing.QueryParser'):
         start = peg.Str(self.start).named("openparen")
         end = peg.Str(self.end).named("closeparen")
@@ -338,14 +331,17 @@ class GroupPlugin(Plugin):
         # same type (e.g. And inside an And) if a parsing filter calls
         # query.merge_subqueries() (which the OperatorsPlugin does).
 
-        return (
+        group_expr = (
             start +
             peg.ZeroOrMore(
-                peg.Not(peg.Peek(end)) + peg.Parsed(parser, "group", end)
+                peg.Not(peg.Peek(end)) +
+                peg.Parsed(parser, "grpparsed", end_expr=end)
             ).set("items") +
             end +
             peg.Do(lambda ctx: Vgroup(ctx["items"]))
-        ).named("group")
+        )
+        # group_expr.debug = True
+        return group_expr.named("group")
 
     # Run after everything else
     @qfilter(9999)
@@ -449,7 +445,7 @@ class SequencePlugin(Plugin):
                 peg.Regex("[0-9]+", may_be_empty=False)
             ).set("slop") +
             peg.Do(make_sequence)
-        ).named("sequence")
+        ).set_ext().named("sequence")
 
 
 class RangePlugin(Plugin):
@@ -505,8 +501,6 @@ class RangePlugin(Plugin):
 
         def make_range(ctx: peg.Context):
             fieldname = ctx.fieldname
-            startchar = ctx["openext"][0]
-            endchar = ctx["closeext"][1]
 
             start = ctx.get("start")
             end = ctx.get("end")
@@ -516,19 +510,18 @@ class RangePlugin(Plugin):
             endexcl = ctx["close"] == "}"
 
             q = query.Range(fieldname, start, end, startexcl, endexcl)
-            q.set_extent(startchar, endchar)
             q.analyzed = False
 
             return q
 
         return (
-            open.set("open").set_ext("openext") +
+            open.set("open") +
             peg.Optional(start_expr) +
             ws.opt() + to + ws.opt() +
             peg.Optional(end_expr) +
-            close.set("close").set_ext("closeext") +
+            close.set("close") +
             peg.Do(make_range)
-        ).named("range")
+        ).named("range").set_ext()
 
         # return (
         #     open.set("open").set_ext("openext") +
@@ -540,27 +533,28 @@ class RangePlugin(Plugin):
     @analysis_filter((query.Range, query.TermRange), 190)
     def analyze_ranges(self, parser: 'parsing.QueryParser', qs: query.Range,
                        ) -> query.Query:
-        fieldname = qs.field()
-        start = qs.start
-        end = qs.end
-        if start is not None:
-            qs.start = parser.first_token(fieldname, start, tokenize=False,
-                                          removestops=False)
-        if end is not None:
-            qs.end = parser.first_token(fieldname, end, tokenize=False,
-                                        removestops=False)
+        if not getattr(qs, "analyzed"):
+            fieldname = qs.field()
+            start = qs.start
+            end = qs.end
+            if isinstance(start, str):
+                qs.start = parser.first_token(fieldname, start, tokenize=False,
+                                              removestops=False)
+            if isinstance(end, str):
+                qs.end = parser.first_token(fieldname, end, tokenize=False,
+                                            removestops=False)
 
-        schema = parser.schema
-        if schema and fieldname in schema and schema[fieldname].self_parsing():
-            field = schema[fieldname]
-            try:
-                qs = field.parse_range(
-                    fieldname, start, end, qs.startexcl, qs.endexcl
-                ).set_extent(qs.startchar, qs.endchar)
-            except query.QueryParserError:
-                qs = query.ErrorQuery(sys.exc_info()[1], qs)
-        elif type(qs) is query.Range:
-            qs = qs.specialize(schema)
+            schema = parser.schema
+            if schema and fieldname in schema and schema[fieldname].self_parsing():
+                field = schema[fieldname]
+                try:
+                    qs = field.parse_range(
+                        fieldname, start, end, qs.startexcl, qs.endexcl
+                    ).set_extent(qs.startchar, qs.endchar)
+                except query.QueryParserError:
+                    qs = query.ErrorQuery(sys.exc_info()[1], qs)
+            elif type(qs) is query.Range:
+                qs = qs.specialize(schema)
 
         return qs
 
@@ -891,22 +885,28 @@ class PostfixOpPlugin(OperatorPlugin):
 class PlusMinusPlugin(Plugin):
     name = "plus_minus"
 
-    def __init__(self, plus=r"(^|(?<=(\s|[()])))\+",
-                 minus=r"(^|(?<=(\s|[()])))-"):
-        self.plus = plus
-        self.minus = minus
+    def __init__(self, prefix=r"(^|(?<=[ \t\r\n()]))", plus=r"[+]",
+                 minus=r"[-]"):
+        self.plus = prefix + plus
+        self.minus = prefix + minus
 
     @syntax()
     def find_plus(self, parser: 'parsing.QueryParser') -> 'peg.Expr':
+        def to_plus(ctx):
+            text = ctx["text"]
+            return self.PlusMinus(text, True)
+
         return (peg.Regex(self.plus).set("text") +
-                peg.Do(lambda ctx: self.PlusMinus(ctx["text"], True))
-                ).named("plus")
+                peg.Do(to_plus)).named("plus")
 
     @syntax()
     def find_minus(self, parser: 'parsing.QueryParser'):
+        def to_minus(ctx):
+            text = ctx["text"]
+            return self.PlusMinus(text, False)
+
         return (peg.Regex(self.minus).set("text") +
-                peg.Do(lambda ctx: self.PlusMinus(ctx["text"], False))
-                ).named("minus")
+                peg.Do(to_minus)).named("minus")
 
     @qfilter(510)
     def do_plusminus(self, parser: 'parsing.QueryParser', qs: query.Query
@@ -941,6 +941,12 @@ class PlusMinusPlugin(Plugin):
             super(PlusMinusPlugin.PlusMinus, self).__init__(None, text)
             self.is_plus = is_plus
 
+        def __str__(self):
+            return "<%s %s>" % (self.text, self.is_plus)
+
+        def __repr__(self):
+            return "%s(%r, %s)" % (type(self).__name__, self.text, self.is_plus)
+
         def __eq__(self, other):
             return (
                 type(self) is type(other) and
@@ -951,6 +957,8 @@ class PlusMinusPlugin(Plugin):
 
 class GtLtPlugin(Plugin):
     name = "gt_lt"
+    ops = ("<=", "<", ">=", ">", "=>", "=<")
+    regex = peg.Regex(r"(?P<rel>(%s))" % "|".join(ops))
 
     @syntax()
     def find_gtlt(self, parser: 'parsing.QueryParser'):
@@ -972,10 +980,10 @@ class GtLtPlugin(Plugin):
             return q
 
         return (
-            peg.Regex(r"(?P<rel>(<=|>=|<|>|=<|=>))") +
+            self.regex +
             peg.Parsed(parser, self.name).set("subj") +
             peg.Do(make_rel)
-        ).named("gtlt")
+        ).named("gtlt").set_ext()
 
 
 class EveryPlugin(Plugin):
@@ -1127,17 +1135,20 @@ class RelationPlugin(Plugin):
         to_expr = self._kw(self.to_keyword).hide()
 
         # RELATE id IN type:album artist:bowie TO album_id IN type:song
-        return (
+        leftq = peg.Parsed(parser, "leftq", to_expr, take_plaintext=False)
+        rightq = peg.Parsed(parser, "rightq", take_plaintext=False)
+        relate = (
             relate_expr +  # RELATE
             keyname_expr.set("left_key") +  # <field name>
             in_expr +  # IN
-            peg.Parsed(parser, "leftq", to_expr).set("left_query") +  # <query>
+            leftq.set("left_query") +  # <query>
             to_expr +  # TO
             keyname_expr.set("right_key") +  # <field_name>
             in_expr +  # IN
-            peg.Parsed(parser, "rightq").set("right_query") +  # <query>
+            rightq.set("right_query") +  # <query>
             peg.Do(make_relation)
         )
+        return relate
 
 
 

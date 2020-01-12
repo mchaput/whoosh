@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from whoosh import fields, query, qparser
+from whoosh import fields, query, parsing
 from whoosh.util import times
 from whoosh.util.testing import TempIndex
 
@@ -149,6 +149,16 @@ def test_index_numeric():
             ]
 
 
+def test_numeric_self_parsing():
+    f = fields.Numeric(float)
+    assert f.self_parsing()
+    assert f.parse_text("n", "4.5") == query.Term("n", 4.5)
+
+    qs = "floating:4.5"
+    m = f.num_exp.match(qs, 9)
+    assert m.group() == "4.5"
+
+
 def test_numeric():
     schema = fields.Schema(Id=fields.Id(stored=True),
                            integer=fields.Numeric(int),
@@ -162,16 +172,17 @@ def test_numeric():
         w.add_document(Id=u"e", integer=9, floating=5.6)
         w.commit()
 
-        with ix.searcher() as s:
-            qp = qparser.QueryParser("integer", schema)
+        qp = parsing.QueryParser("integer", schema)
 
+        with ix.searcher() as s:
             q = qp.parse(u"5820")
             r = s.search(q)
             assert r.scored_length() == 1
             assert r[0]["Id"] == "a"
 
         with ix.searcher() as s:
-            r = s.search(qp.parse("floating:4.5"))
+            qs = qp.parse("floating:4.5", debug=False)
+            r = s.search(qs)
             assert r.scored_length() == 1
             assert r[0]["Id"] == "d"
 
@@ -180,7 +191,7 @@ def test_numeric():
         assert q.field() == "integer"
 
         q = qp.parse("integer:5?6")
-        assert isinstance(q, query.NullQuery)
+        assert q == query.Wildcard("integer", "5?6")
 
 
 def test_decimal_numeric():
@@ -196,7 +207,7 @@ def test_decimal_numeric():
             w.add_document(Id=u"d", deci=Decimal("58"))
 
         with ix.searcher() as s:
-            qp = qparser.QueryParser("deci", schema)
+            qp = parsing.QueryParser("deci", schema)
             q = qp.parse(u"123.56")
             r = s.search(q)
             assert len(r) == 1
@@ -215,7 +226,7 @@ def test_numeric_ranges():
                 w.add_document(Id=i, num=i)
 
         with ix.searcher() as s:
-            qp = qparser.QueryParser("num", schema)
+            qp = parsing.QueryParser("num", schema)
 
             def check(qs, target):
                 q = qp.parse(qs)
@@ -263,7 +274,7 @@ def test_decimal_ranges():
                 count += inc
 
         with ix.searcher() as s:
-            qp = qparser.QueryParser("num", schema)
+            qp = parsing.QueryParser("num", schema)
 
             def check(qs, start, end):
                 q = qp.parse(qs)
@@ -342,7 +353,7 @@ def test_datetime():
                                    date=datetime(2010, month, day, 14, 0, 0))
 
         with ix.searcher() as s:
-            qp = qparser.QueryParser("Id", schema)
+            qp = parsing.QueryParser("Id", schema)
 
             r = s.search(qp.parse("date:20100523"))
             assert len(r) == 1
@@ -351,7 +362,7 @@ def test_datetime():
             assert r[0]["date"].month == 5
             assert r[0]["date"].day == 23
 
-            r = s.search(qp.parse("date:'2010 02'"))
+            r = s.search(qp.parse("date:'2010-02'"))
             assert len(r) == 27
 
             q = qp.parse(u"date:[2010-05 to 2010-08]")
@@ -374,7 +385,7 @@ def test_boolean():
             w.add_document(Id=u"e", done=True)
 
         with ix.searcher() as s:
-            qp = qparser.QueryParser("Id", schema)
+            qp = parsing.QueryParser("Id", schema)
 
             r = s.search(qp.parse("done:true"))
             assert sorted([d["Id"] for d in r]) == ["a", "c", "e"]
@@ -408,8 +419,8 @@ def test_boolean2():
             w.add_document(t=u'some again', b=True)
 
         with ix.searcher() as s:
-            qf = qparser.QueryParser('b', None).parse(u'f')
-            qt = qparser.QueryParser('b', None).parse(u't')
+            qf = parsing.QueryParser('b', None).parse(u'f')
+            qt = parsing.QueryParser('b', None).parse(u't')
             r = s.search(qf)
             assert len(r) == 3
 
@@ -446,7 +457,7 @@ def test_boolean_strings():
             w.add_document(i=7, b=u"False")
 
         with ix.searcher() as s:
-            qp = qparser.QueryParser("b", ix.schema)
+            qp = parsing.QueryParser("b", ix.schema)
 
             def check(qs, nums):
                 q = qp.parse(qs)
@@ -490,7 +501,7 @@ def test_boolean_find_deleted():
                 assert b == reader.is_deleted(docnum)
 
             # Try doing a search for documents where b=True
-            qp = qparser.QueryParser("b", ix.schema)
+            qp = parsing.QueryParser("b", ix.schema)
             q = qp.parse("b:t")
             r = s.search(q, limit=None)
             assert len(r) == 0
@@ -527,7 +538,7 @@ def test_boolean_multifield():
             w.add_document(name=u'citroen', bit=False)
 
         with ix.searcher() as s:
-            qp = qparser.MultifieldParser(["name", "bit"], schema)
+            qp = parsing.MultifieldParser(["name", "bit"], schema)
             q = qp.parse(u"true")
 
             r = s.search(q)

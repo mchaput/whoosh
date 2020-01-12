@@ -30,7 +30,8 @@ from abc import abstractmethod
 from array import array
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, Iterable, Optional, Sequence, Set, Union
+from typing import (Any, Callable, Dict, Iterable, Optional, Sequence, Set,
+                    Tuple, Union)
 
 from whoosh.matching import matchers
 
@@ -1137,6 +1138,52 @@ class Best(FacetMap):
 
     def as_dict(self):
         return self.bestids
+
+
+# Higher-level faceting interface
+
+class FacetGroup:
+    def __init__(self, facet_name: str, fieldname: str=None):
+        self.facet_name = facet_name
+        self.facets = []
+
+        if fieldname:
+            self.add_field_facet(fieldname)
+
+    def add_field_facet(self, fieldname, reverse: bool=False,
+                        allow_overlap: bool=False) -> 'FacetGroup':
+        facet = FieldFacet(fieldname, reverse=reverse,
+                           allow_overlap=allow_overlap)
+        self.facets.append(facet)
+        return self
+
+    def add_query(self, querydict: 'Dict[str, queries.Query]',
+                  other: str=None, allow_overlap: bool=False) -> 'FacetGroup':
+        self.facets.append(QueryFacet(querydict, other=other,
+                                      allow_overlap=allow_overlap))
+        return self
+
+    def add_score(self) -> 'FacetGroup':
+        self.facets.append(ScoreFacet())
+        return self
+
+    def add_facet(self, facet: FacetType) -> 'FacetGroup':
+        if not isinstance(facet, FacetType):
+            raise TypeError("%r is not a facet object, perhaps you meant "
+                            "add_field()" % (facet,))
+        self.facets.append(facet)
+        return self
+
+    def set_regular_ranges(self, fieldname, start: float, gap: float
+                           ) -> 'FacetGroup':
+        for facet in self.facets:
+            if facet.fieldname == fieldname:
+                if isinstance(facet, RangeFacet):
+                    facet.set_regular_ranges(start, gap)
+
+    def set_custom_ranges(self, fieldname, ranges: Dict[str, Any]
+                          ) -> 'FacetGroup':
+        pass
 
 
 # Helper functions

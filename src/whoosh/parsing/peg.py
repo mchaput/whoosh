@@ -1,17 +1,23 @@
 import copy
-import inspect
 import logging
 import re
 import sys
 from abc import abstractmethod
+import typing
 from typing import Any, Callable, Dict, Iterable, List, Sequence, Tuple, Union
 # from typing.re import Pattern
 
+from whoosh import query
 from whoosh.parsing import parsing
 from whoosh.util.text import rcompile
 
 
 logger = logging.getLogger(__name__)
+
+
+# Typing-only imports
+if typing.TYPE_CHECKING:
+    from whoosh import fields
 
 # Type aliases
 
@@ -125,9 +131,26 @@ class PushedContext(Context):
     def __init__(self, parent: Context):
         self.parent = parent
         self.env = {}
-        self.expr = parent.expr
         self.fieldname = parent.fieldname
         self.depth = parent.depth + 1
+        self._expr = None
+        self._debug = None
+
+    @property
+    def expr(self) -> 'Expr':
+        return self.parent.expr if self._expr is None else self._expr
+
+    @expr.setter
+    def expr(self, expr: 'Expr'):
+        self._expr = expr
+
+    @property
+    def debug(self) -> bool:
+        return self.parent.debug if self._debug is None else self._debug
+
+    @debug.setter
+    def debug(self, debug: bool):
+        self._debug = debug
 
     @property
     def lookup(self):
@@ -136,10 +159,6 @@ class PushedContext(Context):
     @property
     def cache(self):
         return self.parent.cache
-
-    @property
-    def debug(self):
-        return self.parent.debug
 
     @property
     def field_exprs(self):
@@ -202,6 +221,7 @@ class Expr:
         self.may_be_empty = False
         self.debug = False
         self.error_template = ""
+        self.is_plaintext = False
 
         self.debug_before_action = None
         self.debug_after_action = None
@@ -216,7 +236,8 @@ class Expr:
     #         context.lookup[self.name] = self
 
     def dump(self, stream=sys.stdout, level=0):
-        print("  " * level, self.name, type(self).__name__, file=stream)
+        print("  " * level, type(self).__name__, self.name, repr(self),
+              file=stream)
 
     def named(self, name: str) -> 'Expr':
         obj = copy.copy(self)
@@ -225,7 +246,12 @@ class Expr:
 
     def _debug(self, ctx: Context, *args):
         if self.debug or ctx.debug:
-            print(("  " * ctx.depth) + type(self).__name__ + ":", *args)
+            head = "%s%s%s: " % (
+                "  " * ctx.depth,
+                type(self).__name__,
+                "(%s)" % (self.name,) if self.name else ""
+            )
+            print(head, *args)
 
     @abstractmethod
     def _parse(self, s: str, at: int, ctx: Context) -> Tuple[int, Any]:
@@ -258,7 +284,7 @@ class Expr:
     def scan_string(self, s: str, context: Context=None,
                     max_matches: int=None
                     ) -> Iterable[Tuple[Any, int, int]]:
-        context = context or Context()
+        context = context or Context(None)
         parse = self.parse
         s_len = len(s)
         at = 0
@@ -342,14 +368,14 @@ class Expr:
         if isinstance(self, Seq) and isinstance(other, Seq):
             return Seq(self.exprs + other.exprs)
         elif isinstance(self, Seq):
-            return Seq(self.exprs + [self._exprtize(other)])
+            return Seq(self.exprs + (self._exprtize(other),))
         elif isinstance(other, Seq):
-            return Seq([self] + other.exprs)
+            return Seq((self,) + other.exprs)
         else:
-            return Seq([self, self._exprtize(other)])
+            return Seq((self, self._exprtize(other)))
 
     def __radd__(self, other: OpArgType) -> 'Seq':
-        return Seq([self._exprtize(other), self])
+        return Seq((self._exprtize(other), self))
 
     def __mul__(self, other: Union[int, Tuple[int, int]]) -> 'Expr':
         min_times = max_times = 0
@@ -533,7 +559,8 @@ class Patterns(Expr):
 
     def __init__(self, patterns, may_be_empty=False):
         super(Patterns, self).__init__()
-        self.exprs = [rcompile(pattern, re.IGNORECASE) for pattern in patterns]
+        self.exprs = tuple(re.compile(pattern, re.IGNORECASE)
+                           for pattern in patterns)
         self.error_template = "Expected one of %r" % (patterns, )
         self.may_be_empty = may_be_empty
 
@@ -731,10 +758,14 @@ class TokenStart(PositionToken):
 class Compound(Expr):
     def __init__(self, exprs: Sequence[Expr]):
         super(Compound, self).__init__()
-        self.exprs = list(exprs)
+        self.exprs = tuple(exprs)
 
     def __repr__(self):
-        return "<%s %r>" % (type(self).__name__, self.exprs)
+        typename = type(self).__name__
+        if self.name:
+            return "<%s:%s>" % (typename, self.name)
+        else:
+            return "<%s %r>" % (typename, self.exprs)
 
     def __getitem__(self, i: int) -> Expr:
         return self.exprs[i]
@@ -746,7 +777,11 @@ class Compound(Expr):
 
     @property
     def error(self):
-        return self.error_template % self.exprs
+        try:
+            return self.error_template % (self.exprs,)
+        except TypeError as e:
+            raise TypeError("%s template=%s exprs=%r" % (e, self.error_template,
+                                                         self.exprs))
 
     # def register(self, context: Context):
     #     super(Compound, self).register(context)
@@ -766,15 +801,14 @@ class Compound(Expr):
             return expr
         else:
             obj = copy.copy(self)
-            obj.exprs = [e.replace(name, expr) for e in self.exprs]
+            obj.exprs = tuple(e.replace(name, expr) for e in self.exprs)
             return obj
 
     def append(self, other: Expr) -> 'Compound':
-        if isinstance(other, type(self)):
-            self.exprs.extend(other.exprs)
+        if type(self) is type(other):
+            return self.__class__(self.exprs + other.exprs)
         else:
-            self.exprs.append(self._exprtize(other))
-        return self
+            return self.__class__(self.exprs + (self._exprtize(other),))
 
     @abstractmethod
     def _parse(self, s: str, at: int, context: Context
@@ -805,21 +839,33 @@ class Seq(Compound):
         self.may_be_empty = all(e.may_be_empty for e in self.exprs)
 
     def _parse(self, s: str, at: int, ctx: Context) -> Tuple[int, Any]:
+        exprs = self.exprs
         debug = self.debug
         value = None
         ctx = ctx.push()
-        for e in self.exprs:
-            self._debug(ctx, "Trying", e, "at", at)
+
+        for i, e in enumerate(exprs):
+            self._debug(ctx, "Trying #%d/%d" % (i + 1, len(exprs)), e, "at", at)
             at, new_value = e.parse(s, at, ctx)
             if debug:
                 self._debug(ctx, "Found", new_value, "->", at)
             if not e.hidden:
                 value = new_value
 
+        self._debug(ctx, "Found:", value, "->", at)
         return at, value
 
     def __iadd__(self, other: OpArgType):
-        return self.append(self._exprtize(other))
+        if isinstance(other, Seq):
+            return Seq(self.exprs + other.exprs)
+        else:
+            return Seq(self.exprs + (self._exprtize(other),))
+
+    def __radd__(self, other):
+        if isinstance(other, Seq):
+            return Seq(other.exprs + self.exprs)
+        else:
+            return Seq((self._exprtize(other),) +self.exprs)
 
     def check_recursion(self, elems: List[Expr]):
         tmp = elems[:] + [self]
@@ -827,33 +873,6 @@ class Seq(Compound):
             e.check_recursion(tmp)
             if not e.may_be_empty:
                 break
-
-
-class Progress(Compound):
-    def __init__(self, exprs: Sequence[Expr], at_least_one=True):
-        super(Progress, self).__init__(exprs)
-        if len(exprs) < 1:
-            raise Exception("Progress must have at least one expr")
-        self.may_be_empty = all(e.may_be_empty for e in self.exprs)
-        self.at_least_one = at_least_one
-
-    def _parse(self, s: str, at: int, ctx: Context) -> Tuple[int, Any]:
-        values = []
-        ctx = ctx.push()
-        matched = 0
-        try:
-            for e in self.exprs[:-1]:
-                at, value = e.parse(s, at, ctx)
-                if not e.hidden:
-                    matched += 1
-                    values.append(value)
-        except Miss:
-            pass
-
-        if self.at_least_one and matched < 1:
-            raise Miss(s, at)
-
-        return self.exprs[-1].parse(s, at, ctx)
 
 
 class Collect(Compound):
@@ -896,24 +915,22 @@ class Or(Compound):
             self.may_be_empty = True
 
     def _parse(self, s: str, at: int, ctx: Context) -> Tuple[int, Any]:
+        exprs = self.exprs
         max_exc = None
         max_exc_at = -1
         ctx = ctx.push()
 
-        for e in self.exprs:
-            self._debug(ctx, "Trying", e, "at", at)
+        for i, e in enumerate(exprs):
+            self._debug(ctx, "Trying #%d/%d" % (i + 1, len(exprs)), e, "at", at)
             try:
                 at, value = e.parse(s, at, ctx)
-            except ParseException as err:
+            except Miss as err:
                 if err.at > max_exc_at:
                     max_exc = err
                     max_exc_at = err.at
-            except IndexError:
-                if len(s) > max_exc_at:
-                    max_exc = ParseException(s, len(s), e.error, self)
-                    max_exc_at = len(s)
             else:
-                self._debug(ctx, "Found", value, "->", at)
+                self._debug(ctx, "Found #%d/%d" % (i + 1, len(exprs)),
+                            value, "->", at)
                 return at, value
 
         # Nothing matched
@@ -924,7 +941,16 @@ class Or(Compound):
             raise Miss(s, at, self.error, self)
 
     def __ior__(self, other: Expr):
-        return self.append(self._exprtize(other))
+        if isinstance(other, Or):
+            return Or(self.exprs + other.exprs)
+        else:
+            return Or(self.exprs + (self._exprtize(other),))
+
+    def __ror__(self, other):
+        if isinstance(other, Or):
+            return Or(other.exprs + self.exprs)
+        else:
+            return Or((self._exprtize(other),) + self.exprs)
 
     def check_recursion(self, elems: List[Expr]):
         tmp = elems[:] + [self]
@@ -984,8 +1010,8 @@ class Bag(Or):
             self._debug(ctx, "Bag output", output, "->", at)
             return at, output
         else:
-            raise ParseException(
-                s, at, "None matched in bag of %r" % self.exprs
+            raise Miss(
+                s, at, "None matched in bag of %r" % (self.exprs,)
             )
 
 
@@ -1003,6 +1029,9 @@ class Wrapper(Expr):
     def dump(self, stream=sys.stdout, level=0):
         super(Wrapper, self).dump(stream, level)
         self.expr.dump(stream, level + 1)
+
+    def unwrap(self) -> Expr:
+        return self.expr
 
     def rebind(self, expr: Expr) -> 'Wrapper':
         obj = copy.copy(self)
@@ -1055,27 +1084,37 @@ class Hidden(Wrapper):
 
 class StringUntil(Wrapper):
     def __init__(self, expr: Expr, esc_char="\\", matches_end: bool=False,
-                 add_context_expr: bool=False, may_be_empty: bool=True):
+                 add_context_expr: bool=False, may_be_empty: bool=True,
+                 name: str=None):
         super(StringUntil, self).__init__(expr)
         self.esc_char = esc_char
         self.matches_end = matches_end
         self.add_context_expr = add_context_expr
         self.may_be_empty = may_be_empty
+        self.name = name
+
+    def __repr__(self):
+        expr = self.expr
+        return "<%s %x %r>" % (type(self).__name__, id(expr), expr)
 
     def _parse(self, s: str, at: int, ctx: Context) -> Tuple[int, Any]:
+        ctx = ctx.push()
         expr = self.expr
         if self.add_context_expr:
             expr = expr | ctx.expr
 
+        buffer = []
         esc_char = self.esc_char
         i = at
-        buffer = []
         while i < len(s):
+            self._debug(ctx, "Looking for until at", i)
             char = s[i]
             if esc_char and char == esc_char:
+                self._debug(ctx, "Found escaped character", char)
                 buffer.append(s[i + len(esc_char)])
                 i += len(esc_char) + 1
             elif expr.matches(s, i, ctx):
+                self._debug(ctx, "Stop expression matched at", i)
                 break
             else:
                 buffer.append(char)
@@ -1083,13 +1122,17 @@ class StringUntil(Wrapper):
 
         if i == at:
             if self.may_be_empty:
+                self._debug(ctx, "Found empty string")
                 return i, ""
             else:
                 raise Miss(s, at, "Empty string not allowed", self)
+
         if i == len(s) and not self.matches_end:
             raise Miss(s, at, "Fell off end looking for %r" % self.expr, self)
 
-        return i, "".join(buffer)
+        result = "".join(buffer)
+        self._debug(ctx, "Found:", result, "->", i)
+        return i, result
 
 
 class Follows(Wrapper):
@@ -1199,11 +1242,11 @@ class OneOrMore(Wrapper):
 
 
 class ZeroOrMore(Wrapper):
-    def __init__(self, expr: Expr):
+    def __init__(self, expr: Expr, allow_zero_match=False):
         super(ZeroOrMore, self).__init__(expr)
-        if expr.may_be_empty:
-            raise ValueError("Can't repeat an expression that may be empty")
         self.may_be_empty = True
+        if expr.may_be_empty and not allow_zero_match:
+            raise ValueError("Can't repeat an expression that may be empty")
 
     def __repr__(self):
         return "(%r)*" % self.expr
@@ -1214,10 +1257,15 @@ class ZeroOrMore(Wrapper):
 
         while True:
             try:
-                at, value = _parse(s, at, ctx)
+                newat, value = _parse(s, at, ctx)
             except Miss:
                 break
             results.append(value)
+
+            if newat == at:
+                break
+            else:
+                at = newat
 
         return at, results
 
@@ -1276,7 +1324,7 @@ class Forward(Wrapper):
         self.error_template = "Expected %s(%r)"
 
     def __repr__(self):
-        return repr(self.expr)
+        return "<%s %s>" % (type(self).__name__, self.expr.name)
 
     def assign(self, expr: Expr):
         self.expr = expr
@@ -1290,6 +1338,53 @@ class Forward(Wrapper):
                 self.expr.validate(trace)
 
         self.check_recursion([])
+
+
+class TempWrapper(Wrapper):
+    pass
+
+
+class FieldExpr(TempWrapper):
+    def __init__(self, first: Expr, rest: Expr):
+        super(FieldExpr, self).__init__(Or([first, rest]))
+        self.rest = rest
+
+    def unwrap(self) -> Expr:
+        return self.rest
+
+
+class SelfParsingField(TempWrapper):
+    def __init__(self, expr, fieldname: str, field: 'fields.Field'):
+        super(SelfParsingField, self).__init__(expr)
+        self.expr = expr
+        self.fieldname = fieldname
+        self.field = field
+        self.may_be_empty = True
+
+    def __repr__(self):
+        return "<%s %s>" % (type(self).__name__, self.fieldname)
+
+    def _parse(self, s: str, at: int, ctx: Context) -> Tuple[int, Any]:
+        self._debug(ctx, "Trying main expression before self-parsing")
+        # Try the main expression
+        try:
+            at, q = self.expr.parse(s, at, ctx)
+        except Miss:
+            pass
+        else:
+            return at, q
+
+        # If that didn't match, try parsing with the field
+        self._debug(ctx, "Fieldname=", self.fieldname, "field=", self.field,
+                    "trying to parse at", at)
+        endchar, q = self.field.parse_from(self.fieldname, s, at)
+        if q is None:
+            raise Miss(s, at, "Field did not generate a query", self)
+        self._debug(ctx, "Found", repr(q), "->", endchar)
+
+        q.set_extent(at, endchar)
+        q.analyzed = True
+        return endchar, q
 
 
 # class Combine(Wrapper):
@@ -1307,6 +1402,9 @@ class Assign(Wrapper):
         super(Assign, self).__init__(expr)
         self.name = name
 
+    def __repr__(self):
+        return "<%s=%r>" % (self.name, self.expr)
+
     def _parse(self, s: str, at: int, ctx: Context) -> Tuple[int, Any]:
         at, value = self.expr._parse(s, at, ctx)
         ctx[self.name] = value
@@ -1314,13 +1412,18 @@ class Assign(Wrapper):
 
 
 class AssignExtent(Wrapper):
-    def __init__(self, expr: Expr, name: str= "extent"):
+    def __init__(self, expr: Expr, name: str="extent"):
         super(AssignExtent, self).__init__(expr)
         self.name = name
 
     def _parse(self, s: str, at: int, ctx: Context) -> Tuple[int, Any]:
         new_at, value = self.expr._parse(s, at, ctx)
+        self._debug(ctx, "Saving extent", at, "->", new_at, "to", self.name)
         ctx[self.name] = (at, new_at)
+        if isinstance(value, query.Query):
+            self._debug(ctx, "Setting extents on", value)
+            value.startchar = at
+            value.endchar = new_at
         return new_at, value
 
 
@@ -1397,19 +1500,6 @@ class Get(Expr):
             raise FatalError(s, at, "Unknown name %r" % self.name, self)
 
 
-class Promote(Expr):
-    def __init__(self, *names):
-        super(Promote, self).__init__()
-        self.names = names
-        self.may_be_empty = True
-
-    def __repr__(self):
-        return "<%s %r>" % (type(self).__name__, self.names)
-
-    def _parse(self, s: str, at: int, ctx: Context) -> Tuple[int, Any]:
-        return at, tuple(ctx.get(name) for name in self.names)
-
-
 class Guard(Wrapper):
     """
     Prevents an expression from matching recursively -- if the expressions is
@@ -1448,45 +1538,40 @@ class Parsed(Expr):
 
     def __init__(self, parser: 'parsing.QueryParser', name: str,
                  end_expr: Expr=None, field_from: str=None,
-                 tokenize: bool=True):
+                 tokenize: bool=True, take_plaintext: bool=True):
         super(Parsed, self).__init__()
         self.parser = parser
         self.name = name
         self.end_expr = end_expr
         self.field_from = field_from
         self.tokenize = tokenize
+        self.take_plaintext = take_plaintext
+
+    def __repr__(self):
+        return "<%s %s>" % (type(self).__name__, self.name)
 
     def _parse(self, s: str, at: int, ctx: Context) -> Tuple[int, Any]:
-        # Get the current expr from the context
-        expr = ctx.expr
+        if at >= len(s):
+            raise Miss(s, at, "Parsed at end of string", self)
 
         # Push a new context to use while parsing the next element
-        newctx = ctx.push()
+        ctx = ctx.push()
+
         # This object may be configured to switch to a different field named in
         # a context variable
         if self.field_from:
             fname = ctx[self.field_from]
             # Set the field name as current in the new context
-            newctx.fieldname = fname
-            # If the context has a custom expr for this field, use that instead
-            # of the current expr
-            if fname in ctx.field_exprs:
-                expr = ctx.field_exprs[fname]
+            self._debug(ctx, "Pushing down fieldname", fname)
+            ctx.fieldname = fname
 
-        # If we have an end expression, make a new expr that checks for it
-        # and then the current expression
-        if self.end_expr:
-            if self.end_expr.matches(s, at, ctx):
-                raise Miss(s, at, "Encountered end_expr at parse site", self)
-            expr = self.end_expr | expr
-
-        # Set the new expr as current in the new context
-        newctx.expr = expr
-
-        # Use the parser's parse_expr method to take either the next matching
-        # element or text
-        return self.parser.parse_single(s, at, newctx, name=self.name,
-                                        tokenize=self.tokenize)
+        # Get the current "main" expression out of the context, and account for
+        # field expressions, etc.
+        expr = self.parser.expression(ctx)
+        self._debug(ctx, "Parsing single expr", expr)
+        return self.parser.parse_single(s, at, ctx, expr=expr,
+                                        end_expr=self.end_expr,
+                                        take_plaintext=self.take_plaintext)
 
 
 class Fieldify(Expr):

@@ -45,9 +45,21 @@ def test_esc():
     # logging.basicConfig(level=logging.DEBUG)
 
     p = parsing.QueryParser("content")
-    qs = p.parse(u"foo\\ bar baz", normalize=False)
+    qst = "foo\\ bar baz"
+
+    qs = p.parse_to_list(qst)
+    assert qs == [
+        query.Term(None, "foo bar"),
+        ws,
+        query.Term(None, "baz")
+    ]
+
+    qs = p.parse(qst, normalize=False)
     assert qs == query.And([
-        query.Term("content", "foo bar"),
+        query.And([
+            query.Term("content", "foo"),
+            query.Term("content", "bar"),
+        ]),
         query.Term("content", "baz")
     ])
 
@@ -93,7 +105,7 @@ def test_empty_group():
 def test_field_spec():
     qst = u"foo:bar"
     p = parsing.QueryParser("content")
-    qs = p.parse_to_list(qst)
+    qs = p.parse_to_list(qst, debug=False)
     assert qs == [query.Term("foo", "bar")]
 
 
@@ -126,7 +138,7 @@ def test_mixed_fielded():
 
 def test_group1():
     p = parsing.QueryParser("text")
-    assert p.parse_to_list("(aaa)") == [
+    assert p.parse_to_list("(aaa)", debug=False) == [
         Vgroup([query.Term(None, "aaa")])
     ]
 
@@ -152,9 +164,8 @@ def test_group3():
 def test_groups():
     qst = "(alfa OR bravo) charlie (delta OR echo OR foxtrot) golf"
     p = parsing.QueryParser("text")
-    qs = p.parse(qst)
+    qs = p.parse(qst, debug=False)
     # query.dump(qs)
-    # print(repr(qs))
     assert qs == query.And([
         query.Or([
             query.Term("text", "alfa"),
@@ -245,7 +256,13 @@ def test_nested_groups():
 def test_fielded_group():
     qst = "foo:(bar baz)"
     p = parsing.QueryParser("text")
-    qs = p.parse(qst)
+    # p.plugins = [
+    #     plugs.WhitespacePlugin(),
+    #     plugs.FieldsPlugin(),
+    #     plugs.GroupPlugin(),
+    # ]
+
+    qs = p.parse(qst, debug=False)
     assert qs == query.And([query.Term("foo", "bar"), query.Term("foo", "baz")])
 
 
@@ -315,12 +332,6 @@ def test_wildcards():
     # logging.basicConfig(level=logging.DEBUG)
 
     p = parsing.QueryParser("text", default_schema)
-    wcp = plugs.WildcardPlugin()
-    syn = list(wcp.syntaxes(p))[0][0]
-    at, value = syn.parse("b*d?e", 0, p.context())
-    assert at == 5
-    assert value == query.Wildcard(None, "b*d?e")
-
     qs = p.parse("aa b*d?e cc", normalize=False)
     # query.dump(qs)
     assert qs == query.And([
@@ -392,6 +403,55 @@ def test_phrase_slop():
     ])
 
 
+def test_parse_list():
+    qst = "b* foo c*d"
+    p = parsing.QueryParser("text", default_schema)
+    q = p.parse(qst, debug=False)
+    assert q == query.And([
+        query.Prefix("text", u"b"),
+        query.Term("text", u"foo"),
+        query.Wildcard("text", u"c*d")
+    ])
+
+
+def test_sequence_matcher():
+    qst = "aaa <b* foo c*d?e??f*> ddd"
+    p = parsing.QueryParser("text", default_schema)
+    sp = plugs.SequencePlugin(start="<", end=">")
+    expr = sp.find_sequences(p)
+    ctx = p.context(None)
+    at, q = expr.parse(qst, 4, ctx)
+    assert at == 22
+    assert q == query.Sequence([
+        query.Term(None, u"b*"),
+        ws,
+        query.Term(None, u"foo"),
+        ws,
+        query.Term(None, u"c*d?e??f*")
+    ])
+
+    qst = "aaa <b* <foo c*d?e??f*> ddd> eee"
+    p = parsing.QueryParser("text", default_schema)
+    sp = plugs.SequencePlugin(start="<", end=">")
+    p.add_plugin(sp)
+    q = p.parse(qst)
+    assert q == query.And([
+        query.Term("text", u"aaa"),
+        query.Sequence([
+            query.Prefix("text", u"b"),
+            query.Sequence([
+                query.Term("text", u"foo"),
+                query.Wildcard("text", u"c*d?e??f*")
+            ]),
+            query.Term("text", u"ddd")
+        ]),
+        query.Term("text", u"eee"),
+    ])
+    # query.dump(q)
+    assert q[1].startchar == 4
+    assert q[1].endchar == 28
+
+
 def test_sequence():
     # import logging
     # logging.basicConfig(level=logging.DEBUG)
@@ -400,18 +460,6 @@ def test_sequence():
     p = parsing.QueryParser("text", default_schema)
     sp = plugs.SequencePlugin(start="<", end=">")
     p.add_plugin(sp)
-
-    ctx = p.context(None)
-    syn = list(sp.syntaxes(p))[0][0]
-    at, value = syn.parse(qst, 4, ctx)
-    # query.dump(value)
-    assert value == query.Sequence([
-        query.Wildcard(None, "b*"),
-        ws,
-        query.Term(None, "foo"),
-        ws,
-        query.Wildcard(None, "c*d?e??f*")
-    ])
 
     qs = p.parse(qst, normalize=False)
     # query.dump(qs)
@@ -505,7 +553,7 @@ def test_weird_range_values():
 def test_num_range():
     p = parsing.QueryParser("text", default_schema)
     qst = "nums:[100 to 200]"
-    qs = p.parse(qst, normalize=False)
+    qs = p.parse(qst, normalize=False, debug=False)
     # query.dump(qs)
     assert qs == query.NumericRange('nums', 100, 200, False, False)
 
@@ -655,7 +703,7 @@ def test_plusminus():
     p = parsing.QueryParser("t")
     p.add_plugin(plugs.PlusMinusPlugin())
     qst = "alfa +bravo charlie -delta foxtrot"
-    qs = p.parse(qst)
+    qs = p.parse(qst, debug=False)
     assert qs == query.AndNot(
         query.AndMaybe(
             query.Term("t", "bravo"),
@@ -678,16 +726,59 @@ def test_stop_parsed():
     pm = plugs.PlusMinusPlugin()
     p.add_plugin(pm)
     qst = "alfa (+bravo nums:<100) charlie"
-    ls = p.parse_to_list(qst)
-    assert ls == [
-        query.Term(None, "alfa"), ws,
+    ls = p.parse_to_list(qst, debug=False)
+    target = [
+        query.Term(None, "alfa"),
+        ws,
         Vgroup([
             pm.PlusMinus("+", True),
-            query.Term(None, "bravo"), ws,
+            query.Term(None, "bravo"),
+            ws,
             query.Range("nums", None, '100', False, True)
-        ]), ws,
+        ]),
+        ws,
         query.Term(None, "charlie")
     ]
+    # print()
+    # print("ls    =", ls)
+    # print("target=", target)
+    assert ls == target
+
+
+def test_gtlt_matcher():
+    p = parsing.QueryParser("t", default_schema)
+    pl = plugs.GtLtPlugin()
+    p.add_plugin(pl)
+
+    st = "<500"
+    m = pl.find_gtlt(p)
+    at, q = m.parse(st, 0, peg.Context(m))
+    assert at == 4
+    assert q == query.Range(None, None, '500', False, True)
+
+    st = "<=1024"
+    m = pl.find_gtlt(p)
+    at, q = m.parse(st, 0, peg.Context(m))
+    assert at == 6
+    assert q == query.Range(None, None, '1024', False, False)
+
+    st = ">123"
+    m = pl.find_gtlt(p)
+    at, q = m.parse(st, 0, peg.Context(m))
+    assert at == 4
+    assert q == query.Range(None, '123', None, True, False)
+
+    st = ">=5000"
+    m = pl.find_gtlt(p)
+    at, q = m.parse(st, 0, peg.Context(m))
+    assert at == 6
+    assert q == query.Range(None, '5000', None, False, False)
+
+    q = p.parse("nums:<5000")
+    assert q == query.NumericRange("nums", None, 5000, False, True)
+
+    q = p.parse("nums:(>5000 )")
+    assert q == query.NumericRange("nums", 5000, None, True, False)
 
 
 def test_gtlt():
@@ -840,14 +931,17 @@ def test_numeric():
 
 
 def test_self_parsing():
+    from whoosh.util.times import adatetime
+
     qp = parsing.QueryParser("nums", default_schema)
     qs = qp.parse("times:200608011201 nums:1000")
-    target = query.And([
-        query.NumericRange("times", 63290030460000000, 63290030519999999),
-        query.Term("nums", default_schema["nums"].to_bytes("1000"))
-    ])
     # query.diff(qs, target)
-    assert qs == target
+    assert qs == query.And([
+        query.DateRange("times",
+                        adatetime(2006, 8, 1, 12, 1).floor(),
+                        adatetime(2006, 8, 1, 12, 1).ceil()),
+        query.Term("nums", 1000)
+    ])
 
 
 def test_self_parsing_mixed():
@@ -855,7 +949,7 @@ def test_self_parsing_mixed():
     qs = qp.parse("alfa nums:5 bravo")
     target = query.And([
         query.Term("text", "alfa"),
-        query.Term("nums", default_schema["nums"].to_bytes("5")),
+        query.Term("nums", 5),
         query.Term("text", "bravo"),
     ])
     # query.diff(qs, target)
@@ -869,12 +963,11 @@ def test_custom_parsing():
     expr = peg.Apply(stars, lambda s: query.Term("nums", len(s)))
     qp.set_field_expr("nums", expr)
 
-    qs = qp.parse("alfa nums:*** bravo")
-    assert qs == query.And([
-        query.Term("text", "alfa"),
-        query.Term("nums", 3),
-        query.Term("text", "bravo")
-    ])
+    qs = qp.parse("alfa nums:*** bravo", debug=False)
+    assert type(qs) is query.And
+    assert qs[0] == query.Term("text", u"alfa")
+    assert qs[1] == query.Term("nums", 3)
+    assert qs[2] == query.Term("text", u"bravo")
 
 
 def test_parse_relation_query():
@@ -887,18 +980,31 @@ def test_parse_relation_query():
         artist=fields.TEXT(stored=True),
         parent=fields.NUMERIC,
     )
-
     qp = parsing.QueryParser("title", schema)
+
+    q = qp.parse("(type:album artist:bowie)")
+    assert q == query.And([query.Term("type", "album"),
+                           query.Term("artist", "bowie")])
+
+    s = "RELATE id IN (type:album artist:bowie) TO parent IN type:song"
+    at, q = qp.main_expr().parse(s, 13, qp.context(debug=False))
+    assert at == 38
+    assert q == Vgroup([query.Term("type", "album"),
+                        ws,
+                        query.Term("artist", "bowie")])
+
     rp = plugs.RelationPlugin()
     qp.add_plugin(rp)
-    s = "RELATE id IN (type:album artist:bowie) TO parent IN type:song"
 
-    expr = list(rp.syntaxes(qp))[0][0]
-    at, qs = expr.parse(s, 0, qp.context())
-    assert qs
+    expr = rp.find_joins(qp)
+    at, qs = expr.parse(s, 0, qp.context(debug=False))
+    assert qs == RelationQuery("id", Vgroup([
+        query.Term("type", "album"),
+        ws,
+        query.Term("artist", "bowie"),
+    ]), "parent", query.Term("type", "song"))
 
-    qs = qp.parse(s)
-    # query.dump(qs)
+    qs = qp.parse(s, normalize=True, debug=False)
     assert qs == RelationQuery("id", query.And([
         query.Term("type", "album"),
         query.Term("artist", "bowie")

@@ -65,31 +65,33 @@ class RelationQuery(BinaryQuery):
             hash(self.right_field)
         )
 
+    def __str__(self):
+        return "RELATE %s IN %s TO %s IN %s" % (self.left_field,
+                                                self.a,
+                                                self.right_field,
+                                                self.b)
+
     def __repr__(self):
-        return "<%s %s. %r -> %s. %r>" % (
+        return "<%s %s %r -> %s %r>" % (
             type(self).__name__,
             self.left_field, self.a,
             self.right_field, self.b
         )
-
-    def __bool__(self):
-        return True
-
-    def __nonzero__(self):
-        return self.__bool__()
 
     def normalize(self):
         a = self.a.normalize()
         b = self.b.normalize()
 
         if isinstance(a, queries.NullQuery) and isinstance(b, queries.NullQuery):
-            return queries.NullQuery()
+            return queries.NullQuery().set_extent(self.startchar, self.endchar)
         elif isinstance(a, queries.NullQuery):
             return b
         elif isinstance(b, queries.NullQuery):
             return a
 
-        return self.__class__(self.left_field, a, self.right_field, b)
+        return self.__class__(
+            self.left_field, a, self.right_field, b
+        ).set_extent(self.startchar, self.endchar)
 
     def estimate_size(self, reader: 'reading.IndexReader'):
         return self.b.estimate_size(reader)

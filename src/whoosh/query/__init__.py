@@ -42,7 +42,8 @@ def _short_string(q: Query) -> str:
     assert isinstance(q, Query), repr(q)
     s = repr(q) if q.is_leaf() else type(q).__name__
     if not q.analyzed:
-        s += "*"
+        s += "(!)"
+    s += " (%s-%s)" % (q.startchar, q.endchar)
     return s
 
 

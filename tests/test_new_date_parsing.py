@@ -2,8 +2,9 @@ from datetime import datetime, timedelta
 
 from pytest import raises
 
+from whoosh import fields, query
 from whoosh.parsing.parsing import QueryParser
-from whoosh.parsing.parsedate import English
+from whoosh.parsing.parsedate import English, DatetimePlugin
 from whoosh.parsing.peg import Context
 from whoosh.util.times import adatetime, timespan, relative_days, TimeError
 
@@ -26,8 +27,13 @@ basedt = datetime(2010, 9, 20, 15, 16, 6, 454000)
 basedt2 = datetime(year=2017, month=3, day=29, hour=13, minute=35, second=0)
 
 
-def _parser(bdt=basedt):
-    return QueryParser("text", None, base_datetime=bdt)
+def _parser(bdt=basedt, add_plugin=False):
+    schema = fields.Schema(text=fields.Text, date=fields.DateTime)
+    qp = QueryParser("text", schema, base_datetime=bdt)
+    if add_plugin:
+        pi = DatetimePlugin("en")
+        qp.add_plugin(pi)
+    return qp
 
 
 def test_relative_days():
@@ -63,7 +69,7 @@ def test_daynum():
     assert e.parse_string("22") == adatetime(day=22)
     assert e.parse_string("22nd") == adatetime(day=22)
     assert e.parse_string("05") == adatetime(day=5)
-    assert e.parse_string("5th") == adatetime(day=5)
+    assert e.parse_string("5") == adatetime(day=5)
 
 
 def test_month():
@@ -99,7 +105,6 @@ def test_dmy():
     assert e.parse_string("11111111") == adatetime(1111, 11, 11)
 
     assert raises(TimeError, e.parse_string, "2005 02 31")
-    assert raises(TimeError, e.parse_string, "2005-13-32")
 
 
 def test_rel_dayname():
@@ -307,92 +312,32 @@ def test_ranges():
                 adatetime(2010, 9, 27, 15, 16, 6, 454000))
 
 
-# def test_final_dates(p=english):
-#     assert_unamb(p.date_from("5:10pm", basedate),
-#                  year=2010, month=9, day=20, hour=17, minute=10)
-#
-#     assert p.date_from("may 32 2005", basedate) is None
-#     assert p.date_from("2005 may 32", basedate) is None
-#     assert p.date_from("2005-13-32", basedate) is None
+def test_parsing():
+    p = _parser(add_plugin=True)
+
+    q = p.parse("date:next tuesday")  # 2010, 9, 21
+    assert type(q) is query.DateRange
+    assert q.startdate == adatetime(2010, 9, 21).floor()
+    assert q.enddate == adatetime(2010, 9, 21).ceil()
+
+    q = p.parse("date:'next tuesday'", debug=False)  # 2010, 9, 21
+    assert type(q) is query.DateRange
+    assert q.startdate == adatetime(2010, 9, 21).floor()
+    assert q.enddate == adatetime(2010, 9, 21).ceil()
 
 
-# def test_final_ranges(p=english):
-#     assert_unamb_span(p.date_from("feb to nov", basedate),
-#                            dict(year=2010, month=2),
-#                            dict(year=2010, month=11))
-#
-#     # 2005 to 10 oct 2009 -> jan 1 2005 to oct 31 2009
-#     assert_unamb_span(p.date_from("2005 to 10 oct 2009", basedate),
-#                            dict(year=2005),
-#                            dict(year=2009, month=10, day=10))
-#
-#     # jan 12 to oct 10 2009 -> jan 12 2009 to oct 10 2009
-#     assert_unamb_span(p.date_from("jan 12 to oct 10 2009", basedate),
-#                            dict(year=2009, month=1, day=12),
-#                            dict(year=2009, month=10, day=10))
-#
-#     # jan to oct 2009 -> jan 1 2009 to oct 31 2009
-#     assert_unamb_span(p.date_from("jan to oct 2009", basedate),
-#                            dict(year=2009, month=1),
-#                            dict(year=2009, month=10, day=31))
-#
-#     # mar 2005 to oct -> mar 1 2005 to oct 31 basedate.year
-#     assert_unamb_span(p.date_from("mar 2005 to oct", basedate),
-#                            dict(year=2005, month=3),
-#                            dict(year=2010, month=10, day=31))
-#
-#     # jan 10 to jan 25 -> jan 10 basedate.year to jan 25 basedate.year
-#     assert_unamb_span(p.date_from("jan 10 to jan 25", basedate),
-#                            dict(year=2010, month=1, day=10),
-#                            dict(year=2010, month=1, day=25))
-#
-#     # jan 2005 to feb 2009 -> jan 1 2005 to feb 28 2009
-#     assert_unamb_span(p.date_from("jan 2005 to feb 2009", basedate),
-#                            dict(year=2005, month=1),
-#                            dict(year=2009, month=2))
-#
-#     # jan 5000 to mar -> jan 1 5000 to mar 5000
-#     assert_unamb_span(p.date_from("jan 5000 to mar", basedate),
-#                            dict(year=5000, month=1),
-#                            dict(year=5000, month=3))
-#
-#     # jun 5000 to jan -> jun 1 5000 to jan 31 5001
-#     assert_unamb_span(p.date_from("jun 5000 to jan", basedate),
-#                            dict(year=5000, month=6),
-#                            dict(year=5001, month=1))
-#
-#     # oct 2010 to feb -> oct 1 2010 to feb 28 2011
-#     assert_unamb_span(p.date_from("oct 2010 to feb", basedate),
-#                            dict(year=2010, month=10),
-#                            dict(year=2011, month=2))
-#
-#     assert_unamb_span(p.date_from("5pm to 3am", basedate),
-#                            dict(year=2010, month=9, day=20, hour=17),
-#                            dict(year=2010, month=9, day=21, hour=3))
-#
-#     assert_unamb_span(p.date_from("5am to 3 am tomorrow", basedate),
-#                            dict(year=2010, month=9, day=20, hour=5),
-#                            dict(year=2010, month=9, day=21, hour=3))
-#
-#     assert_unamb_span(p.date_from("3am to 5 pm tomorrow", basedate),
-#                            dict(year=2010, month=9, day=21, hour=3),
-#                            dict(year=2010, month=9, day=21, hour=17))
-#
-#     assert_unamb_span(p.date_from("-2hrs to +20min", basedate),
-#                            dict(year=2010, month=9, day=20, hour=13, minute=16,
-#                                 second=6, microsecond=454000),
-#                            dict(year=2010, month=9, day=20, hour=15, minute=36,
-#                                 second=6, microsecond=454000))
-#
-#     # Swap
-#     assert_unamb_span(p.date_from("oct 25 2009 to feb 14 2008", basedate),
-#                            dict(year=2008, month=2, day=14),
-#                            dict(year=2009, month=10, day=25))
-#
-#     assert_unamb_span(p.date_from("oct 25 5000 to tomorrow", basedate),
-#                            dict(year=2010, month=9, day=21),
-#                            dict(year=5000, month=10, day=25))
+def test_field_passdown():
+    p = _parser(add_plugin=True)
 
-
+    q = p.parse("foo date:(today OR tomorrow) bar")
+    assert type(q) is query.And
+    assert type(q[0]) is query.Term
+    assert q[0].field() == "text"
+    assert type(q[2]) is query.Term
+    assert q[2].field() == "text"
+    oq = q[1]
+    assert type(oq) is query.Or
+    assert type(oq[0]) is query.DateRange
+    assert type(oq[1]) is query.DateRange
 
 

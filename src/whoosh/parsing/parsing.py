@@ -94,6 +94,7 @@ class QueryParser:
         raise NameError("No plugin named %r" % name)
 
     def add_plugin(self, plugin: 'plugs.Plugin'):
+        self._main_expr = None  # Invalidate cached main expression
         self.plugins.append(plugin)
 
     def remove_plugin(self, name: str):
@@ -154,10 +155,11 @@ class QueryParser:
     def filters(self) -> 'List[Callable[[QueryParser, query.Query], query.Query]]':
         return self._priorized("filters")
 
-    def context(self, fieldname: str=None) -> 'peg.Context':
+    def context(self, fieldname: str=None, debug: bool=False) -> 'peg.Context':
         # Put the main expr and current fieldname on the context so deeply
         # nested exprs can read and/or override them as they parse
-        context = peg.Context(self.main_expr(), fieldname=fieldname)
+        expr = self.main_expr()
+        context = peg.Context(expr, fieldname=fieldname, debug=debug)
 
         # Copy any custom per-field exprs set up on this parser to the context
         context.field_exprs.update(self._field_exprs)
@@ -171,58 +173,97 @@ class QueryParser:
     def main_expr(self) -> 'peg.Expr':
         if self._main_expr is None:
             syntaxes = self.syntaxes()
-            logger.debug("Parser exprs %r", syntaxes)
+            for syn in syntaxes:
+                logger.debug("Parser expr %r", syn)
             self._main_expr = peg.Or(syntaxes).named("MAIN")
         return self._main_expr
 
-    def parse_single(self, s: str, at: int, ctx: 'peg.Context', name: str=None,
+    def expression(self, ctx: 'peg.Context') -> 'peg.Expr':
+        expr = ctx.expr
+
+        fieldname = ctx.fieldname
+        fexprs = ctx.field_exprs
+        if fieldname in fexprs:
+            # If a custom field expression exists for this field, use it
+            expr = peg.FieldExpr(fexprs[fieldname], expr)
+
+        if self.schema and fieldname in self.schema:
+            # If this field wants to parse itself, let it
+            field = self.schema[fieldname]
+            if field.self_parsing():
+                expr = peg.SelfParsingField(expr, fieldname, field)
+
+        return expr
+
+    def plain_text_expr(self, expr):
+        # If we have one or more TempWrappers around the expression, remove them
+        # before we look for plain text
+        while isinstance(expr, peg.TempWrapper):
+            expr = expr.unwrap()
+
+        def pt_to_query(ctx):
+            text = ctx["txt"]
+            logger.debug("Took text %r", text)
+            q = self.term_query(ctx.fieldname, text)
+            q.analyzed = False
+            logger.debug("Taken text converted to %r", q)
+            return q
+
+        plaintext = (
+            peg.StringUntil(expr, self.esc_char, matches_end=True,
+                            may_be_empty=True).set("txt") +
+            peg.Do(pt_to_query)
+        ).set_ext()
+        plaintext.is_plaintext = True
+        return plaintext
+
+    def parse_single(self, s: str, at: int, ctx: 'peg.Context',
+                     name: str=None, expr: 'peg.Expr'=None,
+                     end_expr: 'Optional[peg.Expr]'=None,
+                     take_plaintext: bool=True,
                      tokenize: bool=True) -> Tuple[int, query.Query]:
         if at == len(s):
-            raise peg.Miss(s, at, "Called parse_element at EOS")
+            raise peg.ParseException(s, at, "Called parse_single at EOS")
 
-        # Get the current expression at the point this method was called; note
-        # that this may not be the "main" expression, since higher-level exprs
-        # may have passed down a modified version to where this was called
-        expr = ctx.expr
+        expr = expr if expr is not None else self.expression(ctx)
+        # Add the end expression if given
+        if end_expr is not None:
+            expr = end_expr | expr
+
+        # Hopefully the caller pushed a new context so we can overwrite the
+        # current expression :)
+        ctx.expr = expr
+
         try:
             logger.debug("Parse single expr at %d (depth %d)", at, ctx.depth)
             at, value = expr.parse(s, at, ctx)
             logger.debug("Found %r, moved to %d", value, at)
             return at, value
         except peg.Miss:
-            # Use StringUntil to take until the next parser match and turn
-            # that into a term query
             logger.debug("No expr matched at %d", at)
-            textexpr = peg.StringUntil(expr, self.esc_char, matches_end=True)
-            try:
-                newat, text = textexpr.parse(s, at, ctx)
-            except peg.Miss:
-                # This should never happen! Since textexpr has matches_end=True,
-                # it should match when it gets to the end of the string
-                raise Exception("Word parser missed")
+            if take_plaintext:
+                plaintext = self.plain_text_expr(expr)
+                try:
+                    newat, q = plaintext.parse(s, at, ctx)
+                except peg.ParseException:
+                    # This should never happen!
+                    # Since the plaintext expr has matches_end=True, it should
+                    # match when it gets to the end of the string
+                    raise Exception("Word parser missed")
+                else:
+                    return newat, q
             else:
-                # Nothing matched until the end of the string; put it all in
-                # one big term
-                logger.debug("Took text %r", text)
-                q = self.term_query(ctx.fieldname, text).set_extent(at, newat)
-                q.analyzed = False
-                logger.debug("Taken text converted to %r", q)
-
-                # q = self.termclass(ctx.fieldname, string).set_extent(at, i)
-                # q.analyzed = False
-                # logger.debug("No match, took %r as %r, moved to %d",
-                #              text, q, i)
-                return newat, q
+                raise peg.Miss
 
     def parse_to_list(self, text: str, fieldname: str=None, tokenize: bool=True,
-                      ) -> 'List[query.Query]':
+                      debug: bool=False) -> 'List[query.Query]':
         logger.debug("Parsing string %r", text)
-        ctx = self.context(fieldname=fieldname)
+        ctx = self.context(fieldname=fieldname, debug=debug)
 
         i = 0
         buffer = []
         while i < len(text):
-            newi, value = self.parse_single(text, i, ctx, "_",
+            newi, value = self.parse_single(text, i, ctx, name="_",
                                             tokenize=tokenize)
             if newi <= i:
                 raise Exception("Parser didn't move forward (%r)" % value)
@@ -234,20 +275,22 @@ class QueryParser:
         return buffer
 
     def parse(self, text: str, normalize: bool=True, fieldname: str=None,
-              filters: bool=True, tokenize: bool=True) -> 'query.Query':
-        qlist = self.parse_to_list(text, fieldname=fieldname, tokenize=tokenize)
+              filters: bool=True, tokenize: bool=True, debug: bool=False
+              ) -> 'query.Query':
+        qlist = self.parse_to_list(text, fieldname=fieldname, tokenize=tokenize,
+                                   debug=debug)
         if not qlist:
             return query.ErrorQuery("Nothing parsed")
 
         q = self.make_group(qlist) if len(qlist) > 1 else qlist[0]
-        logger.debug("Parsed query %r", q)
+        logger.debug("Parsed query %r", repr(q))
 
         if filters:
             q = self.apply_filters(q)
 
         if normalize:
             q = q.normalize()
-            logger.debug("Normalized query %r", q)
+            logger.debug("Normalized query %r", repr(q))
 
         return q
 
@@ -295,6 +338,7 @@ class QueryParser:
             logger.debug("Recursing analysis into %r", q)
             q = q.with_children([self.filter_unanalyzed_terms(q)
                                  for q in q.children()])
+
         return q
 
     def text_to_query(self, fieldname: str, text: str, boost: float=1.0,
@@ -320,12 +364,14 @@ class QueryParser:
         schema = self.schema
         if schema and fieldname in schema and schema[fieldname].self_parsing():
             # If the field wants to parse itself, let it
-            q = schema[fieldname].parse_query(fieldname, text, boost=boost)
+            field = schema[fieldname]
+            q = field.parse_text(fieldname, text, boost=boost)
             logger.debug("Field self-parsed to %r", q)
             return q
         else:
-            tokens = self.text_to_tokens(fieldname, text, startchar, tokenize,
-                                         removestops)
+            tokens = self.text_to_tokens(fieldname, text, tokenize,
+                                         startchar=startchar,
+                                         removestops=removestops)
             return self.tokens_to_query(fieldname, tokens, boost)
 
     def first_token(self, fieldname: str, text: str, tokenize: bool=True,
@@ -417,8 +463,8 @@ class QueryParser:
             elif multitoken_style == "or":
                 q = query.Or(term_qs)
             else:
-                raise query.ValueError(
-                    "Unknown multitoken_query value %r" % spec
+                raise ValueError(
+                    "Unknown multitoken_style value %r" % multitoken_style
                 )
         logging.debug("Converted to query %r", q)
 

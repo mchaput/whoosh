@@ -606,7 +606,7 @@ class SearcherType:
         return results.ResultsPage(r, pagenum, pagelen)
 
     def find(self, defaultfield, querystring, **kwargs):
-        from whoosh.qparser import QueryParser
+        from whoosh.parsing import QueryParser
         qp = QueryParser(defaultfield, schema=self.schema)
         q = qp.parse(querystring)
         return self.search(q, **kwargs)

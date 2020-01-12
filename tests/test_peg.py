@@ -382,7 +382,7 @@ def test_complex():
     assert v == ("foo", "bar")
 
     gram = (fielded | expr).star()
-    ctx = peg.Context(gram, debug=True)
+    ctx = peg.Context(gram, debug=False)
     r = gram.parse_string("foo (fi fo) bar:fum ", ctx)
     assert r == ["foo", ["fi", "fo"], ("bar", "fum")]
 

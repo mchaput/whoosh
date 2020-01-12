@@ -12,7 +12,6 @@ from typing import (Any, Callable, Dict, Iterable, List, Optional, Sequence,
 
 from whoosh import columns
 from whoosh.analysis import analyzers, ngrams, tokenizers, analysis
-from whoosh.query import queries
 from whoosh.postings import postform, ptuples
 from whoosh.system import pack_byte
 from whoosh.util import times
@@ -20,7 +19,7 @@ from whoosh.util.numeric import to_sortable, from_sortable
 
 # Typing imports
 if typing.TYPE_CHECKING:
-    from whoosh import reading
+    from whoosh import query, reading
 
 
 class FieldConfigurationError(Exception):
@@ -109,8 +108,16 @@ class FieldType:
     def self_parsing(self) -> bool:
         return False
 
-    def parse_query(self, fieldname: str, qstring: str,
-                    boost: float=1.0) -> 'queries.Query':
+    def parse_from(self, fieldname: str, qstring: str, at: int, boost: float=1.0
+                   ) -> 'Tuple[int, Optional[query.Query]]':
+        start = at
+        while at < len(qstring) and not qstring[at].isspace():
+            at += 1
+        return at, self.parse_text(fieldname, qstring[start:at],
+                                   boost=boost)
+
+    def parse_text(self, fieldname: str, qstring: str,
+                   boost: float=1.0) -> 'query.Query':
         raise Exception("This field is not self parsing")
 
     def sortable_terms(self, reader: 'reading.IndexReader',
@@ -390,7 +397,7 @@ class Ngram(TokenizedField):
     def self_parsing(self):
         return True
 
-    def parse_query(self, fieldname, qstring, boost=1.0):
+    def parse_text(self, fieldname, qstring, boost=1.0) -> 'query.Query':
         from whoosh import query
 
         terms = [query.Term(fieldname, g)
@@ -461,7 +468,7 @@ class Boolean(FieldType):
         else:
             return bool(obj)
 
-    def parse_query(self, fieldname, qstring, boost=1.0):
+    def parse_text(self, fieldname, qstring, boost=1.0) -> 'query.Query':
         from whoosh import query
 
         if qstring == "*":
@@ -471,6 +478,8 @@ class Boolean(FieldType):
 
 
 class Numeric(TokenizedField):
+    num_exp = re.compile(r'\s*-?[0-9]+([.,][0-9]+)?$|(?!=[0-9.])')
+
     def __init__(self, numtype: Union[type, str]="int", bits: int=32,
                  signed: bool=True,
                  stored: bool=False,
@@ -518,6 +527,13 @@ class Numeric(TokenizedField):
         self.decimal_places = decimal_places
         self.shift_step = shift_step
         self._struct = self._type_struct()
+
+    def __repr__(self):
+        return (
+           "%s(numtype=%s, bits=%s, signed=%s, decimal_places=%s,"
+           " shift_step=%s)"
+        ) % (type(self).__name__, self.numtype, self.bits, self.signed,
+             self.decimal_places, self.shift_step)
 
     def __getstate__(self):
         d = self.__dict__.copy()
@@ -588,7 +604,7 @@ class Numeric(TokenizedField):
     def is_valid(self, x: Union[str, float, bytes, Decimal]) -> bool:
         try:
             self.to_bytes(x)
-        except ValueError:
+        except ValueError as e:
             return False
         except OverflowError:
             return False
@@ -648,7 +664,27 @@ class Numeric(TokenizedField):
     def self_parsing(self):
         return True
 
-    def parse_query(self, fieldname, qstring, boost=1.0):
+    def parse_from(self, fieldname: str, qstring: str, at: int,
+                   boost: float=1.0) -> 'Tuple[int, Optional[query.Query]]':
+        from whoosh import query
+
+        if at < len(qstring) and qstring[at] == "*":
+            return at + 1, query.Every(fieldname, boost=boost)
+
+        m = self.num_exp.match(qstring, at)
+        if m:
+            try:
+                num = self.prepare_number(m.group())
+            except ValueError:
+                pass
+            except OverflowError:
+                pass
+            else:
+                return m.end(), query.Term(fieldname, num, boost=boost)
+
+        return at, None
+
+    def parse_text(self, fieldname, qstring, boost=1.0) -> 'query.Query':
         from whoosh import query
 
         if qstring == "*":
@@ -657,20 +693,20 @@ class Numeric(TokenizedField):
         if not self.is_valid(qstring):
             raise query.QueryParserError("%r is not a valid number" % qstring)
 
-        token = self.to_bytes(qstring)
-        return query.Term(fieldname, token, boost=boost)
+        num = self.prepare_number(qstring)
+        return query.Term(fieldname, num, boost=boost)
 
     def parse_range(self, fieldname, start, end, startexcl, endexcl,
                     boost=1.0):
         from whoosh import query
 
-        if start is not None:
+        if isinstance(start, str):
             if not self.is_valid(start):
                 raise query.QueryParserError(
                     "Range start %r is not a valid number" % start
                 )
             start = self.prepare_number(start)
-        if end is not None:
+        if isinstance(end, str):
             if not self.is_valid(end):
                 raise query.QueryParserError(
                     "Range end %r is not a valid number" % end
@@ -689,6 +725,21 @@ class Numeric(TokenizedField):
 
 
 class DateTime(Numeric):
+    dt_exp = re.compile("""
+    (?P<year>[-.0-9]{4})
+    (-?(?P<month>(0[1-9])|(1[0-2]))
+        (-?(?P<day>(0[1-9])|(1[0-9])|(2[0-9])|(3[01]))
+            (-?(?P<hour>(0[1-9])|(1[0-9])|(2[0-3]))
+                (:?(?P<mins>[0-5][0-9])
+                    (:?(?P<secs>[0-5][0-9])
+                        ([.](?P<usecs>[0-9]{1,5}))?
+                    )?
+                )?
+            )?
+        )?
+    )?
+    """, re.VERBOSE)
+
     def __init__(self,
                  stored: bool=False,
                  unique: bool=False,
@@ -707,34 +758,6 @@ class DateTime(Numeric):
 
         return times.datetime_to_long(dt)
 
-    @staticmethod
-    def _parse_datestring(dt: str) -> times.adatetime:
-        # This method parses a very simple datetime representation of the form
-        # YYYY[MM[DD[hh[mm[ss[uuuuuu]]]]]]
-
-        qstring = dt.replace(" ", "").replace("-", "").replace(".", "")
-        year = month = day = hour = minute = second = microsecond = None
-        if len(qstring) >= 4:
-            year = int(qstring[:4])
-        if len(qstring) >= 6:
-            month = int(qstring[4:6])
-        if len(qstring) >= 8:
-            day = int(qstring[6:8])
-        if len(qstring) >= 10:
-            hour = int(qstring[8:10])
-        if len(qstring) >= 12:
-            minute = int(qstring[10:12])
-        if len(qstring) >= 14:
-            second = int(qstring[12:14])
-        if len(qstring) == 20:
-            microsecond = int(qstring[14:])
-
-        at = times.fix(times.adatetime(year, month, day, hour, minute, second,
-                                       microsecond))
-        if times.is_void(at):
-            raise Exception("%r is not a parseable date" % qstring)
-        return at
-
     def to_bytes(self, value: Union[str, datetime], shift: int=0) -> bytes:
         x = self._prepare_datetime(value)
         return Numeric.to_bytes(self, x, shift=shift)
@@ -749,22 +772,66 @@ class DateTime(Numeric):
     def from_column_value(self, value: int) -> datetime:
         return times.long_to_datetime(value)
 
-    def parse_query(self, fieldname: str, qstring: str,
-                    boost: float=1.0) -> 'queries.Query':
+    def parse_from(self, fieldname: str, qstring: str, at: int, boost: float=1.0
+                   ) -> '[Tuple[int, Optional[query.Query]]':
+        m = self.dt_exp.match(qstring, at)
+        if m:
+            adt = self._matched(m)
+            if not times.is_void(adt):
+                return m.end(), self._to_query(fieldname, adt, boost=boost)
+        return at, None
+
+    def parse_text(self, fieldname: str, qstring: str, boost: float=1.0
+                   ) -> 'query.Query':
+
+        adt = self._text_to_adt(qstring)
+        return self._to_query(fieldname, adt, boost=boost)
+
+    def _text_to_adt(self, qstring: str) -> times.adatetime:
+        from whoosh.query import QueryParserError
+
+        m = self.dt_exp.match(qstring)
+        if m:
+            adt = self._matched(m)
+            if times.is_void(adt):
+                raise QueryParserError("Can't interpret datetime %r" % qstring)
+        else:
+            raise QueryParserError("Can't interpret datetime %r" % qstring)
+
+        return adt
+
+    @staticmethod
+    def _to_query(fieldname: str, adt: times.adatetime, boost: float=1.0
+                  ) -> 'query.Query':
         from whoosh import query
 
-        try:
-            at = self._parse_datestring(qstring)
-        except:
-            e = sys.exc_info()[1]
-            return query.ErrorQuery(e)
-
-        if times.is_ambiguous(at):
-            startnum = times.datetime_to_long(at.floor())
-            endnum = times.datetime_to_long(at.ceil())
-            return query.NumericRange(fieldname, startnum, endnum)
+        if times.is_ambiguous(adt):
+            start_dt = adt.floor()
+            end_dt = adt.ceil()
+            return query.DateRange(fieldname, start_dt, end_dt)
         else:
-            return query.Term(fieldname, at, boost=boost)
+            return query.Term(fieldname, adt, boost=boost)
+
+    @staticmethod
+    def _matched(match) -> times.adatetime:
+        year = match.group("year")
+        year = int(year) if year is not None else None
+        month = match.group("month")
+        month = int(month) if month is not None else None
+        day = match.group("day")
+        day = int(day) if day is not None else None
+        hour = match.group("hour")
+        hour = int(hour) if hour is not None else None
+        minute = match.group("mins")
+        minute = int(minute) if minute is not None else None
+        second = match.group("secs")
+        second = int(second) if second is not None else None
+
+        usecs = match.group("usecs")
+        if usecs is not None:
+            usecs = int(Decimal("0." + usecs) * 1000000)
+
+        return times.adatetime(year, month, day, hour, minute, second, usecs)
 
     def parse_range(self, fieldname, start, end, startexcl, endexcl,
                     boost=1.0):
@@ -773,12 +840,12 @@ class DateTime(Numeric):
         if start is None and end is None:
             return query.Every(fieldname, boost=boost)
 
-        if start is not None:
-            startdt = self._parse_datestring(start).floor()
+        if isinstance(start, str):
+            startdt = self._text_to_adt(start).floor()
             start = times.datetime_to_long(startdt)
 
-        if end is not None:
-            enddt = self._parse_datestring(end).ceil()
+        if isinstance(end, str):
+            enddt = self._text_to_adt(end).ceil()
             end = times.datetime_to_long(enddt)
 
         return query.NumericRange(fieldname, start, end, boost=boost)

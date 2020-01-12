@@ -222,6 +222,7 @@ class CompoundQuery(queries.Query):
 
         newq = self.copy()
         newq.set_children(subqs)
+        newq.set_extent(self.startchar, self.endchar)
         return newq
 
     def simplify(self, ixreader: 'reading.IndexReader'):
@@ -478,13 +479,13 @@ class BinaryQuery(CompoundQuery):
         b = self.b.normalize()
 
         if isinstance(a, queries.NullQuery) and isinstance(b, queries.NullQuery):
-            return queries.NullQuery()
+            return queries.NullQuery().set_extent(self.startchar, self.endchar)
         elif isinstance(a, queries.NullQuery):
             return b
         elif isinstance(b, queries.NullQuery):
             return a
 
-        return self.__class__(a, b)
+        return self.__class__(a, b).set_extent(self.startchar, self.endchar)
 
 
 @collectors.register("and_not")
@@ -501,11 +502,11 @@ class AndNot(BinaryQuery):
         b = self.b.normalize()
 
         if isinstance(a, queries.NullQuery):
-            return queries.NullQuery()
+            return queries.NullQuery().set_extent(self.startchar, self.endchar)
         elif isinstance(b, queries.NullQuery):
             return a
 
-        return self.__class__(a, b)
+        return self.__class__(a, b).set_extent(self.startchar, self.endchar)
 
     def requires(self):
         return self.a.requires()
@@ -562,8 +563,8 @@ class Require(BinaryQuery):
         if isinstance(b, queries.IgnoreQuery):
             return a
         if isinstance(a, queries.NullQuery) or isinstance(b, queries.NullQuery):
-            return queries.NullQuery()
-        return self.__class__(a, b)
+            return queries.NullQuery().set_extent(self.startchar, self.endchar)
+        return self.__class__(a, b).set_extent(self.startchar, self.endchar)
 
     def docs(self, searcher: 'searching.Searcher',
              deleting: bool=False) -> Iterable[int]:
@@ -591,10 +592,10 @@ class AndMaybe(BinaryQuery):
         a = self.a.normalize()
         b = self.b.normalize()
         if isinstance(a, queries.NullQuery):
-            return queries.NullQuery()
+            return queries.NullQuery().set_extent(self.startchar, self.endchar)
         if isinstance(b, queries.NullQuery):
             return a
-        return self.__class__(a, b)
+        return self.__class__(a, b).set_extent(self.startchar, self.endchar)
 
     def estimate_min_size(self, ixreader):
         return self.subqueries[0].estimate_min_size(ixreader)

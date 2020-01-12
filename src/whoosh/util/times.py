@@ -73,7 +73,7 @@ def datetime_to_long(dt: datetime) -> int:
     :param dt: the datetime object to convert to an integer.
     """
 
-    assert isinstance(dt, datetime)
+    assert isinstance(dt, datetime), dt
     return timedelta_to_usecs(dt.replace(tzinfo=None) - dt.min)
 
 
@@ -458,7 +458,8 @@ def is_void(at):
 
 
 def fix(at):
-    """If the given object is an ``adatetime`` that is unambiguous (because
+    """
+    If the given object is an ``adatetime`` that is unambiguous (because
     all its attributes are specified, that is, not equal to None), returns a
     ``datetime`` version of it. Otherwise returns the ``adatetime`` object
     unchanged.

@@ -91,8 +91,10 @@ class Sequence(compound.CompoundQuery):
     def normalize(self) -> queries.Query:
         # Because the subqueries are in sequence, we can't do the fancy merging
         # that CompoundQuery does
-        return self.__class__([q.normalize() for q in self.subqueries],
-                              self.slop, self.ordered, self.boost)
+        return self.__class__(
+            [q.normalize() for q in self.subqueries], self.slop, self.ordered,
+            self.boost
+        ).set_extent(self.startchar, self.endchar)
 
     def _and_query(self) -> queries.Query:
         return compound.And(self.subqueries)
@@ -242,7 +244,7 @@ class Phrase(queries.Query):
 
     def normalize(self) -> queries.Query:
         if not self.words:
-            return queries.NullQuery()
+            return queries.NullQuery().set_extent(self.startchar, self.endchar)
 
         if len(self.words) == 1:
             t = terms.Term(self.fieldname, self.words[0])
@@ -251,8 +253,10 @@ class Phrase(queries.Query):
             return t
 
         words = [w for w in self.words if w is not None]
-        return self.__class__(self.fieldname, words, slop=self.slop,
-                              boost=self.boost, char_ranges=self.char_ranges)
+        return self.__class__(
+            self.fieldname, words, slop=self.slop, boost=self.boost,
+            char_ranges=self.char_ranges
+        ).set_extent(self.startchar, self.endchar)
 
     def simplify(self, reader: 'reading.IndexReader') -> queries.Query:
         # Rewrite the phrase as a SpanNear query

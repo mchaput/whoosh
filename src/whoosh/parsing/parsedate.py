@@ -80,35 +80,53 @@ class DatetimePlugin(Plugin):
 
     def modify_context(self, p: parsing.QueryParser, ctx: 'peg.Context'):
         schema = p.schema
-        expr = self.date_locale.final_matcher(p)
-        for fname, field in schema.items():
-            if isinstance(field, fields.DateTime):
-                ctx.field_exprs[fname] = expr
+        date_expr = self.date_locale.final_matcher(p)
 
+        fexprs = ctx.field_exprs
+        for fname, field in schema.items():
+            if isinstance(field, fields.DateTime) and fname not in fexprs:
+                fexprs[fname] = date_expr
+
+    # Run after FieldsPlugin fills in field names
     @qfilter(110)
-    def reparse_ranges(self, parser: 'parsing.QueryParser', qs: 'query.Query'
-                       ) -> 'query.Query':
+    def reparse_queries(self, parser: 'parsing.QueryParser', qs: 'query.Query'
+                        ) -> 'query.Query':
         from whoosh import query
 
-        expr = self.date_locale.datetime_matcher(parser)
-        if isinstance(qs, (query.Range, query.TermRange)):
-            fname = qs.field()
-            field = parser.schema[fname]
+        schema = parser.schema
+        drq = None
+        fname = qs.field()
+        if fname in schema:
+            field = schema[fname]
             if isinstance(field, fields.DateTime):
-                start = qs.start
-                if start:
-                    start = expr.parse_string(start)
-                    if isinstance(start, adatetime):
-                        start = start.floor()
-                end = qs.end
-                if end:
-                    end = expr.parse_string(end)
-                    if isinstance(end, adatetime):
-                        end = end.ceil()
-                drq = query.DateRange(fname, start, end, boost=qs.boost)
-                drq.startchar = qs.startchar
-                drq.endchar = qs.endchar
-                return drq
+                fn_expr = self.date_locale.final_matcher(parser)
+                dt_expr = self.date_locale.datetime_matcher(parser)
+
+                if (
+                    isinstance(qs, query.Range) and
+                    not isinstance(qs, query.DateRange) and
+                    not qs.analyzed
+                ):
+                    start = qs.start
+                    if isinstance(start, str):
+                        start = dt_expr.parse_string(start)
+                        if isinstance(start, adatetime):
+                            start = start.floor()
+                    end = qs.end
+                    if isinstance(end, str):
+                        end = dt_expr.parse_string(end)
+                        if isinstance(end, adatetime):
+                            end = end.ceil()
+                    drq = query.DateRange(fname, start, end, boost=qs.boost)
+                elif isinstance(qs, query.Term) and not qs.analyzed:
+                    text = qs.text
+                    drq = fn_expr.parse_string(text)
+
+        if drq:
+            drq.startchar = qs.startchar
+            drq.endchar = qs.endchar
+            return drq
+
 
         return qs
 
@@ -182,7 +200,7 @@ class English(DateLocale):
         def to_day(ctx: peg.Context) -> adatetime:
             return adatetime(day=int(ctx.get("day")))
 
-        e = peg.Regex("(?P<day>([0123][0-9])|[1-9])",
+        e = peg.Regex("(?P<day>(0[1-9])|(1[0-9])|(2[0-9])|(3[01])|[1-9])",
                       ignore_case=True)
         return e + peg.Do(to_day)
 
@@ -197,7 +215,7 @@ class English(DateLocale):
         def to_month(ctx):
             return adatetime(month=int(ctx.get("month")))
 
-        return (peg.Regex("(?P<month>(0[1-9])|(1[0-9])|(2[0-9])|(3[01]))") +
+        return (peg.Regex("(?P<month>(0[1-9])|(1[0-2]))") +
                 peg.Do(to_month))
 
     def month_name_or_num_matcher(self, p: parsing.QueryParser) -> peg.Expr:
@@ -427,7 +445,7 @@ class English(DateLocale):
                 dt.microsecond = tm.microsecond
             return dt
 
-        return expr + peg.Do(to_datetime)
+        return (expr + peg.Do(to_datetime)).named("datetime")
 
     def range_matcher(self, p: parsing.QueryParser) -> peg.Expr:
         basedt = p.base_datetime
@@ -469,9 +487,16 @@ class English(DateLocale):
         se_range = (peg.Seq([s_range.set("s"), peg.ws, e_range.set("e")]) +
                     peg.Do(extract_range))
 
-        return peg.Or([infix_range, se_range, s_range, e_range])
+        return peg.Or([
+            infix_range,
+            se_range,
+            s_range,
+            e_range
+        ]).named("datetime_range")
 
     def final_matcher(self, p: 'parsing.QueryParser') -> peg.Expr:
+        from whoosh import query
+
         def to_query(ctx: peg.Context) -> 'query.Query':
             x = ctx.get("x")
             if isinstance(x, datetime):
@@ -487,11 +512,11 @@ class English(DateLocale):
                     end = end.ceil()
             else:
                 raise ValueError(x)
-            return query.DateRange(None, start, end)
+            return query.DateRange(ctx.fieldname, start, end)
 
         rng = self.range_matcher(p).set("x") + peg.Do(to_query)
         dt = self.datetime_matcher(p).set("x") + peg.Do(to_query)
-        return peg.Or([rng, dt])
+        return peg.Or([rng, dt]).named("datetime_main")
 
 
 date_locales = {

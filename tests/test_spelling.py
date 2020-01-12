@@ -98,8 +98,6 @@ def test_query_highlight():
         return hf.format_fragment(fragment)
 
     assert do("a b c d", ["b"]) == 'a <strong class="match term0">b</strong> c d'
-    print()
-    print(do('a (x:b OR y:"c d") e', ("b", "c")))
     assert (do('a (x:b OR y:"c d") e', ("b", "c")) ==
             'a (x:<strong class="match term0">b</strong> OR y:"<strong class="match term1">c</strong> d") e')
 

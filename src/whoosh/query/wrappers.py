@@ -59,7 +59,7 @@ class WrappingQuery(queries.Query):
         return collector.with_query(cls(q, *args, **kwargs))
 
     def _rewrap(self, child: queries.Query) -> queries.Query:
-        return self.__class__(child)
+        return self.__class__(child).set_extent(self.startchar, self.endchar)
 
     def estimate_size(self, reader: 'reading.IndexReader') -> int:
         return self.child.estimate_size(reader)
@@ -80,7 +80,7 @@ class WrappingQuery(queries.Query):
     def normalize(self) -> queries.Query:
         q = self.child.normalize()
         if isinstance(q, queries.NullQuery):
-            return q
+            return q.set_extent(self.startchar, self.endchar)
         else:
             return self._rewrap(q)
 
@@ -155,9 +155,10 @@ class Not(queries.Query):
     def normalize(self) -> queries.Query:
         q = self.child.normalize()
         if isinstance(q, queries.NullQuery):
-            return q
+            return q.set_extent(self.startchar, self.endchar)
         else:
-            return Not(q, boost=self.boost)
+            nq = Not(q, boost=self.boost)
+            return nq.set_extent(self.startchar, self.endchar)
 
     def field(self):
         return None

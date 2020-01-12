@@ -146,10 +146,12 @@ class Range(terms.MultiTerm):
         from whoosh.query import Every
 
         if self.start in ('', None) and self.end in (u'\uffff', None):
-            return Every(self.fieldname, boost=self.boost)
+            eq = Every(self.fieldname, boost=self.boost)
+            eq.set_extent(self.startchar, self.endchar)
+            return eq
 
         if self.start == self.end and (self.startexcl or self.endexcl):
-            return queries.NullQuery()
+            return queries.NullQuery().set_extent(self.startchar, self.endchar)
 
         return self
 
@@ -280,17 +282,21 @@ class TermRange(Range):
         from whoosh.query import Every
 
         if self.start in ('', None) and self.end in (u'\uffff', None):
-            return Every(self.fieldname, boost=self.boost)
+            eq = Every(self.fieldname, boost=self.boost)
+            return eq.set_extent(self.startchar, self.endchar)
 
         if self.start == self.end:
             if self.startexcl or self.endexcl:
-                return queries.NullQuery()
+                nq = queries.NullQuery()
+                return nq.set_extent(self.startchar, self.endchar)
             else:
-                return terms.Term(self.fieldname, self.start, boost=self.boost)
+                tq = terms.Term(self.fieldname, self.start, boost=self.boost)
+                return tq.set_extent(self.startchar, self.endchar)
         else:
-            return TermRange(self.fieldname, self.start, self.end,
-                             self.startexcl, self.endexcl,
-                             boost=self.boost, constantscore=self.constantscore)
+            return TermRange(
+                self.fieldname, self.start, self.end, self.startexcl,
+                self.endexcl, boost=self.boost, constantscore=self.constantscore
+            ).set_extent(self.startchar, self.endchar)
 
     #def replace(self, fieldname, oldtext, newtext):
     #    q = self.copy()
