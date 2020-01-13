@@ -483,11 +483,11 @@ class NullQuery(Query):
     def estimate_size(self, reader: 'reading.IndexReader') -> int:
         return 0
 
-    def docs(self, searcher: 'searching.Searcher',
+    def docs(self, searcher: 'searching.SearcherType',
              deleting: bool=False) -> Iterable[int]:
         return iter(())
 
-    def matcher(self, searcher: 'searching.Searcher',
+    def matcher(self, searcher: 'searching.SearcherType',
                 context: 'searching.SearchContext') -> 'matchers.Matcher':
         return matchers.NullMatcher()
 

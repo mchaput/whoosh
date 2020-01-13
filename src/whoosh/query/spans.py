@@ -43,18 +43,25 @@ For example, to find documents containing "whoosh" at most 5 positions before
 
 """
 
+import typing
 from abc import abstractmethod
-from typing import List, Sequence
+from typing import Callable, List, Sequence
 
-from whoosh.query import wrappers as qwrappers, queries
-from whoosh.matching import wrappers, binary, matchers
+from whoosh.query import queries
+from whoosh.query import wrappers as qwrappers
+from whoosh.matching import binary, matchers, wrappers
 from whoosh.postings import ptuples
 from whoosh.util import make_binary_tree
 
+# Typing-only imports
+if typing.TYPE_CHECKING:
+    from whoosh import reading, searching
 
-__all__ = ("Span", "SpanWrappingMatcher", "SpanBiMatcher", "SpanQuery",
-           "SpanFirst", "SpanNear", "SpanOr", "SpanBiQuery", "SpanNot",
-           "SpanContains", "SpanBefore", "SpanCondition")
+
+__all__ = ("Span", "bisect_spans", "posting_to_spans", "SpanWrappingMatcher",
+           "SpanBiMatcher", "SpanQuery", "SpanFirst", "SpanNear", "SpanOr",
+           "SpanBiQuery", "SpanNot", "SpanContains", "SpanWithin", "SpanBefore",
+           "SpanCondition")
 
 
 # Span class
@@ -80,11 +87,10 @@ class Span:
         self.text = text
 
     def __repr__(self):
-        if self.startchar is not None or self.endchar is not None:
-            return "<%d-%d %d:%d>" % (self.start, self.end, self.startchar,
-                                      self.endchar)
-        else:
-            return "<%d-%d>" % (self.start, self.end)
+        return "<%s %s:%s %s-%s @%s-%s boost=%s payload=%r>" % (
+            type(self).__name__, self.fieldname, self.text, self.start,
+            self.end, self.startchar, self.endchar, self.boost, self.payload
+        )
 
     def __eq__(self, span: 'Span') -> bool:
         return (self.start == span.start and
@@ -108,7 +114,7 @@ class Span:
                      self.boost, self.payload))
 
     @classmethod
-    def merge(cls, spans: 'List[Span]'):
+    def merge(cls, spans: 'Sequence[Span]'):
         """
         Merges overlapping and touching spans in the given list.
 
@@ -275,7 +281,8 @@ def bisect_spans(spans: Sequence[Span], start: int) -> int:
     return lo
 
 
-def posting_to_spans(post: 'ptuples.PostTuple') -> 'List[Span]':
+def posting_to_spans(post: 'ptuples.PostTuple', ranges_are_spans: bool=False
+                     ) -> 'List[Span]':
     """
     Takes a posting tuple (as produced by :func:`whoosh.postings.posting`) and
     converts it into a list of :class:`Span` objects.
@@ -285,26 +292,34 @@ def posting_to_spans(post: 'ptuples.PostTuple') -> 'List[Span]':
 
     weight = post[ptuples.WEIGHT] or 1.0
     poses = post[ptuples.POSITIONS]
-    chars = post[ptuples.RANGES]
+    ranges = post[ptuples.RANGES]
     pays = post[ptuples.PAYLOADS]
     # if not poses:
     #     raise Exception("No positions")
-    # if chars:
-    #     assert len(chars) == len(poses)
+    # if ranges:
+    #     assert len(ranges) == len(poses)
     # if pays:
     #     assert len(pays) == len(poses)
 
     spans = []
-    if not poses:
-        return spans
+    if poses:
+        for i, pos in enumerate(poses):
+            sp = Span(pos, boost=weight)
+            if ranges:
+                if ranges_are_spans:
+                    sp.start, sp.end = ranges[i]
+                else:
+                    sp.startchar, sp.endchar = ranges[i]
+            if pays:
+                sp.payload = pays[i]
+            spans.append(sp)
+    elif ranges_are_spans and ranges:
+        for i, (start, end) in enumerate(ranges):
+            sp = Span(start, end, boost=weight)
+            if pays:
+                sp.payload = pays[i]
+            spans.append(sp)
 
-    for i, pos in enumerate(poses):
-        sp = Span(pos, boost=weight)
-        if chars:
-            sp.startchar, sp.endchar = chars[i]
-        if pays:
-            sp.payload = pays[i]
-        spans.append(sp)
     return spans
 
 
@@ -327,7 +342,7 @@ class SpanWrappingMatcher(wrappers.WrappingMatcher):
             self._find_next()
 
     @abstractmethod
-    def _get_spans(self) -> List[Span]:
+    def _get_spans(self) -> Sequence[Span]:
         raise NotImplementedError
 
     def copy(self):
@@ -373,7 +388,18 @@ class SpanWrappingMatcher(wrappers.WrappingMatcher):
             self.next()
 
 
+# Typing alias
+GetSpansFn = 'Callable[[SpanBiMatcher], Sequence[Span]]'
+
+
 class SpanBiMatcher(SpanWrappingMatcher):
+    def __init__(self, a: 'matchers.Matcher', b: 'matchers.Matcher',
+                 m: 'matchers.Matcher', fn: GetSpansFn):
+        self.a = a
+        self.b = b
+        self.fn = fn
+        super(SpanBiMatcher, self).__init__(m)
+
     def copy(self):
         return self.__class__(self.a.copy(), self.b.copy())
 
@@ -383,19 +409,28 @@ class SpanBiMatcher(SpanWrappingMatcher):
             return matchers.NullMatcher()
         return self
 
+    def _get_spans(self) -> Sequence[Span]:
+        return self.fn(self)
+
 
 # Queries
 
 class SpanQuery(queries.Query):
-    pass
+    def estimate_size(self, reader: 'reading.IndexReader') -> int:
+        raise NotImplementedError
+
+    def matcher(self, searcher: 'searching.SearcherType',
+                context: 'searching.SearchContext'=None) -> 'matchers.Matcher':
+        raise NotImplementedError
 
 
 class SpanFirst(qwrappers.WrappingQuery):
-    """Matches spans that end within the first N positions. This lets you
+    """
+    Matches spans that end within the first N positions. This lets you
     for example only match terms near the beginning of the document.
     """
 
-    def __init__(self, child, limit=1, boost=1.0):
+    def __init__(self, child, limit=1):
         """
         :param child: the query to match.
         :param limit: the query must match within this end position, measured
@@ -405,7 +440,6 @@ class SpanFirst(qwrappers.WrappingQuery):
 
         super(SpanFirst, self).__init__(child)
         self.limit = limit
-        self.boost = boost
 
     def _rewrap(self, child):
         return self.__class__(child, self.limit)
@@ -423,7 +457,7 @@ class SpanFirst(qwrappers.WrappingQuery):
 
 
 class SpanFirstMatcher(SpanWrappingMatcher):
-    def __init__(self, child, limit=0):
+    def __init__(self, child, limit=1):
         self.limit = limit
         super(SpanFirstMatcher, self).__init__(child)
 
@@ -463,7 +497,7 @@ class SpanNear(SpanQuery):
         q = spans.SpanNear2(t1, t2, slop=5, ordered=False)
     """
 
-    def __init__(self, qs: Sequence[queries.Query], slop: int=0,
+    def __init__(self, qs: 'Sequence[queries.Query]', slop: int=0,
                  ordered: bool=True, mindist: int=0):
         """
         :param qs: a sequence of sub-queries to match.
@@ -498,7 +532,7 @@ class SpanNear(SpanQuery):
             h ^= hash(q)
         return h
 
-    def estimate_size(self, reader: 'readers.IndexReader') -> int:
+    def estimate_size(self, reader: 'reading.IndexReader') -> int:
         return min(q.estimate_size(reader) for q in self.subqueries)
 
     def is_leaf(self):
@@ -613,41 +647,47 @@ class SpanOr(SpanQuery):
 
     def matcher(self, searcher, context=None):
         matchers = [q.matcher(searcher, context) for q in self.subqueries]
-        return make_binary_tree(SpanOr.SpanOrMatcher, matchers)
+        return make_binary_tree(self.matcher_from_ab, matchers)
 
-    class SpanOrMatcher(SpanBiMatcher):
-        def __init__(self, a, b):
-            self.a = a
-            self.b = b
-            um = binary.UnionMatcher(a, b)
-            super(SpanOr.SpanOrMatcher, self).__init__(um)
+    @classmethod
+    def matcher_from_ab(cls, a: matchers.Matcher, b: matchers.Matcher
+                        ) -> matchers.Matcher:
+        mm = binary.UnionMatcher(a, b)
+        return SpanBiMatcher(a, b, mm, cls._get_spans)
 
-        def _get_spans(self):
-            a_active = self.a.is_active()
-            b_active = self.b.is_active()
+    @classmethod
+    def _get_spans(cls, m: SpanBiMatcher) -> Sequence[Span]:
+        a_active = m.a.is_active()
+        b_active = m.b.is_active()
 
-            if a_active:
-                a_id = self.a.id()
-                if b_active:
-                    b_id = self.b.id()
-                    if a_id == b_id:
-                        spans = sorted(set(self.a.spans())
-                                       | set(self.b.spans()))
-                    elif a_id < b_id:
-                        spans = self.a.spans()
-                    else:
-                        spans = self.b.spans()
+        if a_active:
+            a_id = m.a.id()
+            if b_active:
+                b_id = m.b.id()
+                if a_id == b_id:
+                    spans = sorted(set(m.a.spans())
+                                   | set(m.b.spans()))
+                elif a_id < b_id:
+                    spans = m.a.spans()
                 else:
-                    spans = self.a.spans()
+                    spans = m.b.spans()
             else:
-                spans = self.b.spans()
+                spans = m.a.spans()
+        else:
+            spans = m.b.spans()
 
-            Span.merge(spans)
-            return spans
+        Span.merge(spans)
+        return spans
 
 
 class SpanBiQuery(SpanQuery):
     # Intermediate base class for methods common to "a/b" span query types
+
+    def __init__(self, a: 'queries.Query', b: 'queries.Query',
+                 q: 'queries.Query'):
+        self.a = a
+        self.b = b
+        self._q = q
 
     def __eq__(self, other: 'SpanBiQuery'):
         return (type(self) is type(other) and
@@ -656,7 +696,7 @@ class SpanBiQuery(SpanQuery):
     def __hash__(self):
         return hash(type(self)) ^ hash(self.a) ^ hash(self.b)
 
-    def estimate_size(self, reader: 'readers.IndexReader') -> int:
+    def estimate_size(self, reader: 'reading.IndexReader') -> int:
         return self._q.estimate_size(reader)
 
     def is_leaf(self):
@@ -665,10 +705,41 @@ class SpanBiQuery(SpanQuery):
     def apply(self, fn):
         return self.__class__(fn(self.a), fn(self.b))
 
-    def matcher(self, searcher, context=None):
+    def matcher(self, searcher, context=None) -> 'matchers.Matcher':
         ma = self.a.matcher(searcher, context)
         mb = self.b.matcher(searcher, context)
-        return self._Matcher(ma, mb)
+        return self.matcher_from_ab(ma, mb)
+
+    @classmethod
+    def matcher_from_ab(cls, a: matchers.Matcher, b: matchers.Matcher
+                        ) -> matchers.Matcher:
+        mm = cls._ab_matcher(a, b)
+        return SpanBiMatcher(a, b, mm, cls._get_spans)
+
+    @classmethod
+    def _ab_matcher(cls, a: matchers.Matcher, b: matchers.Matcher
+                    ) -> matchers.Matcher:
+        raise NotImplementedError
+
+    @classmethod
+    def _get_spans(cls, m: SpanBiMatcher) -> Sequence[Span]:
+        raise NotImplementedError
+
+
+class SpanIntersectionQuery(SpanBiQuery):
+    def __init__(self, a, b):
+        from whoosh.query.compound import And
+
+        super(SpanIntersectionQuery, self).__init__(a, b, And([a, b]))
+
+    @classmethod
+    def _ab_matcher(cls, a: matchers.Matcher, b: matchers.Matcher
+                    ) -> matchers.Matcher:
+        return binary.IntersectionMatcher(a, b)
+
+    @classmethod
+    def _get_spans(cls, m: SpanBiMatcher) -> Sequence[Span]:
+        raise NotImplementedError
 
 
 class SpanNot(SpanBiQuery):
@@ -695,41 +766,41 @@ class SpanNot(SpanBiQuery):
 
         from whoosh.query.compound import AndMaybe
 
-        super(SpanNot, self).__init__()
-        self._q = AndMaybe(a, b)
-        self.a = a
-        self.b = b
+        super(SpanNot, self).__init__(a, b, AndMaybe(a, b))
 
-    class _Matcher(SpanBiMatcher):
-        def __init__(self, a, b):
-            from whoosh.matching.wrappers import AndMaybeMatcher
+    @classmethod
+    def _ab_matcher(cls, a: matchers.Matcher, b: matchers.Matcher
+                    ) -> matchers.Matcher:
+        from whoosh.matching.wrappers import AndMaybeMatcher
 
-            self.a = a
-            self.b = b
-            amm = AndMaybeMatcher(a, b)
-            super(SpanNot._Matcher, self).__init__(amm)
+        return AndMaybeMatcher(a, b)
 
-        def _get_spans(self):
-            if self.a.id() == self.b.id():
-                spans = []
-                bspans = self.b.spans()
-                for aspan in self.a.spans():
-                    overlapped = False
-                    for bspan in bspans:
-                        if aspan.overlaps(bspan):
-                            overlapped = True
-                            break
-                    if not overlapped:
-                        spans.append(aspan)
-                return spans
-            else:
-                return self.a.spans()
+    @classmethod
+    def _get_spans(cls, m: SpanBiMatcher) -> Sequence[Span]:
+        if m.a.id() == m.b.id():
+            spans = []
+            bspans = m.b.spans()
+            for aspan in m.a.spans():
+                overlapped = False
+                for bspan in bspans:
+                    if aspan.overlaps(bspan):
+                        overlapped = True
+                        break
+                if not overlapped:
+                    spans.append(aspan)
+            return spans
+        else:
+            return m.a.spans()
 
 
-class SpanContains(SpanBiQuery):
+class SpanContains(SpanIntersectionQuery):
     """
     Matches documents where the spans of the first query contain any spans
     of the second query.
+
+    This is very similar to `SpanWithin`. The difference is that while
+    `SpanWithin` returns the "inner" spans, this query returns the "outer"
+    spans.
 
     For example, to match documents where "apple" occurs at most 10 places
     before "bear" in the "text" field and "cute" is between them::
@@ -741,44 +812,120 @@ class SpanContains(SpanBiQuery):
         q = spans.SpanContains(near, query.Term("text", "cute"))
     """
 
-    def __init__(self, a, b):
+    def __init__(self, big, small):
         """
-        :param a: the query to match.
-        :param b: the query whose spans must occur within the matching spans
+        :param big: the query to match.
+        :param small: the query whose spans must occur within the matching spans
             of the first query.
         """
 
-        from whoosh.query.compound import And
+        super(SpanContains, self).__init__(big, small)
 
-        super(SpanContains, self).__init__()
-        self._q = And([a, b])
-        self.a = a
-        self.b = b
+    @classmethod
+    def _get_spans(cls, m: SpanBiMatcher) -> Sequence[Span]:
+        spans = []
+        bspans = m.b.spans()
+        for aspan in m.a.spans():
+            for bspan in bspans:
+                if aspan.start > bspan.end:
+                    continue
+                if aspan.end < bspan.start:
+                    break
 
-    class _Matcher(SpanBiMatcher):
-        def __init__(self, a, b):
-            self.a = a
-            self.b = b
-            im = binary.IntersectionMatcher(a, b)
-            super(SpanContains._Matcher, self).__init__(im)
-
-        def _get_spans(self):
-            spans = []
-            bspans = self.b.spans()
-            for aspan in self.a.spans():
-                for bspan in bspans:
-                    if aspan.start > bspan.end:
-                        continue
-                    if aspan.end < bspan.start:
-                        break
-
-                    if bspan.is_within(aspan):
-                        spans.append(aspan)
-                        break
-            return spans
+                if bspan.is_within(aspan):
+                    spans.append(aspan)
+                    break
+        return spans
 
 
-class SpanBefore(SpanBiQuery):
+class SpanNotContains(SpanIntersectionQuery):
+    def __init__(self, big, small):
+        super(SpanNotContains, self).__init__(big, small)
+
+    @classmethod
+    def _get_spans(cls, m: SpanBiMatcher) -> Sequence[Span]:
+        spans = []
+        bspans = m.b.spans()
+        for aspan in m.a.spans():
+            contains_any = False
+            for bspan in bspans:
+                if aspan.start > bspan.end:
+                    continue
+                if aspan.end < bspan.start:
+                    break
+
+                if bspan.is_within(aspan):
+                    contains_any = True
+                    break
+
+            if not contains_any:
+                spans.append(aspan)
+        return spans
+
+
+class SpanWithin(SpanIntersectionQuery):
+    """
+    Matches documents where any spans of the first query are within any spans
+    of the second query.
+
+    This is very similar to `SpanContains`. The difference is that while
+    `SpanContains` returns the "outer" spans, this query returns the "inner"
+    spans.
+    """
+
+    def __init__(self, small, big):
+        """
+        :param small: the query whose spans must occur with the matching spans
+            of the second query.
+        :param big: the query whose spans must contain the matching spans of the
+            first query.
+        """
+
+        super(SpanWithin, self).__init__(small, big)
+
+    @classmethod
+    def _get_spans(cls, m: SpanBiMatcher) -> Sequence[Span]:
+        spans = []
+        bspans = m.b.spans()
+        for aspan in m.a.spans():
+            for bspan in bspans:
+                if aspan.start > bspan.end:
+                    continue
+                if aspan.end < bspan.start:
+                    break
+
+                if aspan.is_within(bspan):
+                    spans.append(aspan)
+                    break
+        return spans
+
+
+class SpanNotWithin(SpanIntersectionQuery):
+    def __init__(self, small, big):
+        super(SpanNotWithin, self).__init__(small, big)
+
+    @classmethod
+    def _get_spans(cls, m: SpanBiMatcher) -> Sequence[Span]:
+        spans = []
+        bspans = m.b.spans()
+        for aspan in m.a.spans():
+            within_any = False
+            for bspan in bspans:
+                if aspan.start > bspan.end:
+                    continue
+                if aspan.end < bspan.start:
+                    break
+
+                if aspan.is_within(bspan):
+                    within_any = True
+                    break
+
+            if not within_any:
+                spans.append(aspan)
+        return spans
+
+
+class SpanBefore(SpanIntersectionQuery):
     """Matches documents where the spans of the first query occur before any
     spans of the second query.
 
@@ -797,26 +944,15 @@ class SpanBefore(SpanBiQuery):
         :param b: the query that must occur after the first.
         """
 
-        from whoosh.query.compound import And
+        super(SpanBefore, self).__init__(a, b)
 
-        super(SpanBefore, self).__init__()
-        self.a = a
-        self.b = b
-        self._q = And([a, b])
-
-    class _Matcher(SpanBiMatcher):
-        def __init__(self, a, b):
-            self.a = a
-            self.b = b
-            im = binary.IntersectionMatcher(a, b)
-            super(SpanBefore._Matcher, self).__init__(im)
-
-        def _get_spans(self):
-            bminstart = min(bspan.start for bspan in self.b.spans())
-            return [aspan for aspan in self.a.spans() if aspan.end < bminstart]
+    @classmethod
+    def _get_spans(cls, m: SpanBiMatcher) -> Sequence[Span]:
+        bminstart = min(bspan.start for bspan in m.b.spans())
+        return [aspan for aspan in m.a.spans() if aspan.end < bminstart]
 
 
-class SpanCondition(SpanBiQuery):
+class SpanCondition(SpanIntersectionQuery):
     """
     Matches documents that satisfy both subqueries, but only uses the spans
     from the first subquery.
@@ -831,22 +967,9 @@ class SpanCondition(SpanBiQuery):
 
     """
 
-    def __init__(self, a, b):
-        from whoosh.query.compound import And
-
-        super(SpanCondition, self).__init__()
-        self.a = a
-        self.b = b
-        self._q = And([a, b])
-
-    class _Matcher(SpanBiMatcher):
-        def __init__(self, a, b):
-            self.a = a
-            im = binary.IntersectionMatcher(a, b)
-            super(SpanCondition._Matcher, self).__init__(im)
-
-        def _get_spans(self):
-            return self.a.spans()
+    @classmethod
+    def _get_spans(cls, m: SpanBiMatcher) -> Sequence[Span]:
+        return m.a.spans()
 
 
 

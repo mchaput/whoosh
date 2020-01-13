@@ -131,7 +131,7 @@ class Term(queries.Query):
             return 0
         return ixreader.doc_frequency(fieldname, self.text)
 
-    def matcher(self, searcher: 'searching.Searcher',
+    def matcher(self, searcher: 'searching.SearcherType',
                 context: 'searching.SearchContext'=None) -> 'matchers.Matcher':
         from whoosh.matching.wrappers import WrappingMatcher
 

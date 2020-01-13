@@ -373,7 +373,7 @@ def test_fieldwriter_two_terms():
     assert ti.max_weight() == 3.0
     assert ti.min_id() == 0
     assert ti.max_id() == 2
-    m = tr.matcher("text", b"bravo", field.format)
+    m = tr.matcher("text", b"bravo", field)
     assert list(m.all_ids()) == [0, 2]
     tr.close()
     sesh.close()
@@ -408,7 +408,7 @@ def test_fieldwriter_multiblock():
     assert ti.max_id() == 4
 
     ps = []
-    m = tr.matcher("text", b"alfa", field.format)
+    m = tr.matcher("text", b"alfa", field)
     while m.is_active():
         ps.append((m.id(), m.weight()))
         m.next()
@@ -459,7 +459,7 @@ def test_skip():
 
     sesh = st.open()
     tr = codec.terms_reader(sesh, seg)
-    m = tr.matcher("f1", b"test", fieldobj.format)
+    m = tr.matcher("f1", b"test", fieldobj)
     assert m.id() == 1
     m.skip_to(220)
     assert m.id() == 283

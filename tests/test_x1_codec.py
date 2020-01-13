@@ -391,7 +391,7 @@ def test_matcher():
             posts = lookup[tbytes]
             target = [p[ptuples.DOCID] for p in lookup[tbytes]]
 
-            m = tr.matcher("a", tbytes, field.format)
+            m = tr.matcher("a", tbytes, field)
             assert m.has_positions()
             assert not m.has_ranges()
             allids = []
@@ -409,11 +409,11 @@ def test_matcher():
 
             assert len(allids) == tr.doc_frequency("a", tbytes)
 
-            m = tr.matcher("a", tbytes, field.format)
+            m = tr.matcher("a", tbytes, field)
             allids = list(m.all_ids())
             assert allids == target
 
-            m = tr.matcher("a", tbytes, field.format)
+            m = tr.matcher("a", tbytes, field)
             go = target[0 - len(target) // 3]
             m.skip_to(go)
             assert m.id() == go

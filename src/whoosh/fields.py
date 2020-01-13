@@ -22,6 +22,11 @@ if typing.TYPE_CHECKING:
     from whoosh import query, reading
 
 
+# Typing aliases
+
+AnnoTups = Iterable[Tuple[str, int, int]]
+
+
 class FieldConfigurationError(Exception):
     pass
 
@@ -68,6 +73,9 @@ class FieldType:
             "vector": self.vector.json_info() if self.vector else None,
             "column": self.column.json_info() if self.column else None,
         }
+
+    def ranges_are_spans(self):
+        return False
 
     @property
     def scorable(self):
@@ -213,8 +221,8 @@ class TokenizedField(FieldType):
         self.analyzer = analyzer
 
     @staticmethod
-    def _vector_format(obj: 'Union[bool, postform.Format]'
-                       ) -> 'Optional[postform.Format]':
+    def _vector_format(obj: 'Union[bool, postform.Format]', poses=False,
+                       ranges=False) -> 'Optional[postform.Format]':
         # The user can pass a boolean or a format as the vector argument...
         # convert either to a Format object
         if isinstance(obj, postform.Format):
@@ -223,7 +231,8 @@ class TokenizedField(FieldType):
         elif obj:
             # User passed something truthy, so use the default vector Format
             # which only stores weights
-            return postform.Format(has_weights=True)
+            return postform.Format(has_weights=True, has_positions=poses,
+                                   has_ranges=ranges)
         else:
             # User passed something falsey, so return None
             return None
@@ -326,7 +335,7 @@ class Text(TokenizedField):
         )
 
         self.spelling = spelling
-        self.vector = self._vector_format(vector)
+        self.vector = self._vector_format(vector, phrase, chars)
 
     def spelling_fieldname(self, fieldname: str) -> str:
         if self.separate_spelling():
@@ -1058,6 +1067,102 @@ class Schema:
     def clean(self):
         for field in self._fields.values():
             field.clean()
+
+
+class Annotation(FieldType):
+    def __init__(self, weights=False, payloads=False):
+        super(Annotation, self).__init__(
+            postform.Format(
+                has_lengths=False,
+                has_weights=weights,
+                has_positions=False,
+                has_ranges=True,
+                has_payloads=payloads,
+            ),
+            stored=False, unique=False, indexed=True, store_lengths=False,
+        )
+
+    def ranges_are_spans(self):
+        return True
+
+    def default_column(self) -> columns.Column:
+        return columns.RefBytesColumn()
+
+    def to_bytes(self, value: Any) -> bytes:
+        return value.encode("utf8")
+
+    def from_bytes(self, bs: bytes) -> Any:
+        return bs.decode("utf8")
+
+    def to_column_value(self, value):
+        return value.encode("utf8")
+
+    def from_column_value(self, value):
+        return value.decode("utf8")
+
+    def index(self, value: 'Union[AnnotationList, AnnoTups]',
+              docid: int=None, **kwargs
+              ) -> 'Tuple[int, Sequence[ptuples.PostTuple]]':
+        if not isinstance(value, AnnotationList):
+            value = AnnotationList(value)
+        return value.indexed(docid)
+
+
+class AnnotationList:
+    def __init__(self, source: AnnoTups):
+        from collections import defaultdict
+
+        self.fieldlen = 0
+        self.ranges = defaultdict(list)
+        self.weights = defaultdict(float)
+        self.payloads = defaultdict(list)
+        self.has_weights = False
+        self.has_payloads = False
+        self._last = {}
+
+        if source:
+            self.add_iter(source)
+
+    def add_iter(self, source: AnnoTups):
+        for name, start, end in source:
+            self.add(name, start, end)
+
+    def add(self, name, start, end, weight=None, payload=None):
+        tuple = (start, end)
+        last = self._last.get(name)
+        if last is not None and not last <= tuple:
+            raise ValueError("Annotations must be in position order %r -> %r" %
+                             (last, tuple))
+        self._last[name] = tuple
+
+        self.fieldlen += 1
+        self.ranges[name].append((start, end))
+        if weight is not None:
+            self.has_weights = True
+            self.weights[name] += weight
+        if payload is not None:
+            self.has_payloads = True
+            self.payloads[name].append(payload)
+
+    def indexed(self, docid: int
+                ) -> 'Tuple[int, Sequence[ptuples.PostTuple]]':
+        ranges = self.ranges
+        weights = self.weights
+        payloads = self.payloads
+        fieldlen = self.fieldlen
+        has_weights = self.has_weights
+        has_payloads = self.has_payloads
+
+        names = sorted(self.ranges)
+        posts = []
+        for name in names:
+            posts.append(ptuples.posting(
+                docid=docid, termbytes=name.encode("utf8"), length=fieldlen,
+                weight=weights.get(name, 1.0) if has_weights else None,
+                ranges=ranges[name],
+                payloads=payloads.get(name, b'') if has_payloads else None
+            ))
+        return fieldlen, posts
 
 
 # Field classes used to be spelled in uppercase... make aliases for old code

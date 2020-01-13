@@ -1,5 +1,7 @@
 from itertools import permutations
 
+from pytest import raises
+
 from whoosh import analysis, fields, qparser, query
 from whoosh.query import spans, And, Or, Term, Phrase
 from whoosh.util.testing import TempIndex
@@ -555,4 +557,79 @@ def test_boost_phrase():
             for hit in r:
                 if "bravo charlie delta" in hit["title"]:
                     assert hit.score > 100.0
+
+
+def test_annotations():
+    from whoosh.query import spans
+
+    domain = (
+        {"text": "When Mr. Black Bear gets within Tokyo, he visits Bear Computer.",
+         "anno": [("char", 1, 4), ("place", 6, 7), ("corp", 9, 11)]},
+    )
+
+    schema = fields.Schema(text=fields.Text(phrase=True, vector=True),
+                           anno=fields.Annotation)
+    with TempIndex(schema, "anno") as ix:
+        with ix.writer() as w:
+            w.add_document(**domain[0])
+
+        with ix.reader() as r:
+            m = r.matcher("anno", "place")
+            assert m.is_leaf()
+            assert m.is_active()
+            assert m.id() == 0
+            ss = m.spans()
+            assert ss == [spans.Span(6, 7)]
+
+            m = r.matcher("anno", "corp")
+            assert m.is_leaf()
+            assert m.is_active()
+            assert m.id() == 0
+            ss = m.spans()
+            assert ss == [spans.Span(9, 11)]
+
+            m = r.matcher("anno", "char")
+            assert m.is_leaf()
+            assert m.is_active()
+            assert m.id() == 0
+            ss = m.spans()
+            assert ss == [spans.Span(1, 4)]
+
+        with ix.searcher() as s:
+            aq = query.Term("anno", "char")
+            tq = query.Term("text", "bear")
+
+            aqm = aq.matcher(s)
+            assert aqm.is_active()
+            assert aqm.spans() == [spans.Span(1, 4)]
+
+            tqm = tq.matcher(s)
+            assert tqm.is_active()
+            assert tqm.spans() == [spans.Span(3, 4, boost=2),
+                                   spans.Span(9, 10, boost=2)]
+
+            qq = spans.SpanContains(aq, tq)
+            m = qq.matcher(s)
+            assert m.is_active()
+            assert m.id() == 0
+            ss = m.spans()
+            assert ss == [spans.Span(1, 4)]
+
+            qq = spans.SpanWithin(tq, aq)
+            m = qq.matcher(s)
+            assert m.is_active()
+            assert m.id() == 0
+            ss = m.spans()
+            assert ss == [spans.Span(3, 4, boost=2)]
+
+
+def test_misordered_annotations():
+    from whoosh.fields import AnnotationList as al
+
+    raises(ValueError, al, [("foo", 2, 3), ("foo", 1, 2)])
+    raises(ValueError, al, [("foo", 1, 2), ("foo", 1, 1)])
+
+    # Should not raise errors
+    al([("foo", 2, 3), ("foo", 2, 3)])
+    al([("foo", 2, 3), ("bar", 1, 2)])
 

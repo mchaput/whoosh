@@ -134,8 +134,8 @@ class Ordered(Sequence):
         from whoosh.matching.wrappers import WrappingMatcher
         from whoosh.query.spans import SpanBefore
 
-        m = self._tree_matcher(self.subqueries, SpanBefore._Matcher, searcher,
-                               context, None)
+        m = self._tree_matcher(self.subqueries, SpanBefore.matcher_from_ab,
+                               searcher, context, None)
         if self.boost != 1.0:
             m = WrappingMatcher(m, boost=self.boost)
         return m

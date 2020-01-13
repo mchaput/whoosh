@@ -410,7 +410,7 @@ class PlainTermsReader(codecs.TermsReader, LineReader):
             raise TermNotFound((fieldname, btext))
         return self._find_terminfo()
 
-    def matcher(self, fieldname, btext, format_, scorer=None):
+    def matcher(self, fieldname, btext, field, scorer=None):
         if not self._find_term(fieldname, btext):
             raise TermNotFound((fieldname, btext))
 
@@ -424,7 +424,7 @@ class PlainTermsReader(codecs.TermsReader, LineReader):
             values.append(c["v"])
             c = self._find_line(3, "POST")
 
-        return ListMatcher(ids, weights, values, format_, scorer=scorer)
+        return ListMatcher(ids, weights, values, field.format, scorer=scorer)
 
     def close(self):
         self._dbfile.close()

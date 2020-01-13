@@ -37,7 +37,8 @@ if typing.TYPE_CHECKING:
     from whoosh import searching
 
 
-__all__ = ("NestedParent", "NestedChildren")
+__all__ = ("NestedParent", "NestedChildren", "NestedParentMatcher",
+           "NestedChildMatcher")
 
 
 class NestedBase(qwrappers.WrappingQuery):

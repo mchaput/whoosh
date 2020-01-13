@@ -1101,10 +1101,14 @@ class X1TermsReader(codecs.TermsReader):
 
         return X1TermInfo.decode_doc_freq(data, 0)
 
-    def matcher(self, fieldname: str, tbytes: bytes, fmt: 'postform.Format',
+    def matcher(self, fieldname: str, tbytes: bytes, field: 'fields.FieldType',
                 scorer: 'scoring.Scorer'=None) -> 'X1Matcher':
+        if not isinstance(field, fields.FieldType):
+            raise ValueError("%r is not a field" % field)
+
         terminfo = self.term_info(fieldname, tbytes)
 
+        fmt = field.format
         is_mini = (fmt.only_docids() and terminfo.doc_frequency() == 1 and
                    terminfo.min_id() == terminfo.max_id())
         if is_mini:
@@ -1119,6 +1123,9 @@ class X1TermsReader(codecs.TermsReader):
         else:
             m = X1Matcher(self._postsdata, fieldname, tbytes, terminfo,
                           self._io, scorer=scorer)
+
+        if m.is_leaf():
+            m.set_ranges_are_spans(field.ranges_are_spans())
         return m
 
     def close(self):
@@ -1313,7 +1320,7 @@ class X1Matcher(matchers.LeafMatcher):
     def positions(self) -> Sequence[int]:
         return self._posts.positions(self._i)
 
-    def chars(self) -> Sequence[Tuple[int, int]]:
+    def ranges(self) -> Sequence[Tuple[int, int]]:
         return self._posts.ranges(self._i)
 
     def payloads(self) -> Sequence[bytes]:

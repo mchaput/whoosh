@@ -395,7 +395,7 @@ class Index:
         with self.writer() as w:
             w.optimize = True
 
-    def searcher(self, **kwargs) -> 'searching.Searcher':
+    def searcher(self, **kwargs) -> 'searching.SearcherType':
         """
         Returns a Searcher object for this index. Keyword arguments are
         passed to the Searcher object's constructor.

@@ -1031,37 +1031,6 @@ def test_multireader_not():
             assert len(r) == 0
 
 
-def test_boost_phrase():
-    domain = u"alfa bravo charlie delta".split()
-    schema = fields.Schema(title=fields.TEXT(field_boost=5.0, stored=True),
-                           text=fields.TEXT)
-    with TempIndex(schema) as ix:
-        with ix.writer() as w:
-            for ls in permutations(domain):
-                t = u" ".join(ls)
-                w.add_document(title=t, text=t)
-
-        q = query.Or([
-            query.Term("title", u"alfa"),
-            query.Term("title", u"bravo"),
-            query.Phrase("text", [u"bravo", u"charlie", u"delta"])
-        ])
-
-        def boost_phrases(q):
-            if isinstance(q, query.Phrase):
-                q.boost *= 1000.0
-                return q
-            else:
-                return q
-        q = q.accept(boost_phrases)
-
-        with ix.searcher() as s:
-            r = s.search(q, limit=None)
-            for hit in r:
-                if "bravo charlie delta" in hit["title"]:
-                    assert hit.score > 100.0
-
-
 def test_filter():
     schema = fields.Schema(id=fields.STORED, path=fields.ID, text=fields.TEXT)
     with TempIndex(schema) as ix:

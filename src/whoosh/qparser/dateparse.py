@@ -110,7 +110,8 @@ class MultiBase(ParserBase):
 
 
 class Sequence(MultiBase):
-    """Merges the dates parsed by a sequence of sub-exprs.
+    """
+    Merges the dates parsed by a sequence of sub-exprs.
     """
 
     def __init__(self, exprs, sep="(\\s+|\\s*,\\s*)", name=None,

@@ -658,7 +658,7 @@ class TermsReader:
 
     @abstractmethod
     def matcher(self, fieldname: str, termbytes: bytes,
-                fmt: 'postform.Format', scorer=None):
+                field: 'fields.FieldType', scorer=None):
         raise NotImplementedError(self.__class__.__name__)
 
     @abstractmethod

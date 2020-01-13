@@ -62,6 +62,7 @@ from whoosh.postings import postform, postings, ptuples
 # Typing imports
 if typing.TYPE_CHECKING:
     from whoosh import reading, scoring
+    from whoosh.query.spans import Span
 
 
 # Typing aliases
@@ -373,7 +374,10 @@ class Matcher:
         for m in self._run_out():
             yield m.id()
 
-    def spans(self) -> 'Sequence[spans.Span]':
+    def ranges_are_spans(self) -> bool:
+        return False
+
+    def spans(self) -> 'Sequence[Span]':
         """
         Returns a list of :class:`~whoosh.query.spans.Span` objects for the
         matches in this document. Raises an exception if the field being
@@ -383,7 +387,7 @@ class Matcher:
 
         post = self.posting()
         if post is not None:
-            return posting_to_spans(post)
+            return posting_to_spans(post, self.ranges_are_spans())
         else:
             return []
 
@@ -502,7 +506,7 @@ class Matcher:
 
         raise NotLeafMatcher(self.__class__.__name__)
 
-    def chars(self) -> Sequence[Tuple[int]]:
+    def ranges(self) -> Sequence[Tuple[int]]:
         """
         Returns a list of 0-based ``(startchar, endchar)`` indices for term
         occurrences in the current document.
@@ -602,12 +606,19 @@ class LeafMatcher(Matcher):
         self._terminfo = terminfo
         self._io = postings_io
         self._scorer = scorer
+        self._ranges_are_spans = False
 
         self._posts = None  # type: postings.DocListReader
 
     def __repr__(self):
         return "%s(%r, %s)" % (self.__class__.__name__, self.term(),
                                self.is_active())
+
+    def set_ranges_are_spans(self, on: bool):
+        self._ranges_are_spans = on
+
+    def ranges_are_spans(self) -> bool:
+        return self._ranges_are_spans
 
     def term(self) -> Tuple[str, bytes]:
         return self._fieldname, self._tbytes
@@ -691,7 +702,7 @@ class LeafMatcher(Matcher):
     def positions(self) -> Sequence[int]:
         raise NotImplementedError(self.__class__.__name__)
 
-    def chars(self) -> Sequence[Tuple[int, int]]:
+    def ranges(self) -> Sequence[Tuple[int, int]]:
         raise NotImplementedError(self.__class__.__name__)
 
     def payloads(self) -> Sequence[bytes]:
@@ -806,7 +817,7 @@ class PostReaderMatcher(LeafMatcher):
     def positions(self) -> Sequence[int]:
         return self._posts.positions(self._i)
 
-    def chars(self) -> Sequence[Tuple[int, int]]:
+    def ranges(self) -> Sequence[Tuple[int, int]]:
         return self._posts.ranges(self._i)
 
     def payloads(self) -> Sequence[bytes]:
@@ -975,5 +986,4 @@ class IteratorMatcher(Matcher):
 
     def block_quality(self) -> float:
         return self._weight
-
 

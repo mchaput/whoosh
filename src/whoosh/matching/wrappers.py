@@ -38,6 +38,7 @@ from whoosh.postings import postform, postings, ptuples
 # Typing imports
 if typing.TYPE_CHECKING:
     from whoosh import scoring
+    from whoosh.query import spans
 
 
 __all__ = ("WrappingMatcher", "ConstantScoreMatcher", "MultiMatcher",
@@ -164,8 +165,8 @@ class WrappingMatcher(matchers.Matcher):
     def positions(self) -> Sequence[int]:
         return self.child.positions()
 
-    def chars(self) -> Sequence[Tuple[int]]:
-        return self.child.chars()
+    def ranges(self) -> Sequence[Tuple[int]]:
+        return self.child.ranges()
 
     def payloads(self) -> Sequence[bytes]:
         return self.child.payloads()
@@ -461,7 +462,7 @@ class MultiMatcher(matchers.Matcher):
     def positions(self) -> Sequence[int]:
         return self._matchers[self._current].positions()
 
-    def chars(self) -> Sequence[Tuple[int]]:
+    def ranges(self) -> Sequence[Tuple[int]]:
         return self._matchers[self._current].ranges()
 
     def payloads(self) -> Sequence[bytes]:
@@ -977,5 +978,6 @@ class AndMaybeMatcher(WrappingMatcher):
         if self.maybe.is_active() and self.child.id() == self.maybe.id():
             v += self.maybe.score()
         return v
+
 
 

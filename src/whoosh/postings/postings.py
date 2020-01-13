@@ -199,6 +199,10 @@ class VectorReader(PostingReader):
         for i in range(len(self)):
             yield self.termbytes(i)
 
+    def terms_and_poses(self) -> Iterable[Tuple[bytes, Sequence[int]]]:
+        for i, tbytes in enumerate(self.all_terms()):
+            yield tbytes, self.positions(i)
+
     def term_index(self, tbytes: bytes) -> int:
         termbytes = self.termbytes
         for i in range(len(self)):
@@ -247,11 +251,11 @@ class VectorReader(PostingReader):
 
         weight = self.weight(i) if self.has_weights else None
         poses = self.positions(i) if self.has_positions else None
-        chars = self.ranges(i) if self.has_ranges else None
+        ranges = self.ranges(i) if self.has_ranges else None
         pays = self.payloads(i) if self.has_payloads else None
 
         return posting(docid, termbytes=self.termbytes(i),
-                       weight=weight, positions=poses, chars=chars,
+                       weight=weight, positions=poses, ranges=ranges,
                        payloads=pays)
 
     def postings(self, docid: int=None) -> Iterable[PostTuple]:
@@ -259,7 +263,7 @@ class VectorReader(PostingReader):
 
         has_weights = self.has_weights
         has_poses = self.has_positions
-        has_chars = self.has_ranges
+        has_ranges = self.has_ranges
         has_payloads = self.has_payloads
 
         for i in range(len(self)):
@@ -267,7 +271,7 @@ class VectorReader(PostingReader):
                 docid, termbytes=self.termbytes(i),
                 weight=self.weight(i) if has_weights else None,
                 positions=self.positions(i) if has_poses else None,
-                chars=self.ranges(i) if has_chars else None,
+                ranges=self.ranges(i) if has_ranges else None,
                 payloads=self.payloads(i) if has_payloads else None,
             )
 
@@ -419,47 +423,37 @@ class MinimalDocListReader(DocListReader):
     def size_in_bytes(self) -> int:
         return len(self._raw_bytes)
 
-    @staticmethod
-    def length(n: int) -> int:
+    def length(self, n: int) -> int:
         if n == 0:
             return 1
         else:
             raise IndexError(n)
 
-    @staticmethod
-    def min_length() -> float:
+    def min_length(self) -> float:
         return 1.0
 
-    @staticmethod
     def max_length(self):
         return 1.0
 
-    @staticmethod
-    def weight(n: int) -> float:
+    def weight(self, n: int) -> float:
         return 1.0
 
-    @staticmethod
-    def total_weight() -> float:
+    def total_weight(self) -> float:
         return 1.0
 
-    @staticmethod
-    def max_weight() -> float:
+    def max_weight(self) -> float:
         return 1.0
 
-    @staticmethod
-    def positions(n: int) -> List[int]:
+    def positions(self, n: int) -> List[int]:
         return []
 
-    @staticmethod
-    def ranges(n: int) -> List[Tuple[int, int]]:
+    def ranges(self, n: int) -> List[Tuple[int, int]]:
         return []
 
-    @staticmethod
-    def payloads(n: int) -> List[bytes]:
+    def payloads(self, n: int) -> List[bytes]:
         return [b'']
 
-    @staticmethod
-    def supports(feature: str) -> bool:
+    def supports(self, feature: str) -> bool:
         return False
 
 

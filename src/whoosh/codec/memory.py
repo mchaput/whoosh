@@ -430,8 +430,8 @@ class MemTermsReader(codecs.TermsReader):
     def indexed_field_names(self) -> Sequence[str]:
         return sorted(self._segment.terms)
 
-    def matcher(self, fieldname: str, termbytes: bytes, fmt: 'postform.Format',
-                scorer=None):
+    def matcher(self, fieldname: str, termbytes: bytes,
+                field: 'fields.FieldType', scorer=None):
         from whoosh.matching import PostReaderMatcher
 
         postbytes = self._segment.terms[fieldname][termbytes]

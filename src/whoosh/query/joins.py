@@ -38,6 +38,9 @@ if typing.TYPE_CHECKING:
     from whoosh import reading, searching
 
 
+__all__ = ("RelationQuery", "RelationMatcher")
+
+
 # Simple run-time equality join
 
 class RelationQuery(BinaryQuery):

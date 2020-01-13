@@ -1051,8 +1051,8 @@ class SegmentReader(IndexReader):
                 exclude: 'Union[idsets.DocIdSet, Set]'=None
                 ) -> 'matchers.Matcher':
         termbytes = self._text_to_bytes(fieldname, termbytes)
-        format_ = self.schema[fieldname].format
-        matcher = self._terms.matcher(fieldname, termbytes, format_, scorer)
+        field = self.schema[fieldname]
+        matcher = self._terms.matcher(fieldname, termbytes, field, scorer)
         return self._wrap_matcher(matcher, include, exclude)
 
     def _wrap_matcher(self, matcher: 'matchers.Matcher',

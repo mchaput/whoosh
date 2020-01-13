@@ -10,7 +10,6 @@ from tempfile import mkstemp
 from typing import Any, List, Sequence
 
 from whoosh import columns, fields, storage
-from whoosh.query import queries
 from whoosh.codec import codecs
 from whoosh.writing import merging, reporting, segmentlist
 from whoosh.postings.ptuples import PostTuple, TERMBYTES, DOCID
@@ -18,7 +17,7 @@ from whoosh.util import now, times, unclosed
 
 # Typing imports
 if typing.TYPE_CHECKING:
-    from whoosh import index, reading, searching
+    from whoosh import index, query, reading, searching
 
 
 logger = logging.getLogger(__name__)
@@ -354,10 +353,11 @@ class IndexWriter:
         """
 
         from whoosh.query import Term
+
         return self.delete_by_query(Term(fieldname, text))
 
     @unclosed
-    def delete_by_query(self, q: 'queries.Query'):
+    def delete_by_query(self, q: 'query.Query'):
         """
         Deletes any documents matching a query object.
 
@@ -926,7 +926,7 @@ class IndexWriter:
         return self.seglist.full_reader()
 
     @unclosed
-    def searcher(self, **kwargs) -> 'searching.Searcher':
+    def searcher(self, **kwargs) -> 'searching.SearcherType':
         """
         Returns a searcher for the existing index.
 
