@@ -775,7 +775,6 @@ class IndexWriter:
         futures.wait(self._futures)
 
         # Shut down segment list
-        print("-----closing seglist")
         self.seglist.close()
 
         # Perform final merges/optimizations
