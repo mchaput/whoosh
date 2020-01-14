@@ -467,6 +467,7 @@ def test_multi():
             writer.add_document(id=u"3", content=u"charlie delta echo foxtrot")
 
         with ix.writer() as writer:
+            writer.merge = False
             writer.delete_by_term("id", "1")
             writer.delete_by_term("id", "2")
             writer.add_document(id=u"4", content=u"apple bear cherry donut")
@@ -475,15 +476,14 @@ def test_multi():
             writer.add_document(id=u"6", content=u"delta echo foxtrot golf")
             # no d
             writer.add_document(id=u"7", content=u"echo foxtrot golf hotel")
-            writer.merge = False
 
         with ix.writer() as writer:
+            writer.merge = False
             writer.delete_by_term("id", "3")
             writer.delete_by_term("id", "6")
             writer.add_document(id=u"8", content=u"cherry donut eggs falafel")
             writer.add_document(id=u"9", content=u"donut eggs falafel grape")
             writer.add_document(id=u"A", content=u" foxtrot golf hotel india")
-            writer.merge = False
 
         assert ix.doc_count() == 6
 

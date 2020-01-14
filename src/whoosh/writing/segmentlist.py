@@ -30,12 +30,6 @@ class SegmentList:
     This object keeps track of the list of segments in the index during writing,
     as newly indexed segments are added and existing segments are merged into
     new segments.
-
-    It also buffers deletions on segments; the deletions are applied to the
-    segment when it is written back to disk at the end of the write session.
-    While the default codec's segment deletion tracking is fast (it's just a
-    set() object), another codec might have a slower/less volatile
-    implementation that would benefit from "batching up" deletions.
     """
 
     def __init__(self, session: 'storage.Session', schema: 'fields.Schema',
@@ -57,12 +51,6 @@ class SegmentList:
         # segment ID
         self._cached_readers = {}  # type: Dict[str, reading.IndexReader]
 
-        # Buffer deletes in memory before applying them to the segment, to
-        # "batch up" changes to the segment instead of doing them one document
-        # at a time (just in case the codec's implementation of saving deletions
-        # is slow). This dict maps segment IDs to sets of doc numbers.
-        self._buffered_deletes = {}  # type: Dict[str, Set[int]]
-
         # Lock around modifying operations to prevent threaded multiwriter from
         # messing up internal book-keeping
         self._lock = RLock()
@@ -77,7 +65,6 @@ class SegmentList:
         self.segments = []
         # self._current_merges = {}
         self._cached_readers = {}
-        self._buffered_deletes = {}
 
     @synchronized
     def merging_ids(self) -> Set[str]:
@@ -87,14 +74,12 @@ class SegmentList:
         return ids
 
     @synchronized
-    def add_segment(self, segment: 'codecs.Segment',
-                    buffered_deletes: Set[int]=None):
+    def add_segment(self, segment: 'codecs.Segment'):
         logger.info("Adding %r to segments", segment)
-        self.segments.append(segment)
-
-        buffered_deletes = buffered_deletes or set()
-        segid = segment.segment_id()
-        self._buffered_deletes[segid] = buffered_deletes
+        if segment.is_empty():
+            logger.info("Not added because the segment is empty")
+        else:
+            self.segments.append(segment)
 
     @synchronized
     def remove_segment(self, segment: 'codecs.Segment'):
@@ -103,12 +88,6 @@ class SegmentList:
         # Close and remove the cached reader if it exists
         if segid in self._cached_readers:
             self._cached_readers.pop(segid).close()
-
-        # Remove the buffered deletes set. It would be nice if we could
-        # detect errors by making sure it's empty, but it might legit have
-        # leftover deletions if they were buffered while the segment was
-        # merging
-        self._buffered_deletes.pop(segid, None)
 
         # Remove segment from segments list
         for i in range(len(self.segments)):
@@ -119,19 +98,6 @@ class SegmentList:
             raise KeyError("Segment %s not in list" % segid)
 
     @synchronized
-    def save_buffered_deletes(self, segment: 'codecs.Segment'):
-        # Apply any buffered deletions for the given segment to the segment
-        segid = segment.segment_id()
-        buffered = self._buffered_deletes.pop(segid, None)
-        if buffered:
-            segment.delete_documents(buffered)
-
-    @synchronized
-    def save_all_buffered_deletes(self):
-        for segment in self.segments:
-            self.save_buffered_deletes(segment)
-
-    @synchronized
     def add_merge(self, mergeobj: merging.Merge):
         # A merge object represents a promise that eventually the SegmentList
         # will get a follow-up call to integrate() with the segment resulting
@@ -139,9 +105,6 @@ class SegmentList:
         # merge from its list of ongoing merges
 
         logger.info("Adding merge %r" % mergeobj)
-        for segment in mergeobj.segments:
-            self.save_buffered_deletes(segment)
-
         assert mergeobj.merge_id not in self._current_merges
         self._current_merges[mergeobj.merge_id] = mergeobj
 
@@ -167,7 +130,7 @@ class SegmentList:
 
         # Apply queued query deletes to the new segment
         if mergeobj.delete_queries:
-            self.buffer_query_deletions(newsegment, mergeobj.delete_queries)
+            self.apply_query_deletions(newsegment, mergeobj.delete_queries)
 
         # Try to delete the merged-out segments from storage
         store = self.session.store
@@ -178,10 +141,6 @@ class SegmentList:
     @synchronized
     def segment_reader(self, segment: 'codecs.Segment'
                        ) -> 'reading.IndexReader':
-        # Apply any pending deletions to the segment before we open a reader
-        # for it, so the reader reflects the changes
-        self.save_buffered_deletes(segment)
-
         segid = segment.segment_id()
         try:
             return self._cached_readers[segid]
@@ -207,24 +166,32 @@ class SegmentList:
             return reading.MultiReader(rs)
 
     @synchronized
-    def buffer_query_deletions(self, segment: 'codecs.Segment',
-                               qs: 'Iterable[queries.Query]'):
+    def apply_query_deletions(self, segment: 'codecs.Segment',
+                              qs: 'Sequence[queries.Query]'):
         # Create a searcher around the given segment
         from whoosh.searching import Searcher
-        r = self.segment_reader(segment)
-        s = Searcher(r)
 
-        # Iterate through the given queries, find the corresponding documents,
-        # and add them to the buffered deletions
-        delbuf = self._buffered_deletes.setdefault(segment.segment_id(), set())
-        for q in qs:
-            delbuf.update(q.docs(s, deleting=True))
+        logger.info("Applying deletion queries %r to segment %r", qs, segment)
+        docids = set()
+        r = self.segment_reader(segment)
+        with Searcher(r, closereader=False) as s:
+            # Iterate through the given queries, find the corresponding
+            # documents, and add them to the buffered deletions
+            for q in qs:
+                docids.update(q.docs(s, deleting=True))
+
+        if docids:
+            logger.debug("Deleting docset %s from segment %r", docids, segment)
+            segment.delete_documents(docids)
+            if segment.is_empty():
+                self.remove_segment(segment)
+                logger.debug("Removed empty segment %r", segment)
 
     @synchronized
     def delete_by_query(self, q: 'queries.Query'):
-        # For current segments, run the query and buffer the deletions
+        # For current segments, run the query and apply the deletions
         for segment in self.segments:
-            self.buffer_query_deletions(segment, (q,))
+            self.apply_query_deletions(segment, (q,))
 
         # For ongoing merges, remember to perform this deletion when they're
         # finished
@@ -237,9 +204,6 @@ class SegmentList:
         for reader in self._cached_readers.values():
             reader.close()
 
-        # Save any buffered deletions to the segments
-        self.save_all_buffered_deletes()
-
     # Testing methods
 
     def test_is_deleted(self, segment: 'codecs.Segment', docnum: int):
@@ -247,11 +211,9 @@ class SegmentList:
         # docnum is deleted in the given segment
 
         segid = segment.segment_id()
-        if docnum in self._buffered_deletes[segid]:
-            return True
-
         for seg in self.segments:
             if seg.segment_id() == segid:
                 return seg.is_deleted(docnum)
         raise ValueError("Segment %r is not in this list" % segment)
+
 

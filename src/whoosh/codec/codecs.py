@@ -219,6 +219,9 @@ class Segment:
 
         return self.doc_count_all() - self.deleted_count()
 
+    def is_empty(self) -> bool:
+        return self.doc_count() == 0
+
     def delete_documents(self, docnums: Iterable[int]):
         deldoc = self.delete_document
         for docnum in docnums:

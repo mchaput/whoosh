@@ -773,6 +773,12 @@ class IndexWriter:
         # add more work (merges) to the executor, and trying to submit work to
         # a shutting down executor is an error.
         futures.wait(self._futures)
+
+        # Shut down segment list
+        print("-----closing seglist")
+        self.seglist.close()
+
+        # Perform final merges/optimizations
         if merge or optimize:
             self._try_merging(optimize, False)
 
@@ -804,9 +810,9 @@ class IndexWriter:
         from whoosh.index import Toc
 
         logger.info("Syncing TOC to storage")
-        self.seglist.save_all_buffered_deletes()
+        segments = [seg for seg in self.seglist.segments if not seg.is_empty()]
         toc = Toc(
-            schema=self.schema, segments=self.seglist.segments,
+            schema=self.schema, segments=segments,
             generation=self.generation
         )
         self.session.store.save_toc(self.session, toc)
