@@ -864,6 +864,7 @@ def test_queries_as_json():
                 "fieldname": "baz", "text": "quux",
             },
         ],
+        "minmatch": 0.0,
     }
 
     # whoosh.query.spans.SpanNot

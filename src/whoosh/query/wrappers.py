@@ -61,6 +61,9 @@ class WrappingQuery(queries.Query):
     def _rewrap(self, child: queries.Query) -> queries.Query:
         return self.__class__(child).set_extent(self.startchar, self.endchar)
 
+    def copy(self) -> 'Query':
+        return self._rewrap(self.child.copy())
+
     def estimate_size(self, reader: 'reading.IndexReader') -> int:
         return self.child.estimate_size(reader)
 
