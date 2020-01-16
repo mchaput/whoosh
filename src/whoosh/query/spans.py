@@ -60,8 +60,9 @@ if typing.TYPE_CHECKING:
 
 __all__ = ("Span", "bisect_spans", "posting_to_spans", "SpanWrappingMatcher",
            "SpanBiMatcher", "SpanQuery", "SpanFirst", "SpanNear", "SpanOr",
-           "SpanBiQuery", "SpanNot", "SpanContains", "SpanWithin", "SpanBefore",
-           "SpanCondition")
+           "SpanBiQuery", "SpanNot", "SpanNonOverlapping", "SpanContains",
+           "SpanNotContains", "SpanWithin", "SpanNotWithin", "SpanBefore",
+           "SpanAfter", "SpanCondition")
 
 
 # Span class
@@ -513,7 +514,7 @@ class SpanNear(compound.And):
         from whoosh import query, spans
         t1 = query.Term("text", "whoosh")
         t2 = query.Term("text", "library")
-        q = spans.SpanNear2([t1, t2])
+        q = spans.SpanNear([t1, t2])
 
     To find documents where "whoosh" occurs at most 5 positions before
     "library"::
@@ -523,7 +524,7 @@ class SpanNear(compound.And):
     To find documents where "whoosh" occurs at most 5 positions before or after
     "library"::
 
-        q = spans.SpanNear2(t1, t2, slop=5, ordered=False)
+        q = spans.SpanNear([t1, t2], slop=5, ordered=False)
     """
 
     def __init__(self, qs: 'Sequence[queries.Query]', slop: int=0,
@@ -560,7 +561,7 @@ class SpanNear(compound.And):
                 hash(self.ordered) ^
                 hash(self.mindist))
 
-    def copy(self) -> 'Query':
+    def copy(self) -> 'queries.Query':
         return self.__class__([q.copy() for q in self.subqueries],
                               slop=self.slop, ordered=self.ordered,
                               mindist=self.mindist)
@@ -573,13 +574,23 @@ class SpanNear(compound.And):
         slop = self.slop
         mindist = self.mindist
         ordered = self.ordered
+        # ms is a list of matchers for each element in the "phrase"
         ms = m.child.matcher_list
 
+        # At each step, "aspans" is a set of spans that MIGHT YET lead to a full
+        # match. To begin with, it's the list of spans from the first element.
         aspans = ms[0].spans()
+
+        # This algorithm steps through each subsequent matcher, and tries to
+        # find a span or spans within n places of any of the spans in "aspans".
+        # Those matched spans then become the basis for the next loop.
         i = 1
         while i < len(ms) and aspans:
+            # At each step, "bspans" is the list of spans from the "current"
+            # element, which we need to check to see if they further any of the
+            # matches from the "previous" element in "aspans".
             bspans = ms[i].spans()
-            spans = set()
+            spanset = set()
             for aspan in aspans:
                 # Use a binary search to find the first position we should
                 # start looking for possible matches
@@ -598,25 +609,25 @@ class SpanNear(compound.And):
                         continue
 
                     if (
-                            bspan.end < aspan.start - slop or
-                            (ordered and aspan.start > bspan.start)
+                        bspan.end < aspan.start - slop or
+                        (ordered and aspan.start > bspan.start)
                     ):
                         # B is too far in front of A, or B is in front of A
                         # *at all* when ordered is True
                         continue
 
                     if bspan.start > aspan.end + slop:
-                        # B is too far from A. Since spans are listed in
-                        # start position order, we know that all spans after
-                        # this one will also be too far.
+                        # B is too far from A. Since spans are listed in start
+                        # position order, we know that all spans after this one
+                        # will also be too far.
                         break
 
                     # Check the distance between the spans
                     dist = aspan.distance_to(bspan)
                     if mindist <= dist <= slop:
-                        spans.add(aspan.to(bspan))
+                        spanset.add(aspan.to(bspan))
 
-            aspans = sorted(spans)
+            aspans = sorted(spanset)
             i += 1
 
         if i == len(ms):
@@ -946,8 +957,10 @@ class SpanNotWithin(SpanIntersectionQuery):
 
 
 class SpanBefore(SpanIntersectionQuery):
-    """Matches documents where the spans of the first query occur before any
-    spans of the second query.
+    """
+    Matches documents where any spans of the first query occur before any
+    spans of the second query. Generates spans from the first query that come
+    before any spans in the second query.
 
     For example, to match documents where "apple" occurs anywhere before
     "bear"::
@@ -958,18 +971,68 @@ class SpanBefore(SpanIntersectionQuery):
         q = spans.SpanBefore(t1, t2)
     """
 
-    def __init__(self, a, b):
+    def __init__(self, before, after):
         """
-        :param a: the query that must occur before the second.
-        :param b: the query that must occur after the first.
+        :param before: the query that must occur before the second.
+        :param after: the query that must occur after the first.
         """
 
-        super(SpanBefore, self).__init__(a, b)
+        super(SpanBefore, self).__init__(before, after)
 
     @classmethod
     def _get_spans(cls, m: SpanBiMatcher) -> Sequence[Span]:
-        bminstart = min(bspan.start for bspan in m.b.spans())
+        bspans = m.b.spans()
+        if not bspans:
+            return m.a.spans()
+        bminstart = bspans[0].start
         return [aspan for aspan in m.a.spans() if aspan.end <= bminstart]
+
+
+class SpanAfter(SpanIntersectionQuery):
+    """
+    Matches documents where the spans of the second query occur after any
+    spans of the first query. Generates spans from the second query that come
+    after any spans in the first query.
+
+    For example, to match documents where "apple" occurs anywhere before
+    "bear"::
+
+        from whoosh import query, spans
+        t1 = query.Term("text", "apple")
+        t2 = query.Term("text", "bear")
+        q = spans.SpanBefore(t1, t2)
+    """
+
+    def __init__(self, before, after):
+        """
+        :param before: the query that must occur before the second.
+        :param after: the query that must occur after the first.
+        """
+
+        super(SpanAfter, self).__init__(before, after)
+
+    @classmethod
+    def _get_spans(cls, m: SpanBiMatcher) -> Sequence[Span]:
+        aspans = m.a.spans()
+        if not aspans:
+            return m.b.spans()
+        amaxend = aspans[-1].end
+        return [aspan for aspan in m.b.spans() if aspan.start >= amaxend]
+
+
+class SpanClose(SpanIntersectionQuery):
+    """
+    Matches spans in the second query that are within a certain number of places
+    of any spans in the first query.
+    """
+
+    @classmethod
+    def _get_spans(cls, m: SpanBiMatcher) -> Sequence[Span]:
+        aspans = m.a.spans()
+        bspans = m.b.spans()
+
+        if not(aspans or bspans):
+            return []
 
 
 class SpanCondition(SpanIntersectionQuery):

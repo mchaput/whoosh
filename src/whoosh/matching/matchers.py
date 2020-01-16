@@ -593,10 +593,6 @@ NullMatcher = NullMatcherClass()
 # Term leaf posting matcher middleware
 
 class LeafMatcher(Matcher):
-    # Subclasses need to set
-    #   self.scorer -- a Scorer object or None
-    #   self.format -- Format object for the posting values
-
     def __init__(self, fieldname: str, tbytes: bytes,
                  terminfo: 'reading.TermInfo',
                  postings_io: 'postings.PostingsIO',
@@ -609,6 +605,28 @@ class LeafMatcher(Matcher):
         self._ranges_are_spans = False
 
         self._posts = None  # type: postings.DocListReader
+
+    def is_active(self) -> bool:
+        raise NotImplementedError
+
+    def id(self) -> int:
+        raise NotImplementedError
+
+    def next(self) -> bool:
+        raise NotImplementedError
+
+    def save(self) -> Any:
+        raise NotImplementedError
+
+    def restore(self, place: Any):
+        raise NotImplementedError
+
+    def weight(self):
+        raise NotImplementedError
+
+    # Subclasses need to set
+    #   self.scorer -- a Scorer object or None
+    #   self.format -- Format object for the posting values
 
     def __repr__(self):
         return "%s(%r, %s)" % (self.__class__.__name__, self.term(),

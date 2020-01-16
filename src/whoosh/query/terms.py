@@ -603,6 +603,8 @@ class PathListQuery(queries.Query):
 
         pathlist = self.pathlist
         found = []
+        if not pathlist:
+            return found
 
         # Current place in the sorted list of paths to match
         n = 0

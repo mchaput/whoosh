@@ -236,6 +236,13 @@ class X1TermInfo(reading.TermInfo):
 
         return ti
 
+    def copy_from(self, terminfo: 'X1TermInfo',
+                  docmap_get: Callable[[int, int], int]=None):
+        super(X1TermInfo, self).copy_from(terminfo, docmap_get)
+        self.offset = terminfo.offset
+        self.inlinebytes = terminfo.inlinebytes
+        self.blockcount = terminfo.blockcount
+
     # Methods to efficiently pull info off disk without instantiating the whole
     # TermInfo object
 
@@ -790,25 +797,42 @@ class X1FieldWriter(codecs.FieldWriter):
             self._flush_postings()
 
     def copy_from(self, schema: 'fields.Schema', treader: 'codecs.TermsReader',
-                  docmap_get: Callable[[int, int], int]=None):
+                  docmap_get: Callable[[int, int], int]=None,
+                  termcount: int=None):
         postsfile = self._postsfile
+        tc = 0
         for (fieldname, termbytes), terminfo in treader.items():
+            assert isinstance(terminfo, X1TermInfo)
+            if self._fieldname is not None and fieldname < self._fieldname:
+                raise Exception("Out of order fieldnames %s -> %s" %
+                                (self._fieldname, fieldname))
             if fieldname != self._fieldname:
                 if self._infield:
                     self.finish_field()
                 fieldobj = schema[fieldname]
                 self.start_field(fieldname, fieldobj)
+                logger.info("Copying in field %s", fieldname)
 
+            if self._termbytes is not None and termbytes <= self._termbytes:
+                raise Exception("Out of order terms in field %s: %r -> %r" %
+                                (fieldname, self._termbytes, termbytes))
+            logger.debug("Multimerging %s:%r /%s", fieldname, termbytes,
+                         len(self._termitems))
+            tc += 1
             self.start_term(termbytes)
             self._terminfo.copy_from(terminfo, docmap_get)
             self._terminfo.offset = self.current_posting_offset()
             if terminfo.has_blocks():
-                m = treader.matcher(fieldname, termbytes, self._fieldobj.format)
+                m = treader.matcher(fieldname, termbytes, self._fieldobj)
                 for blockbytes in m.raw_blocks():
                     postsfile.write(blockbytes)
                     self._terminfo.blockcount += 1
                 m.close()
             self.finish_term()
+
+        if termcount and tc != termcount:
+            raise Exception("Field %s should have %s terms but has %s" %
+                            (self._fieldname, termcount, tc))
         if self._infield:
             self.finish_field()
 
@@ -828,7 +852,13 @@ class X1FieldWriter(codecs.FieldWriter):
         fmt = self._format
         postbuf = self._postbuf
 
-        if self._terminfo.blockcount == 0 and \
+        if self._terminfo.inlinebytes is not None:
+            # The TermInfo is already inlined! This can happen when we are
+            # multi-merging and get a "finished" TermInfo from a worker to add
+            # to the final term file.
+            pass
+
+        elif self._terminfo.blockcount == 0 and \
                 0 < len(postbuf) <= self._inlinelimit:
             # We haven't written any blocks to disk yet, and the number of posts
             # in the buffer is within the inline limit, so include the post(s)
@@ -850,6 +880,7 @@ class X1FieldWriter(codecs.FieldWriter):
             # If we haven't written any blocks to disk, and there's nothing in
             # the buffer, that means there were no posts at all, so just forget
             # the whole thing
+            print("NO BLOCKS FOR", self._fieldname, self._termbytes, "!!!!")
             return
 
         fieldbytes = fieldnum_struct.pack(self._fieldnum)
@@ -861,6 +892,9 @@ class X1FieldWriter(codecs.FieldWriter):
         self._postbuf = None
 
     def _flush_terms(self):
+        termitems = self._termitems
+        logger.debug("Flushing %s terms %r-%r", len(termitems), termitems[0][0],
+                     termitems[-1][0])
         self._refs.append(blueline.write_region(self._termsfile,
                                                 self._termitems))
         self._termitems = []

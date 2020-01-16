@@ -551,11 +551,11 @@ def perform_multi_merge(executor: futures.Executor, codec: 'codecs.Codec',
 
     fwriter = codec.field_writer(session, newsegment)
     for fieldname, future in zip(indexednames, fs):
-        future.result()
+        termcount = future.result()
 
         fwriter.start_field(fieldname, schema[fieldname])
         treader = codec.terms_reader(session, newsegment, subname=fieldname)
-        fwriter.copy_from(schema, treader)
+        fwriter.copy_from(schema, treader, termcount=termcount)
         treader.close()
 
         store.delete_file(treader._terms_filename)
@@ -570,17 +570,21 @@ def perform_multi_merge(executor: futures.Executor, codec: 'codecs.Codec',
 
 def mm_field(fieldname: str, codec: 'codecs.Codec', store: 'storage.Storage',
              schema: 'fields.Schema', merge_obj: Merge,
-             newsegment: 'codec.Segment', key: int, indexname: str, docmap):
+             newsegment: 'codec.Segment', key: int, indexname: str, docmap
+             ) -> int:
     session = store.recursive_write_open(key, indexname)
     reader = get_reader(session, schema, merge_obj.segments)
     fieldobj = schema[fieldname]
 
     fwriter = codec.field_writer(session, newsegment, subname=fieldname)
     fwriter.start_field(fieldname, fieldobj)
+    termcount = 0
     for termbytes in reader.lexicon(fieldname):
         _copy_1term(reader, fieldname, fieldobj, termbytes, fwriter, docmap)
+        termcount += 1
     fwriter.finish_field()
     fwriter.close()
+    return termcount
 
 
 # Helper function to copy the information from a reader into a new segment
@@ -716,7 +720,13 @@ def _copy_terms(schema: 'fields.Schema', reader: 'reading.IndexReader',
 
     last_fieldname = None
     fieldobj = None  # type: fields.FieldType
-    for fieldname, termbytes in reader.all_terms():
+    lastterm = None
+    for term in reader.all_terms():
+        if lastterm is not None and lastterm >= term:
+            raise Exception("Out of order terms: %r -> %r" % (lastterm, term))
+        lastterm = term
+        fieldname, termbytes = term
+
         if fieldname not in fieldnames:
             continue
 
@@ -724,7 +734,7 @@ def _copy_terms(schema: 'fields.Schema', reader: 'reading.IndexReader',
             if last_fieldname is not None:
                 fwriter.finish_field()
                 logger.debug("Merged %s in %s", last_fieldname, now() - tt)
-            logger.debug("Merging %s field", fieldname)
+            logger.debug("Merging field %s", fieldname)
             fieldobj = schema[fieldname]
             fwriter.start_field(fieldname, fieldobj)
             last_fieldname = fieldname
@@ -740,7 +750,6 @@ def _copy_1term(reader, fieldname, fieldobj, termbytes, fwriter, docmap):
     m = reader.matcher(fieldname, termbytes)
     can_copy_raw = m.can_copy_raw_to(fwriter.postings_io(), fieldobj.format)
 
-    logger.debug("Copying term %r raw=%s", termbytes, can_copy_raw)
     if can_copy_raw:
         for rp in m.all_raw_postings():
             docid = post_docid(rp)
@@ -762,91 +771,6 @@ def _copy_1term(reader, fieldname, fieldobj, termbytes, fwriter, docmap):
     # logger.debug("Copied term %s:%s in %0.06f s",
     #              fieldname, termbytes, now() - tt)
     fwriter.finish_term()
-
-
-def _copy_terms2(schema: 'fields.Schema', reader: 'reading.IndexReader',
-                 fieldnames: Set[str], fwriter: 'codecs.FieldWriter',
-                 docmap: Optional[Dict[int, int]]):
-    """
-    Copies term information from a reader into a FieldWriter.
-
-    :param schema: the schema to use for writing.
-    :param reader: the reader to import the terms from.
-    :param fieldnames: the names of the fields to be included.
-    :param fwriter: the FieldWriter to write to.
-    :param docmap: an optional dictionary mapping document numbers in the
-        incoming reader to numbers in the new segment.
-    """
-
-    logger.info("Merging term data from %r to %r", reader, fwriter)
-    t = now()
-    tt = now()
-    termcount = 0
-    docmap_get = docmap.get if docmap else None
-
-    last_fieldname = None
-    fieldobj = None  # type: fields.FieldType
-    can_copy_raw = None
-
-    for (fieldname, termbytes), subr in reader.all_terms_with_reader():
-        if fieldname not in fieldnames:
-            continue
-
-        if fieldname != last_fieldname:
-            if last_fieldname is not None:
-                fwriter.finish_field()
-                logger.debug("Merged %s in %s", last_fieldname, now() - tt)
-            logger.debug("Merging %s field", fieldname)
-            fieldobj = schema[fieldname]
-            fwriter.start_field(fieldname, fieldobj)
-            last_fieldname = fieldname
-            tt = now()
-            to_io = fwriter.postings_io()
-            can_copy_raw = None
-
-        # logger.debug("Copying term %s:%s", fieldname, termbytes)
-        # tt = now()
-        termcount += 1
-
-        fwriter.start_term(termbytes)
-        m = reader.matcher(fieldname, termbytes)
-        if can_copy_raw is None:
-            can_copy_raw = m.can_copy_raw_to(to_io, fieldobj.format)
-
-        logger.debug("Copying term %r raw=%s", termbytes, can_copy_raw)
-        if can_copy_raw:
-            if subr is not None and m.supports_raw_blocks():
-                terminfo = reader.term_info(fieldname, termbytes)
-                for blockbytes in m.rewrite_raw_blocks(docmap_get):
-                    fwriter.write_raw_blockbytes(blockbytes)
-                fwriter.copy_term_info(terminfo, docmap_get)
-            else:
-                for rp in m.all_raw_postings():
-                    docid = post_docid(rp)
-                    length = reader.doc_field_length(docid, fieldname)
-                    if docmap:
-                        docid = docmap.get(docid, docid)
-                    rp = update_post(rp, docid=docid, length=length)
-                    fwriter.add_raw_post(rp)
-
-        else:
-            for p in m.all_postings():
-                docid = post_docid(p)
-                length = reader.doc_field_length(docid, fieldname)
-                if docmap:
-                    docid = docmap.get(docid, docid)
-                p = update_post(p, docid=docid, length=length)
-                fwriter.add_posting(p)
-
-        m.close()
-        # logger.debug("Copied term %s:%s in %0.06f s",
-        #              fieldname, termbytes, now() - tt)
-        fwriter.finish_term()
-
-    if last_fieldname is not None:
-        fwriter.finish_field()
-
-    logger.info("Copied %d terms in %0.06f s", termcount, now() - t)
 
 
 
