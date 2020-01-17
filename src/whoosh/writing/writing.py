@@ -277,7 +277,7 @@ class IndexWriter:
 
         # Low-level object that knows how to write a single segment
         self.segwriter = None  # type: SegmentWriter
-        self._start_new_segment()
+        # self._start_new_segment()
 
     def _start_new_segment(self):
         segment = self.codec.new_segment(self.session)
@@ -286,6 +286,11 @@ class IndexWriter:
         else:
             w = SegmentWriter(self.codec, self.session, segment, self.schema)
         self.segwriter = w
+
+    def _get_segwriter(self):
+        if self.segwriter is None:
+            self._start_new_segment()
+        return self.segwriter
 
     # User API
 
@@ -432,7 +437,8 @@ class IndexWriter:
         """
 
         # Tell the low-level segment writer we're starting a new document
-        segwriter = self.segwriter
+        segwriter = self._get_segwriter()
+
         segwriter.start_document()
         index_field = segwriter.index_field
 
@@ -602,6 +608,10 @@ class IndexWriter:
             # segment
             return
 
+        segwriter = self.segwriter
+        if segwriter is None or not segwriter.doc_count:
+            return
+
         logger.info("Flushing current segment")
 
         # Should we try to merge after integrating the new segment?
@@ -610,7 +620,7 @@ class IndexWriter:
         if self._is_multi:
             self._flush_multi(merge, False, expunge_deleted)
         else:
-            newsegment = self.segwriter.finish_segment()
+            newsegment = segwriter.finish_segment()
             # Add the new segment to the segment list
             self.seglist.add_segment(newsegment)
             if merge:
@@ -765,7 +775,7 @@ class IndexWriter:
 
         # If there are any documents sitting in the SegmentWriter, flush them
         # out into a new segment
-        if self.segwriter.doc_count:
+        if self.segwriter and self.segwriter.doc_count:
             self.flush_segment(merge=merge, restart=False)
 
         # Wait for background jobs to complete. We do this separately from
@@ -800,7 +810,8 @@ class IndexWriter:
 
         # Close the codec writers
         logger.info("Cancelling writer")
-        self.segwriter.cancel()
+        if self.segwriter:
+            self.segwriter.cancel()
         self.session.store.cleanup(self.session, all_tocs=False)
         self._close()
         self._cancelled = True
