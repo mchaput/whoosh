@@ -281,6 +281,7 @@ class IndexWriter:
 
     def _start_new_segment(self):
         segment = self.codec.new_segment(self.session)
+        self.reporter._start_new_segment(list(self.seglist.segments), segment)
         if self._is_multi:
             w = SpoolingWriter(segment)
         else:
@@ -344,6 +345,7 @@ class IndexWriter:
     @unclosed
     def clear(self):
         self.seglist.clear()
+        self.reporter._cleared_segments()
 
     @unclosed
     def delete_by_term(self, fieldname: str, text: str):
@@ -371,6 +373,7 @@ class IndexWriter:
 
         # Tell the SegmentList to buffer the deletions on existing segments and
         # remember to apply the deletion to in-progress merges
+        self.reporter._delete_by_query(q)
         self.seglist.delete_by_query(q)
 
     @unclosed
@@ -437,6 +440,7 @@ class IndexWriter:
         """
 
         # Tell the low-level segment writer we're starting a new document
+        self.reporter._start_document(kwargs)
         segwriter = self._get_segwriter()
 
         segwriter.start_document()
@@ -454,6 +458,8 @@ class IndexWriter:
         # You can pass _doc_boost=2.0 to multiply the boost on all fields
         doc_boost = kwargs.get("_boost", 1.0)
 
+        schema = self.schema
+
         eol_dt = None
         if "_ttl" in kwargs:
             eol_dt = datetime.utcnow() + timedelta(seconds=kwargs["_ttl"])
@@ -465,7 +471,7 @@ class IndexWriter:
 
         for fieldname in fieldnames:
             try:
-                field = self.schema[fieldname]
+                field = schema[fieldname]
             except KeyError:
                 raise ValueError("No %r field in schema" % fieldname)
 
@@ -488,13 +494,13 @@ class IndexWriter:
                 index_field(subname, value, stored_val)
 
         # Tell the SegmentWriter we're done with this document
+        self.reporter._finish_document()
         segwriter.finish_document()
 
-        should_flush = (
+        if (
             segwriter.doc_count >= self.doc_limit or
             segwriter.post_count >= self.post_limit
-        )
-        if should_flush:
+        ):
             self.flush_segment()
 
     @unclosed
@@ -613,7 +619,6 @@ class IndexWriter:
             return
 
         logger.info("Flushing current segment")
-
         # Should we try to merge after integrating the new segment?
         merge = merge if merge is not None else self.merge
 
@@ -623,11 +628,13 @@ class IndexWriter:
             newsegment = segwriter.finish_segment()
             # Add the new segment to the segment list
             self.seglist.add_segment(newsegment)
+            self.reporter._finish_segment(list(self.seglist.segments),
+                                          newsegment)
             if merge:
                 self._try_merging(False, expunge_deleted)
 
-        if restart:
-            self._start_new_segment()
+        # if restart:
+        #     self._start_new_segment()
 
     def _flush_multi(self, merge, optimize, expunge_deleted):
         count = self.segwriter.doc_count
@@ -661,8 +668,12 @@ class IndexWriter:
 
         # Add a callback to complete adding the segment when the future finishes
         def multi_flush_callback(f):
-            self.seglist.add_segment(f.result())
-            self._try_merging(optimize, expunge_deleted)
+            newsegment = f.result()
+            self.seglist.add_segment(newsegment)
+            self.reporter._finish_segment(list(self.seglist.segments),
+                                          newsegment)
+            if merge:
+                self._try_merging(optimize, expunge_deleted)
         future.add_done_callback(multi_flush_callback)
 
     # Merge methods
@@ -708,6 +719,8 @@ class IndexWriter:
 
         # Make a new segment for the merge
         newsegment = self.codec.new_segment(self.session)
+        self.reporter._start_merge(merge.merge_id, list(merge.segments),
+                                   newsegment.segment_id())
 
         # Tell the SegmentList about the merge
         self.seglist.add_merge(merge)
@@ -726,16 +739,17 @@ class IndexWriter:
             else:
                 logger.info("Submitting merge %r to %r", merge, self.executor)
                 if store.supports_multiproc_writing():
-                    # The storage supports recursive locks, so use a version of the
-                    # merge function that takes a recursive lock
+                    # The storage supports recursive locks, so use a version of
+                    # the merge function that takes a recursive lock
                     args = (
                         merging.perform_r_merge, self.codec, self.session.store,
                         self.schema, merge, newsegment, self.session.read_key(),
                         self.session.indexname
                     )
                 else:
-                    # We don't support multi-processing, but if this is a threading
-                    # executor we will try to pass the session between threads
+                    # The storage doesn't support multi-processing, but if this
+                    # is a threading executor we will try to pass the session
+                    # between threads
                     args = (
                         merging.perform_merge, self.codec, self.session,
                         self.schema, merge, newsegment
@@ -745,16 +759,24 @@ class IndexWriter:
 
                 # Add a callback to complete the merge when the future finishes
                 def merge_callback(f):
-                    self.seglist.integrate(*f.result())
+                    newsegment, mergeid = f.result()
+                    self.reporter._finish_merge(
+                        mergeid, self.seglist.merging_segments(mergeid),
+                        newsegment
+                    )
+                    self.seglist.integrate(newsegment, mergeid)
                 future.add_done_callback(merge_callback)
 
         else:
             # Do the merge serially now
             logger.info("Performing serial merge of %r", merge)
-            newsegment, merge_id = merging.perform_merge(
+            newsegment, mergeid = merging.perform_merge(
                 self.codec, self.session, self.schema, merge, newsegment
             )
-            self.seglist.integrate(newsegment, merge_id)
+            self.reporter._finish_merge(
+                mergeid, self.seglist.merging_segments(mergeid), newsegment
+            )
+            self.seglist.integrate(newsegment, mergeid)
             logger.info("Finished serial merge of %r", merge)
 
     # Commit/cancel/close methods
@@ -772,6 +794,7 @@ class IndexWriter:
         logger.info("Finished indexing, starting commit")
         merge = merge if merge is not None else self.merge
         optimize = optimize if optimize is not None else self.optimize
+        self.reporter._committing(optimize)
 
         # If there are any documents sitting in the SegmentWriter, flush them
         # out into a new segment

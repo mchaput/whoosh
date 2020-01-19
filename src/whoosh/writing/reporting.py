@@ -25,39 +25,189 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+import sys
 import typing
-from typing import List
+from typing import Any, Dict, List, Optional
+
+from whoosh.util import now
 
 # Typing imports
 if typing.TYPE_CHECKING:
-    from whoosh import index
+    from whoosh import fields, index, query
     from whoosh.codec import codecs
 
 
 class Reporter:
-    def start_indexing(self, ix: 'index.Index'):
+    def __init__(self):
+        self.index = None  # type: index.Index
+        self.schema = None  # type: fields.Schema
+        self.unique_field = None  # type: Optional[str]
+        self.doc_count = 0  # type: int
+        self.finished = False
+        self._starttime = 0.0
+        self._endtime = 0.0
+        self._unames = []
+
+    # Public interface -- these are the methods subclasses should override to
+    # get desired behavior
+
+    def start_indexing(self):
         pass
 
-    def start_new_segment(self, segments: 'List[codecs.Segment]', segid: str):
+    def cleared_segments(self):
         pass
 
-    def added_documents(self, count: int):
+    def delete_by_query(self, q: 'query.Query'):
         pass
 
-    def finish_segment(self, segments: 'List[codecs.Segment]', segid: str,
-                       doccount: int, size: int, deleted: int):
+    def start_new_segment(self, segments: 'List[codecs.Segment]',
+                          segment: 'codecs.Segment'):
         pass
 
-    def start_merge(self, segments: 'List[codecs.Segment]',
-                    segids: List[str]):
+    def start_document(self, key: Any):
         pass
 
-    def finish_merge(self, segments: 'List[codecs.Segment]',
-                     old_segids: List[str], new_segids: List[str]):
+    def indexing_field(self, fieldname: str, fieldobj: 'fields.FieldType',
+                       value: Any):
+        pass
+
+    def finish_document(self):
+        pass
+
+    def finish_segment(self, segments: 'List[codecs.Segment]',
+                       segment: 'codecs.Segment'):
+        pass
+
+    def start_merge(self, merge_id: str, merging: 'List[codecs.Segment]',
+                    new_segment_id: str):
+        pass
+
+    def finish_merge(self, merge_id: str, merged: 'List[codecs.Segment]',
+                     new_segment: 'codecs.Segment'):
+        pass
+
+    def committing(self, optimized=False):
         pass
 
     def finish_indexing(self, segments: 'List[codecs.Segment]'):
         pass
+
+    # Helper methods
+
+    def runtime(self):
+        if self.finished:
+            return self._endtime - self._starttime
+        else:
+            return now() - self._starttime
+
+    # Internal interface -- writer calls these methods, which do any necessary
+    # bookkeeping and then call the equivalent public method
+
+    def _start_indexing(self, ix: 'index.Index', unique_field: str):
+        self.index = ix
+        self.schema = ix.schema
+        self.unique_field = unique_field
+        self.doc_count = 0
+        self.finished = False
+
+        self._starttime = now()
+        self._endtime = None
+        self._unames = [name for name, fieldobj in self.schema.items()
+                        if fieldobj.unique]
+
+        self.start_indexing()
+
+    _cleared_segments = cleared_segments
+
+    _delete_by_query = delete_by_query
+
+    _start_new_segment = start_new_segment
+
+    def _start_document(self, kwargs: Dict[str, Any]):
+        key = None
+        if self.unique_field in kwargs:
+            key = kwargs[self.unique_field]
+        else:
+            for uname in self._unames:
+                if uname in kwargs:
+                    key = kwargs[uname]
+                    break
+
+        self.doc_count += 1
+        self.start_document(key)
+
+    _indexing_field = indexing_field
+
+    def _finish_document(self):
+        self.doc_count += 1
+        self.finish_document()
+
+    _finish_segment = finish_segment
+
+    _start_merge = start_merge
+
+    _finish_merge = finish_merge
+
+    _committing = committing
+
+    def _finish_indexing(self, segments: 'List[codecs.Segment]'):
+        self._endtime = now()
+        self.finished = True
+        self.finish_indexing(segments)
+
+
+class StreamReporter(Reporter):
+    def __init__(self, stream=None):
+        super(StreamReporter, self).__init__()
+        self.stream = stream or sys.stderr
+
+    def start_indexing(self):
+        store = self.index.storage()
+        print("Started indexing in", store, file=self.stream)
+
+    def cleared_segments(self):
+        print("Cleared segments, index is empty", file=self.stream)
+
+    def delete_by_query(self, q: 'query.Query'):
+        print("Deleting documents matching", repr(q), file=self.stream)
+
+    def start_new_segment(self, segments: 'List[codecs.Segment]',
+                          segment: 'codecs.Segment'):
+        print("Started new segment", segment.segment_id(), file=self.stream)
+
+    def start_document(self, key: Any):
+        print("Indexing document", key, file=self.stream)
+
+    def indexing_field(self, fieldname: str, fieldobj: 'fields.FieldType',
+                       value: Any):
+        pass
+
+    def finish_document(self):
+        pass
+
+    def finish_segment(self, segments: 'List[codecs.Segment]',
+                       segment: 'codecs.Segment'):
+        print("Finished segment", segment.segment_id(), file=self.stream)
+
+    def start_merge(self, merge_id: str, merging: 'List[codecs.Segment]',
+                    new_segment_id: str):
+        print("Merging segments", merging, "as", new_segment_id,
+              file=self.stream)
+
+    def finish_merge(self, merge_id: str, merged: 'List[codecs.Segment]',
+                     new_segment: 'codecs.Segment'):
+        print("Merged segments", merged, "into", new_segment, file=self.stream)
+
+    def committing(self, optimized=False):
+        print("Committing new data to storage, optimized=", optimized,
+              file=self.stream)
+
+    def finish_indexing(self, segments: 'List[codecs.Segment]'):
+        doc_count = self.doc_count
+        runtime = self.runtime()
+        dps = doc_count / runtime
+        print("Finished indexing", doc_count, "in", runtime, "seconds,", dps,
+              "docs/sec", file=self.stream)
 
 
 null_reporter = Reporter

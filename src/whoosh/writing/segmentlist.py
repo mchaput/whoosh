@@ -74,6 +74,11 @@ class SegmentList:
         return ids
 
     @synchronized
+    def merging_segments(self, mergeid: str):
+        merge = self._current_merges[mergeid]
+        return list(merge.segments)
+
+    @synchronized
     def add_segment(self, segment: 'codecs.Segment'):
         logger.info("Adding %r to segments", segment)
         if segment.is_empty():
