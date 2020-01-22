@@ -45,7 +45,7 @@ from whoosh.filedb.datafile import Data, OutputFile
 from whoosh.metadata import MetaData
 from whoosh.postings import basic, postform, postings, ptuples
 from whoosh.system import IS_LITTLE
-from whoosh.util import readable_tens
+from whoosh.util import now, readable_tens
 
 # Typing imports
 if typing.TYPE_CHECKING:
@@ -802,6 +802,8 @@ class X1FieldWriter(codecs.FieldWriter):
         postsfile = self._postsfile
         tc = 0
         for (fieldname, termbytes), terminfo in treader.items():
+            logger.debug("Copying term %s:%r df=%s", fieldname, termbytes,
+                         terminfo.doc_frequency())
             assert isinstance(terminfo, X1TermInfo)
             if self._fieldname is not None and fieldname < self._fieldname:
                 raise Exception("Out of order fieldnames %s -> %s" %
@@ -816,8 +818,6 @@ class X1FieldWriter(codecs.FieldWriter):
             if self._termbytes is not None and termbytes <= self._termbytes:
                 raise Exception("Out of order terms in field %s: %r -> %r" %
                                 (fieldname, self._termbytes, termbytes))
-            logger.debug("Multimerging %s:%r /%s", fieldname, termbytes,
-                         len(self._termitems))
             tc += 1
             self.start_term(termbytes)
             self._terminfo.copy_from(terminfo, docmap_get)
@@ -829,6 +829,7 @@ class X1FieldWriter(codecs.FieldWriter):
                     self._terminfo.blockcount += 1
                 m.close()
             self.finish_term()
+            logger.debug("Finished copying term")
 
         if termcount and tc != termcount:
             raise Exception("Field %s should have %s terms but has %s" %

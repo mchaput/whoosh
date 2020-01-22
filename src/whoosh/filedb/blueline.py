@@ -228,7 +228,7 @@ def write_region(output: OutputFile, items: List[Tuple[bytes, bytes]]
     klens = array("i", (len(k) for k in keys))
     firstklen = klens[0]
     fixedklen = 0
-    # If all the keys have the same length, store the fixed length in the header
+    # If all keys have the same length, store the fixed length in the header
     if all(kl == firstklen for kl in klens):
         klen_is_fixed = True
         fixedklen = firstklen
@@ -239,12 +239,12 @@ def write_region(output: OutputFile, items: List[Tuple[bytes, bytes]]
         if klencode != "i":
             klens = array(klencode, klens)
 
-    # Create a list of key lengths
+    # Create a list of value lengths
     vlen_is_fixed = False
     vlens = array("i", (len(v) for v in values))
     firstvlen = vlens[0]
     fixedvlen = 0
-    # If all the keys have the same length, store the fixed length in the header
+    # If all values have the same length, store the fixed length in the header
     if all(vl == firstvlen for vl in vlens):
         vlen_is_fixed = True
         fixedvlen = firstvlen

@@ -26,6 +26,7 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 import errno
+import json
 import logging
 import mmap
 import os
@@ -37,7 +38,7 @@ from abc import abstractmethod
 from binascii import crc32
 from io import BytesIO
 from threading import Lock
-from typing import Any, Dict, Iterable, List, Set
+from typing import Any, Dict, Iterable, List, Set, Tuple
 
 from whoosh import index, storage
 from whoosh.codec import codecs
@@ -155,7 +156,7 @@ class BaseFileStorage(storage.Storage):
 
     def open(self, indexname: str=None, writable: bool=False) -> FileSession:
         indexname = indexname or index.DEFAULT_INDEX_NAME
-        id_counter = self._read_id_counter(indexname)
+        id_counter, _ = self._read_metadata(indexname)
         return FileSession(self, indexname, writable, id_counter)
 
     def _clean_by_segids(self, session: 'storage.Session', segids: Set[str],
@@ -204,9 +205,6 @@ class BaseFileStorage(storage.Storage):
         # This backend has no concept of a session, we just need the indexname
         indexname = session.indexname
 
-        # Write the segment ID counter
-        self._write_id_counter(session)
-
         # Write the TOC file with a temporary name so other processes don't
         # notice it until it's done
         real_filename = index.make_toc_filename(indexname, toc.generation)
@@ -226,63 +224,49 @@ class BaseFileStorage(storage.Storage):
 
         # Rename the file into place
         self.rename_file(filename, real_filename, safe=True)
-        # Write the pointer to the current TOC
-        self._write_toc_pointer(session, toc)
+        # Write the segment ID and TOC counters
+        self._write_metadata(session, toc)
         # Clean up old segment and TOC files
         self.cleanup(session, toc, all_tocs=True)
 
     def latest_generation(self, session: 'storage.Session'):
         indexname = session.indexname
-        pointer = self._read_toc_pointer(indexname)
-        if pointer < 0:
+        _, generation = self._read_metadata(indexname)
+        if generation < 0:
             regex = index.toc_regex(indexname)
             for filename in self:
                 m = regex.match(filename)
                 if m:
-                    pointer = max(int(m.group(1)), pointer)
+                    generation = max(int(m.group(1)), generation)
 
-        if pointer < 0:
-           pointer = -1
-        return pointer
-
-    @staticmethod
-    def _id_counter_filename(indexname: str=None) -> str:
-        indexname = indexname or index.DEFAULT_INDEX_NAME
-        return "%s_counter.txt" % indexname
+        if generation < 0:
+            generation = -1
+        return generation
 
     @staticmethod
-    def _toc_pointer_filename(indexname: str=None) -> str:
+    def _metadata_filename(indexname: str=None) -> str:
         indexname = indexname or index.DEFAULT_INDEX_NAME
-        return "%s_toc.txt" % indexname
+        return "%s_metadata.json" % indexname
 
-    def _write_id_counter(self, session: 'storage.Session'):
-        filename = self._id_counter_filename(session.indexname)
-        self._write_number_file(filename, session.id_counter)
-
-    def _read_id_counter(self, indexname: str) -> int:
-        filename = self._id_counter_filename(indexname)
-        return self._read_number_file(filename, 0) + 1
-
-    def _write_toc_pointer(self, session: 'storage:Session', toc: 'index.Toc'):
-        filename = self._toc_pointer_filename(session.indexname)
-        self._write_number_file(filename, toc.generation)
-
-    def _read_toc_pointer(self, indexname: str):
-        filename = self._toc_pointer_filename(indexname)
-        return self._read_number_file(filename, -1)
-
-    def _write_number_file(self, filename: str, number: int):
+    def _write_metadata(self, session: 'storage.Session', toc: 'index.Toc'):
+        filename = self._metadata_filename(session.indexname)
         tempname = filename + ".temp"
+        data = {"id_counter": session.id_counter,
+                "generation": toc.generation}
         with self.create_file(tempname) as f:
-            f.write(("%08x" % number).encode("ascii"))
+            f.write(json.dumps(data).encode("utf8"))
         self.rename_file(tempname, filename)
 
-    def _read_number_file(self, filename, default=-1):
+    def _read_metadata(self, indexname: str) -> Tuple[int, int]:
+        filename = self._metadata_filename(indexname)
+        id_counter = 0
+        generation = -1
         if self.file_exists(filename):
             with self.open_file(filename) as f:
-                f.seek(0)
-                return int(f.read().decode("ascii"), 16)
-        return default
+                data = json.loads(f.read().decode("utf8"))
+                id_counter = data.get("id_counter", id_counter)
+                generation = data.get("generation", generation)
+        return id_counter + 1, generation
 
     def load_toc(self, session: 'storage.Session', generation: int=None):
         # This backend has no concept of a session, all we need from the object
@@ -324,7 +308,8 @@ class BaseFileStorage(storage.Storage):
             raise storage.TocNotFound("Index %s generation %s not found" %
                                       (indexname, generation))
 
-    def copy_index(self, to_storage: storage.Storage, indexname: str=None):
+    def copy_index(self, to_storage: 'BaseFileStorage', indexname: str=None,
+                   writer_kwargs: Dict[str, Any]=None):
         if not isinstance(to_storage, BaseFileStorage):
             return super().copy_index(to_storage, indexname)
 
@@ -333,10 +318,10 @@ class BaseFileStorage(storage.Storage):
         indexname = indexname or index.DEFAULT_INDEX_NAME
         segment_regex = index.segment_regex(indexname)
         toc_regex = index.toc_regex(indexname)
-        counter_name = self._id_counter_filename(indexname)
+        metadata_name = self._metadata_filename(indexname)
         for filename in self.list():
             if segment_regex.match(filename) or toc_regex.match(filename) or \
-                    filename == counter_name:
+                    filename == metadata_name:
                 from_file = self.open_file(filename)
                 to_file = to_storage.create_file(filename)
                 copyfileobj(from_file, to_file)
