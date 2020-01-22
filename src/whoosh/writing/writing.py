@@ -633,6 +633,7 @@ class IndexWriter:
             if merge:
                 self._try_merging(False, expunge_deleted)
 
+        self.segwriter = None
         # if restart:
         #     self._start_new_segment()
 
