@@ -356,8 +356,7 @@ twice and combine the results::
     userquery = queryparser.parse(querystring)
 
     # Get the terms searched for
-    termset = set()
-    userquery.existing_terms(termset)
+    termset = userquery.existing_terms(s.reader())
 
     # Formulate a "best bet" query for the terms the user
     # searched for in the "content" field
