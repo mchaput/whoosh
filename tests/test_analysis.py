@@ -100,6 +100,9 @@ def test_multifilter():
     assert [t.text for t in ana(text, mode="a")] == ["alfa", "bravo", "charlie"]
     assert [t.text for t in ana(text, mode="b")] == ["ALFA", "BRAVO", "CHARLIE"]
 
+    empty_text = u("")
+    assert [t.text for t in ana(empty_text, mode="a")] == []
+
 
 def test_tee_filter():
     target = u("Alfa Bravo Charlie")

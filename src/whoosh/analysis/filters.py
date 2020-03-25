@@ -138,8 +138,11 @@ class MultiFilter(Filter):
                 and self.filters == other.filters)
 
     def __call__(self, tokens):
-        # Only selects on the first token
-        t = next(tokens)
+        # Only selects on the first token (if there is one)
+        try:
+            t = next(tokens)
+        except StopIteration:
+            return []
         filter = self.filters.get(t.mode, self.default_filter)
         return filter(chain([t], tokens))
 
