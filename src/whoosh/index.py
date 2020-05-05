@@ -44,6 +44,7 @@ from typing.re import Pattern
 from whoosh import __version__, fields, storage, writing
 from whoosh.codec import codecs
 from whoosh.metadata import MetaData
+from whoosh.util.loading import find_object
 from whoosh.util.times import datetime_to_long, long_to_datetime
 
 # Typing imports
@@ -227,9 +228,13 @@ class Toc:
             namestart = pos + segment_entry.size
             namelen, seglen = segment_entry.unpack(bs[pos:namestart])
             jsonstr = bytes(bs[namestart:namestart + namelen]).decode("utf8")
-            data = json.loads(jsonstr)
+            if jsonstr.startswith("{"):
+                data = json.loads(jsonstr)
+                c = codecs.from_json(data)
+            else:
+                codec_class = find_object(jsonstr)
+                c = codec_class()
 
-            c = codecs.from_json(data)
             segstart = namestart + namelen
             segment = c.segment_from_bytes(bs[segstart:segstart + seglen])
             segments.append(segment)
@@ -476,12 +481,11 @@ class Index:
                 toc = self.toc
                 return self._reader(toc.schema, toc.segments, toc.generation,
                                     reuse=reuse)
-            except IOError:
+            except IOError as e:
                 # Presume that we got a "file not found error" because a writer
                 # deleted one of the files just as we were trying to open it,
                 # and so retry a few times before actually raising the
                 # exception
-                e = sys.exc_info()[1]
                 retries -= 1
                 if retries <= 0:
                     raise e

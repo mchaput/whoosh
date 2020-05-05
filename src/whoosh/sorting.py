@@ -63,7 +63,7 @@ class FacetType:
         else:
             raise Exception("Don't know what to do with %r" % item)
 
-    def categorizer(self, global_searcher: 'searching.Searcher'
+    def categorizer(self, global_searcher: 'searching.SearcherType'
                     ) -> 'Categorizer':
         """Returns a :class:`Categorizer` corresponding to this facet.
 

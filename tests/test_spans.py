@@ -633,3 +633,47 @@ def test_misordered_annotations():
     al([("foo", 2, 3), ("foo", 2, 3)])
     al([("foo", 2, 3), ("bar", 1, 2)])
 
+
+def test_span_anno_function():
+    from whoosh.query.spans import AnnotatedSpans
+
+    mspans = [
+        spans.Span(0, text="The"),
+        spans.Span(1, text="quick"),
+        spans.Span(2, text="brown"),
+        spans.Span(3, text="fox"),
+        spans.Span(4, text="jumped"),
+        spans.Span(5, text="over"),
+        spans.Span(6, text="the"),
+        spans.Span(7, text="lazy"),
+        spans.Span(8, text="dog"),
+    ]
+    annos = [
+        spans.Span(0, 4, text="np"),
+        spans.Span(1, 3, text="adj"),
+        spans.Span(3, 6, text="bold"),
+        spans.Span(4, 6, text="vp"),
+        spans.Span(5, 8, text="italic"),
+        spans.Span(6, 9, text="np"),
+        spans.Span(7, 8, text="adj"),
+    ]
+
+    AnnotatedSpans._annotate(mspans, annos)
+
+    def fz(s):
+        return frozenset(s.split())
+
+    target = [
+        spans.Span(0, text="The", tags=fz("np")),
+        spans.Span(1, text="quick", tags=fz("np adj")),
+        spans.Span(2, text="brown", tags=fz("np adj")),
+        spans.Span(3, text="fox", tags=fz("np bold")),
+        spans.Span(4, text="jumped", tags=fz("vp bold")),
+        spans.Span(5, text="over", tags=fz("vp bold italic")),
+        spans.Span(6, text="the", tags=fz("np italic")),
+        spans.Span(7, text="lazy", tags=fz("np adj italic")),
+        spans.Span(8, text="dog", tags=fz("np")),
+    ]
+    assert target == mspans
+
+

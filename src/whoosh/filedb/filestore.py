@@ -86,21 +86,20 @@ def make_lock_name(indexname: str):
 
 class FileSession(storage.Session):
     def __init__(self, store: 'BaseFileStorage', indexname: str,
-                 writable: bool, id_counter: int, recursive: bool=False):
+                 writable: bool, id_counter: int, recursive: bool=True):
         super(FileSession, self).__init__(store, indexname, writable,
                                           id_counter)
         self.recursive = recursive
-        
+        self._lock = None
         if writable:
             self._lock = store.lock(make_lock_name(indexname))
-            if getattr(self._lock, "supports_key", False):
+            if hasattr(self._lock, "supports_key") and \
+                    self._lock.supports_key():
                 locked = self._lock.acquire(key=random.randint(1, 2**63))
             else:
                 locked = self._lock.acquire()
             if not locked:
                 raise index.LockError("Could not lock writable session")
-        else:
-            self._lock = None
 
     def read_key(self) -> int:
         return self._lock.read_key()
@@ -617,9 +616,7 @@ class FileStorage(BaseFileStorage):
         # If the given directory does not already exist, try to create it
         try:
             os.makedirs(dirpath)
-        except OSError:
-            # This is necessary for compatibility between Py2 and Py3
-            e = sys.exc_info()[1]
+        except OSError as e:
             # If we get an error because the path already exists, ignore it
             if e.errno != errno.EEXIST:
                 raise
@@ -710,8 +707,7 @@ class FileStorage(BaseFileStorage):
             try:
                 mm = mmap.mmap(fileno, 0, access=mmap.ACCESS_READ)
                 dataobj = datafile.MemData(mm)
-            except (mmap.error, OSError):
-                e = sys.exc_info()[1]
+            except (mmap.error, OSError) as e:
                 # If we got an error because there wasn't enough memory to
                 # open the map, ignore it, we'll just use the (slower)
                 # "sub-file" implementation

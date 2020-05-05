@@ -28,8 +28,7 @@ def test_pickleability():
     for coltype, args in coltypes.items():
         try:
             inst = coltype(*args)
-        except TypeError:
-            e = sys.exc_info()[1]
+        except TypeError as e:
             raise TypeError("Error instantiating %r: %s" % (coltype, e))
 
         p = dumps(inst, -1)
@@ -524,4 +523,177 @@ def test_annotation_column():
             assert domain[3][1] == list(cr[12])
             assert [] == list(cr[5])
             assert [] == list(cr[25])
+
+
+def test_path_column():
+    paths = """
+    /foo/
+    /sphinx/__main__.py
+    /sphinx/project.py
+    /karma.conf.js
+    /EXAMPLES
+    /tox.ini
+    /doc/man/index.rst
+    /doc/man/sphinx-autogen.rst
+    /doc/man/sphinx-build.rst
+    /doc/man/sphinx-quickstart.rst
+    /doc/man/sphinx-apidoc.rst
+    /doc/extdev/projectapi.rst
+    /doc/extdev/index.rst
+    /doc/extdev/parserapi.rst
+    /doc/extdev/markupapi.rst
+    /doc/extdev/appapi.rst
+    /doc/extdev/envapi.rst
+    /doc/extdev/domainapi.rst
+    /doc/extdev/i18n.rst
+    /doc/extdev/builderapi.rst
+    /doc/extdev/logging.rst
+    /doc/extdev/nodes.rst
+    /doc/extdev/deprecated.rst
+    /doc/extdev/utils.rst
+    /doc/extdev/collectorapi.rst
+    /doc/templating.rst
+    /doc/_themes/sphinx13/layout.html
+    /doc/_themes/sphinx13/theme.conf
+    /doc/_themes/sphinx13/static/headerbg.png
+    /doc/_themes/sphinx13/static/relbg.png
+    /doc/_themes/sphinx13/static/bodybg.png
+    /doc/_themes/sphinx13/static/sphinxheader.png
+    /doc/_themes/sphinx13/static/sphinx13.css
+    /doc/_themes/sphinx13/static/footerbg.png
+    /doc/_themes/sphinx13/static/listitem.png
+    /doc/contents.rst
+    /doc/intro.rst
+    /doc/development/tutorials/index.rst
+    /doc/development/tutorials/todo.rst
+    /doc/development/tutorials/helloworld.rst
+    /doc/development/tutorials/examples/helloworld.py
+    /doc/development/tutorials/examples/recipe.py
+    /doc/development/tutorials/examples/README.rst
+    /doc/development/tutorials/examples/todo.py
+    /doc/development/tutorials/recipe.rst
+    /doc/_templates/index.html
+    /doc/_templates/indexsidebar.html
+    /doc/Makefile
+    /doc/conf.py
+    /doc/examples.rst
+    /doc/_static/translation.png
+    /doc/_static/Makefile
+    /doc/_static/conf.py.txt
+    /doc/_static/pocoo.png
+    /doc/_static/sphinx.png
+    /doc/_static/translation.puml
+    /doc/_static/bookcover.png
+    /doc/_static/more.png
+    /doc/_static/themes/bizstyle.png
+    /doc/_static/themes/scrolls.png
+    /doc/_static/themes/haiku.png
+    /doc/_static/themes/alabaster.png
+    /doc/_static/themes/classic.png
+    /doc/_static/themes/fullsize/bizstyle.png
+    /doc/_static/themes/fullsize/scrolls.png
+    /doc/_static/themes/fullsize/haiku.png
+    /doc/_static/themes/fullsize/alabaster.png
+    /doc/_static/themes/fullsize/classic.png
+    /doc/_static/themes/fullsize/traditional.png
+    /doc/_static/themes/fullsize/nature.png
+    /doc/_static/themes/fullsize/sphinxdoc.png
+    /doc/_static/themes/fullsize/agogo.png
+    /doc/_static/themes/fullsize/pyramid.png
+    /doc/_static/themes/fullsize/sphinx_rtd_theme.png
+    /doc/_static/themes/traditional.png
+    /doc/_static/themes/nature.png
+    /doc/_static/themes/sphinxdoc.png
+    /doc/_static/themes/agogo.png
+    /doc/_static/themes/pyramid.png
+    /doc/_static/themes/sphinx_rtd_theme.png
+    /doc/usage/advanced/intl.rst
+    /doc/usage/advanced/setuptools.rst
+    /doc/usage/advanced/websupport/index.rst
+    /doc/usage/advanced/websupport/searchadapters.rst
+    /doc/usage/advanced/websupport/quickstart.rst
+    /doc/usage/advanced/websupport/storagebackends.rst
+    /doc/usage/advanced/websupport/api.rst
+    /doc/usage/markdown.rst
+    /doc/usage/builders/index.rst
+    /doc/usage/configuration.rst
+    /doc/usage/extensions/intersphinx.rst
+    /doc/usage/extensions/index.rst
+    /doc/usage/extensions/extlinks.rst
+    /doc/usage/extensions/example_google.rst
+    /doc/usage/extensions/inheritance.rst
+    /doc/usage/extensions/autosectionlabel.rst
+    /doc/usage/extensions/napoleon.rst
+    /doc/usage/extensions/viewcode.rst
+    /doc/usage/extensions/todo.rst
+    /doc/usage/extensions/githubpages.rst
+    /doc/usage/extensions/autodoc.rst
+    /doc/usage/extensions/example_numpy.rst
+    /doc/usage/extensions/doctest.rst
+    /doc/usage/extensions/ifconfig.rst
+    /doc/usage/extensions/autosummary.rst
+    /doc/usage/extensions/linkcode.rst
+    /doc/usage/extensions/math.rst
+    /doc/usage/extensions/example_google.py
+    /doc/usage/extensions/graphviz.rst
+    /doc/usage/extensions/imgconverter.rst
+    /doc/usage/extensions/duration.rst
+    /doc/usage/extensions/coverage.rst
+    /doc/usage/extensions/example_numpy.py
+    /doc/usage/theming.rst
+    /doc/usage/quickstart.rst
+    /doc/usage/installation.rst
+    /doc/usage/restructuredtext/roles.rst
+    /doc/usage/restructuredtext/index.rst
+    /doc/usage/restructuredtext/domains.rst
+    /doc/usage/restructuredtext/directives.rst
+    /doc/usage/restructuredtext/field-lists.rst
+    /doc/usage/restructuredtext/basics.rst
+    """
+    pathlist = [p.strip().encode("ascii") for p in paths.split("\n")
+                if p.strip()] * 3
+    doccount = len(pathlist)
+
+    from whoosh.util import now
+    with TempStorage() as st:
+        col1 = columns.VarBytesColumn()
+        col2 = columns.PathColumn()
+        with st.create_file("test") as f:
+            t = now()
+            cw = col1.writer(f)
+            for i, path in enumerate(pathlist):
+                cw.add(i, path)
+            cw.finish(doccount)
+            length1 = f.tell()
+            print(now() - t, length1)
+
+            t = now()
+            cw = col2.writer(f)
+            for i, path in enumerate(pathlist):
+                cw.add(i, path)
+            cw.finish(doccount)
+            length2 = f.tell() - length1
+            print(now() - t, length2)
+            print(length1 / length2, length2 / length1)
+
+        docnums = list(range(doccount))
+        random.shuffle(docnums)
+        with st.map_file("test") as m:
+            t = now()
+            cr = col1.reader(m, 0, length1, doccount, native=True)
+            for docnum in docnums:
+                assert cr[docnum] == pathlist[docnum]
+            cr.close()
+            print(now() - t)
+
+            t = now()
+            cr = col2.reader(m, length1, length2, doccount, native=True)
+            for docnum in docnums:
+                assert cr[docnum] == pathlist[docnum]
+            cr.close()
+            print(now() - t)
+
+    assert False
+
+
 

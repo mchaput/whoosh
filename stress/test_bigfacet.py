@@ -1,4 +1,3 @@
-from __future__ import with_statement
 import os.path, random, string
 import sqlite3 as sqlite
 

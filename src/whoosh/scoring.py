@@ -622,7 +622,7 @@ class ReverseWeighting(WeightingModel):
         self.weighting = weighting
 
     def scorer(self, searcher: 'searchers.Searcher', fieldname: str,
-               text: TermText, qf: float=1) -> 'ReverseScorer':
+               text: TermText, qf: float=1.0) -> 'ReverseScorer':
         subscorer = self.weighting.scorer(searcher, fieldname, text, qf=qf)
         return ReverseScorer(subscorer)
 

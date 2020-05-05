@@ -33,6 +33,7 @@ import re
 import logging
 import struct
 import typing
+from binascii import crc32
 from collections import defaultdict
 from typing import (Any, Callable, Dict, Iterable, List, Optional, Sequence,
                     Set, Tuple, Union, cast)
@@ -44,6 +45,7 @@ from whoosh.filedb import blueline, filestore
 from whoosh.filedb.datafile import Data, OutputFile
 from whoosh.metadata import MetaData
 from whoosh.postings import basic, postform, postings, ptuples
+from whoosh.postings.ptuples import post_docid
 from whoosh.system import IS_LITTLE
 from whoosh.util import now, readable_tens
 
@@ -235,6 +237,17 @@ class X1TermInfo(reading.TermInfo):
             ti.offset = postref.unpack(bs[pos:pos + postref.size])[0]
 
         return ti
+
+    def is_mini(self):
+        return (self.doc_frequency() == 1 and
+                self.inlinebytes == b'' and
+                self.min_id() == self.max_id())
+
+    def is_inline(self):
+        return self.inlinebytes is not None
+
+    def has_external_posts(self):
+        return self.inlinebytes is None
 
     def copy_from(self, terminfo: 'X1TermInfo',
                   docmap_get: Callable[[int, int], int]=None):
@@ -745,8 +758,9 @@ class X1FieldWriter(codecs.FieldWriter):
         self._maxterms = {}
 
         # Set by start_field
-        self._fieldname = None
-        self._fieldnum = None
+        self._fieldname = ""
+        self._fieldbytes = b""
+        self._fieldnum = -1
         self._fieldobj = None
         self._format = None  # type: postform.Format
         self._io = self._segment.codec().postings_io()
@@ -756,6 +770,7 @@ class X1FieldWriter(codecs.FieldWriter):
         self._termbytes = None
         self._terminfo = X1TermInfo()
         self._postbuf = []
+        # self._last_docid = -1
 
         self.closed = False
 
@@ -765,6 +780,7 @@ class X1FieldWriter(codecs.FieldWriter):
     def start_field(self, fieldname: str, fieldobj: 'fields.FieldType'):
         assert not self._infield
         self._fieldname = fieldname
+        self._fieldbytes = fieldname.encode("utf8")
         self._fieldobj = fieldobj
         self._format = fieldobj.format
         self._io = self.postings_io()
@@ -784,12 +800,17 @@ class X1FieldWriter(codecs.FieldWriter):
         self._termbytes = termbytes
         self._terminfo = X1TermInfo(offset=self.current_posting_offset())
         self._postbuf = []
+        # self._last_docid = -1
 
     def current_posting_offset(self) -> int:
         return self._postsfile.tell()
 
     def add_posting(self, post: 'ptuples.PostTuple'):
-        self.add_raw_post(self._io.condition_post(post))
+        docid = post_docid(post)
+        # assert docid > self._last_docid
+        rawpost = self._io.condition_post(post)
+        self.add_raw_post(rawpost)
+        # self._last_docid = docid
 
     def add_raw_post(self, rawpost: 'ptuples.RawPost'):
         self._postbuf.append(rawpost)
@@ -821,10 +842,18 @@ class X1FieldWriter(codecs.FieldWriter):
             tc += 1
             self.start_term(termbytes)
             self._terminfo.copy_from(terminfo, docmap_get)
-            self._terminfo.offset = self.current_posting_offset()
-            if terminfo.has_blocks():
+            if terminfo.has_blocks() and terminfo.has_external_posts():
+                self._terminfo.offset = self.current_posting_offset()
                 m = treader.matcher(fieldname, termbytes, self._fieldobj)
+
+                # self._write_blocklist_header()
                 for blockbytes in m.raw_blocks():
+                    assert blockbytes
+                    # Double-check that docids are in order
+                    # dlreader = self._io.doclist_reader(blockbytes)
+                    # assert dlreader.min_id() > self._last_docid
+                    # self._last_docid = dlreader.max_id()
+
                     postsfile.write(blockbytes)
                     self._terminfo.blockcount += 1
                 m.close()
@@ -837,15 +866,25 @@ class X1FieldWriter(codecs.FieldWriter):
         if self._infield:
             self.finish_field()
 
+    def _write_blocklist_header(self):
+        code = crc32(self._fieldbytes + self._termbytes) % (1 << 32)
+        self._postsfile.write_uint_le(code)
+
     def _flush_postings(self):
         postsfile = self._postsfile
         block = self._postbuf
+
+        # Before the first block, write a CRC of the term so when reading we
+        # can double-check we're in the right place
+        # if self._terminfo.blockcount == 0:
+        #     self._write_blocklist_header()
 
         # Update term info
         self._terminfo.add_block(block)
 
         # Write the postings
-        postsfile.write(self._io.doclist_to_bytes(self._format, block))
+        bs = self._io.doclist_to_bytes(self._format, block)
+        postsfile.write(bs)
         self._postbuf = []
 
     def finish_term(self):
@@ -867,7 +906,6 @@ class X1FieldWriter(codecs.FieldWriter):
             ti.add_posting_list_stats(postbuf)
 
             if fmt.only_docids() and len(postbuf) == 1:
-                assert ti.doc_frequency() == 1 and ti.min_id() == ti.max_id()
                 tibytes = b''
             else:
                 tibytes = self._io.doclist_to_bytes(self._format, postbuf)
@@ -881,11 +919,11 @@ class X1FieldWriter(codecs.FieldWriter):
             # If we haven't written any blocks to disk, and there's nothing in
             # the buffer, that means there were no posts at all, so just forget
             # the whole thing
-            print("NO BLOCKS FOR", self._fieldname, self._termbytes, "!!!!")
-            return
+            raise Exception("NO BLOCKS for %s:%r" %
+                            (self._fieldname, self._termbytes))
 
-        fieldbytes = fieldnum_struct.pack(self._fieldnum)
-        keybytes = fieldbytes + cast(bytes, self._termbytes)
+        fieldnumbytes = fieldnum_struct.pack(self._fieldnum)
+        keybytes = fieldnumbytes + self._termbytes
         valbytes = ti.to_bytes()
         self._termitems.append((keybytes, valbytes))
         if len(self._termitems) >= self._regionsize:
@@ -1142,14 +1180,10 @@ class X1TermsReader(codecs.TermsReader):
             raise ValueError("%r is not a field" % field)
 
         terminfo = self.term_info(fieldname, tbytes)
-
-        fmt = field.format
-        is_mini = (fmt.only_docids() and terminfo.doc_frequency() == 1 and
-                   terminfo.min_id() == terminfo.max_id())
-        if is_mini:
+        if terminfo.is_mini():
             from whoosh.postings.postings import MinimalDocListReader
-            pdr = MinimalDocListReader([terminfo.min_id()])
-            m = matchers.PostReaderMatcher(pdr, fieldname, tbytes, terminfo,
+            mdr = MinimalDocListReader([terminfo.min_id()])
+            m = matchers.PostReaderMatcher(mdr, fieldname, tbytes, terminfo,
                                            self._io, scorer=scorer)
         elif terminfo.inlinebytes:
             pdr = self._io.doclist_reader(terminfo.inlinebytes)
@@ -1240,8 +1274,22 @@ class X1Matcher(matchers.LeafMatcher):
         self._blockcount = terminfo.blockcount
         # Current block number
         self._blocknum = 0
+
         # Go to first offset
-        self._go(terminfo.offset)
+        start = terminfo.offset
+
+        # Read the CRC check to double check the offset is accurate
+        # code = crc32(fieldname.encode("utf8") + tbytes) % (1 << 32)
+        # if self._data.get_uint_le(start) != code:
+        #     raise Exception("File %r at %s: invalid postings start for %s:%r" %
+        #                     (data, start, fieldname, tbytes))
+        # start += 4
+
+        self._go(start)
+
+    def __repr__(self):
+        return "%s(%s:%r %r@%s)" % (type(self).__name__, self._fieldname,
+                                    self._tbytes, self._data, self._offset)
 
     def _go(self, offset: int, i: int=0):
         self._offset = offset
@@ -1272,7 +1320,11 @@ class X1Matcher(matchers.LeafMatcher):
 
     def raw_blocks(self) -> Iterable[bytes]:
         while self._blocknum < self._blockcount:
-            yield self._posts.raw_bytes()
+            bs = self._posts.raw_bytes()
+            if not bs:
+                raise Exception("Postblock %r returned empty raw bytes" %
+                                self._posts)
+            yield bs
             self._next_block()
 
     def is_active(self) -> bool:

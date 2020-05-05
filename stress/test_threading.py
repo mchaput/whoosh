@@ -1,8 +1,6 @@
-from __future__ import with_statement
 import random, threading, time
 
 from whoosh import fields, query
-from whoosh.compat import text_type
 from whoosh.support.testing import TempStorage
 
 
@@ -24,7 +22,7 @@ def test_readwrite():
                     w = ix.writer()
                     for _ in range(random.randint(1, 100)):
                         content = u" ".join(random.sample(domain, random.randint(5, 20)))
-                        w.add_document(id=text_type(num), content=content)
+                        w.add_document(id=str(num), content=content)
                         num += 1
                     w.commit()
 

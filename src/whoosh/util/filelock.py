@@ -38,12 +38,14 @@ import os
 import sys
 import time
 
+from whoosh.storage import Lock
+
 
 def encode_key(key):
     return ("%16x" % key).encode("ascii")
 
 
-def decode_key(keybytes):
+def decode_key(keybytes: bytes) -> int:
     return int(keybytes.decode("ascii"), 16)
 
 
@@ -67,12 +69,10 @@ def try_for(fn, timeout=5.0, delay=0.1):
     return v
 
 
-class LockBase:
+class FileLockBase(Lock):
     """
     Base class for file locks.
     """
-
-    supports_key = True
 
     def __init__(self, filename):
         self.fd = None
@@ -86,37 +86,27 @@ class LockBase:
             except:
                 pass
 
-    def __enter__(self):
-        self.acquire(blocking=True)
-        return self
+    def supports_key(self) -> bool:
+        return True
 
-    def __exit__(self, *args):
-        self.release()
-
-    def read_key(self):
+    def read_key(self) -> int:
         with open(self.filename, "rb") as f:
             keybytes = f.read(16)
             return decode_key(keybytes)
 
-    def acquire(self, blocking=False):
-        """Acquire the lock. Returns True if the lock was acquired.
-
-        :param blocking: if True, call blocks until the lock is acquired.
-            This may not be available on all platforms. On Windows, this is
-            actually just a delay of 10 seconds, rechecking every second.
-        """
-        pass
+    def acquire(self, blocking: bool=False, key: int=None) -> bool:
+        raise NotImplementedError
 
     def release(self):
-        pass
+        raise NotImplementedError
 
 
-class FcntlLock(LockBase):
+class FcntlLock(FileLockBase):
     """
     File lock based on UNIX-only fcntl module.
     """
 
-    def acquire(self, blocking=False, key=0):
+    def acquire(self, blocking=False, key=-1):
         import fcntl  # @UnresolvedImport
 
         flags = os.O_CREAT | os.O_RDWR
@@ -128,16 +118,16 @@ class FcntlLock(LockBase):
 
         try:
             fcntl.flock(self.fd, mode)
-            self.locked = True
-            os.write(self.fd, encode_key(key))
-            return True
-        except IOError:
-            e = sys.exc_info()[1]
+        except IOError as e:
             if e.errno not in (errno.EAGAIN, errno.EACCES):
                 raise
             os.close(self.fd)
             self.fd = None
             return False
+        else:
+            self.locked = True
+            os.write(self.fd, encode_key(key))
+            return True
 
     def release(self):
         if self.fd is None:
@@ -149,7 +139,7 @@ class FcntlLock(LockBase):
         self.fd = None
 
 
-class MsvcrtLock(LockBase):
+class MsvcrtLock(FileLockBase):
     """File lock based on Windows-only msvcrt module.
     """
 
@@ -166,8 +156,7 @@ class MsvcrtLock(LockBase):
             msvcrt.locking(self.fd, mode, 1)
             os.write(self.fd, encode_key(key))
             return True
-        except IOError:
-            e = sys.exc_info()[1]
+        except IOError as e:
             if e.errno not in (errno.EAGAIN, errno.EACCES, errno.EDEADLK):
                 raise
             os.close(self.fd)

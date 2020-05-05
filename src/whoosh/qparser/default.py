@@ -213,8 +213,7 @@ class QueryParser:
                 try:
                     q = field.parse_text(fieldname, text, boost=boost)
                     return q
-                except:
-                    e = sys.exc_info()[1]
+                except Exception as e:
                     return query.ErrorQuery(e)
 
             # Otherwise, ask the field to process the text into a list of

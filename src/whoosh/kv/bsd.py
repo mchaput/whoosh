@@ -45,8 +45,7 @@ class BSD(Database):
         if not os.path.exists(path):
             try:
                 os.makedirs(path)
-            except OSError:
-                e = sys.exc_info()[0]
+            except OSError as e:
                 if e.errno != errno.EEXIST:
                     raise
 

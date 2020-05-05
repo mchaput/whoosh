@@ -544,6 +544,7 @@ def perform_multi_merge(executor: futures.Executor, codec: 'codecs.Codec',
 
     t = now()
     fs = []
+    # TODO: Split terms into equal-sized chunks instead of by field
     for fieldname in indexednames:
         field_f = executor.submit(mm_field, fieldname, codec, store, schema,
                                   merge_obj, newsegment, key, indexname, docmap)
@@ -746,31 +747,32 @@ def _copy_terms(schema: 'fields.Schema', reader: 'reading.IndexReader',
 
 
 def _copy_1term(reader, fieldname, fieldobj, termbytes, fwriter, docmap):
-    fwriter.start_term(termbytes)
     m = reader.matcher(fieldname, termbytes)
-    can_copy_raw = m.can_copy_raw_to(fwriter.postings_io(), fieldobj.format)
+    if m.is_active():
+        fwriter.start_term(termbytes)
+        can_copy_raw = m.can_copy_raw_to(fwriter.postings_io(), fieldobj.format)
 
-    if can_copy_raw:
-        for rp in m.all_raw_postings():
-            docid = post_docid(rp)
-            length = reader.doc_field_length(docid, fieldname)
-            if docmap:
-                docid = docmap[docid]
-            rp = update_post(rp, docid=docid, length=length)
-            fwriter.add_raw_post(rp)
-    else:
-        for p in m.all_postings():
-            docid = post_docid(p)
-            length = reader.doc_field_length(docid, fieldname)
-            if docmap:
-                docid = docmap[docid]
-            p = update_post(p, docid=docid, length=length)
-            fwriter.add_posting(p)
+        if can_copy_raw:
+            for rp in m.all_raw_postings():
+                docid = post_docid(rp)
+                length = reader.doc_field_length(docid, fieldname)
+                if docmap:
+                    docid = docmap[docid]
+                rp = update_post(rp, docid=docid, length=length)
+                fwriter.add_raw_post(rp)
+        else:
+            for p in m.all_postings():
+                docid = post_docid(p)
+                length = reader.doc_field_length(docid, fieldname)
+                if docmap:
+                    docid = docmap[docid]
+                p = update_post(p, docid=docid, length=length)
+                fwriter.add_posting(p)
 
+        # logger.debug("Copied term %s:%s in %0.06f s",
+        #              fieldname, termbytes, now() - tt)
+        fwriter.finish_term()
     m.close()
-    # logger.debug("Copied term %s:%s in %0.06f s",
-    #              fieldname, termbytes, now() - tt)
-    fwriter.finish_term()
 
 
 

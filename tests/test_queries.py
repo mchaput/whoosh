@@ -1,4 +1,5 @@
 import copy
+import random
 from datetime import datetime, timedelta
 
 import pytest
@@ -29,6 +30,7 @@ from whoosh.query.spans import SpanFirst
 from whoosh.query.spans import SpanNear
 from whoosh.query.spans import SpanNot
 from whoosh.query.spans import SpanOr
+from whoosh.util import now
 from whoosh.util.testing import TempIndex
 
 
@@ -932,7 +934,32 @@ def test_queries_as_json():
         "slop": 3,
     }
 
-    # whoosh.query.qcolumns.ColumnQuery
+
+def test_column_queries():
+    schema = fields.Schema(value=fields.Numeric(int, column=True, signed=False))
+    with TempIndex(schema) as ix:
+        domain = list(range(1000)) * 5
+        random.shuffle(domain)
+
+        with ix.writer() as w:
+            for number in domain:
+                w.add_document(value=number)
+
+        with ix.searcher() as s:
+            assert s.reader().has_column("value")
+
+            doclists = []
+            for n in range(100):
+                tq = query.Term("value", n)
+                doclists.append(list(tq.docs(s)))
+
+            cr = s.reader().column_reader("value")
+            for n in range(100):
+                cq = query.ColumnQuery("value", n,
+                                       weight_fn=lambda m: m.score(), creader=cr)
+                docids = list(cq.docs(s))
+                assert doclists[n] == docids
+
 
 
 

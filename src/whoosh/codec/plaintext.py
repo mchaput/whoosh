@@ -424,7 +424,7 @@ class PlainTermsReader(codecs.TermsReader, LineReader):
             values.append(c["v"])
             c = self._find_line(3, "POST")
 
-        return ListMatcher(ids, weights, values, field.format, scorer=scorer)
+        return ListMatcher(ids, weights, values, field, scorer=scorer)
 
     def close(self):
         self._dbfile.close()

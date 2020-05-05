@@ -181,8 +181,10 @@ class BasicIO(postings.PostingsIO):
                 # Create a struct to unpoack the docids
                 s = struct.Struct("<" + (typecode * length))
                 docids = s.unpack(src[offset + 1:offset + s.size + 1])
+
                 # Return a minimal reader that only knows about doc IDs
-                return postings.MinimalDocListReader(docids)
+                rawbytes = src[offset:offset + s.size + 1]
+                return postings.MinimalDocListReader(docids, rawbytes)
 
         return BasicDocListReader(src, offset)
 
@@ -296,18 +298,31 @@ class BasicIO(postings.PostingsIO):
     # Encoding methods
 
     def condition_post(self, post: PostTuple) -> RawPost:
+        weight = post[WEIGHT]
+        # if weight is not None and not isinstance(weight, (int, float)):
+        #     raise ValueError("Bad weight value %r" % weight)
+
         poses = post[POSITIONS]
+        # if poses and not all(isinstance(p, int) for p in poses):
+        #     raise ValueError("Bad position list %r" % poses)
         enc_poses = self.encode_positions(poses) if poses else None
+
         ranges = post[RANGES]
+        # if ranges and not all(isinstance(t[0], int) and isinstance(t[1], int)
+        #                       for t in ranges):
+        #     raise ValueError("Bad range list %r" % ranges)
         enc_ranges = self.encode_ranges(ranges) if ranges else None
+
         pays = post[PAYLOADS]
+        # if pays and not all(isinstance(p, bytes) for p in pays):
+        #     raise ValueError("Bad payload list %r" % pays)
         enc_pays = self.encode_payloads(pays) if pays else None
 
         return (
             post[DOCID],
             post[TERMBYTES],
             post[LENGTH],
-            post[WEIGHT],
+            weight,
             enc_poses,
             enc_ranges,
             enc_pays,
@@ -422,6 +437,7 @@ class BasicIO(postings.PostingsIO):
 
     @staticmethod
     def encode_positions(poses: Sequence[int]) -> bytes:
+        assert all(isinstance(n, int) for n in poses)
         deltas = min_array(list(delta_encode(poses)))
         if not IS_LITTLE:
             deltas.byteswap()
@@ -740,7 +756,8 @@ class BasicDocListReader(BasicPostingReader, postings.DocListReader):
         return self._count
 
     def __repr__(self):
-        return "<%s %d>" % (type(self).__name__, self._count)
+        return ("<%s src=%r, offset=%s, blockcount=%s>" %
+                (type(self).__name__, self._src, self._offset, self._count))
 
     def id(self, n: int) -> int:
         if n < 0 or n >= self._count:

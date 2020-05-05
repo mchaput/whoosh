@@ -1,4 +1,3 @@
-from __future__ import with_statement, print_function
 import fnmatch, logging, os.path, re
 
 from whoosh import analysis, fields, index, qparser, query, scoring

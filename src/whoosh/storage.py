@@ -71,11 +71,31 @@ class Lock:
     # This is a typing system stand in for any object that implements the lock
     # protocol
 
-    def acquire(self) -> bool:
-        pass
+    def __enter__(self):
+        self.acquire(blocking=True)
+        return self
+
+    def __exit__(self, *args):
+        self.release()
+
+    def supports_key(self) -> bool:
+        return False
+
+    def read_key(self) -> int:
+        return -1
+
+    def acquire(self, blocking: bool=False, key: int=None) -> bool:
+        """Acquire the lock. Returns True if the lock was acquired.
+
+        :param blocking: if True, call blocks until the lock is acquired.
+            This may not be available on all platforms. On Windows, this is
+            actually just a delay of 10 seconds, rechecking every second.
+        """
+
+        raise NotImplementedError
 
     def release(self):
-        pass
+        raise NotImplementedError
 
 
 class Session:

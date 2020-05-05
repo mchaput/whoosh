@@ -1,10 +1,7 @@
-from __future__ import with_statement
-
 from random import randint, shuffle
 
 from nose.tools import assert_equal  #@UnresolvedImport
 
-from whoosh.compat import xrange, iteritems
 from whoosh.filedb.filetables import HashWriter, HashReader
 from whoosh.support.testing import TempStorage
 

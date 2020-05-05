@@ -104,7 +104,7 @@ class Collector:
 
                 return _combiner
 
-        raise AttributeError
+        raise AttributeError(name)
 
     def rewrap(self, child):
         raise Exception("%s can't rewrap" % self.__class__.__name__)
@@ -116,6 +116,9 @@ class Collector:
 
     def searcher(self) -> 'searching.SearcherType':
         return self._searcher
+
+    def current_searcher(self) -> 'searching.SearcherType':
+        return self._current_searcher
 
     def with_query(self, newq: 'queries.Query'):
         return self.__class__(self.searcher(), newq)
@@ -146,6 +149,7 @@ class Collector:
 
     def set_query(self, q: 'queries.Query'):
         self._query = q
+        return self
 
     def query(self) -> 'queries.Query':
         return self._query
@@ -383,6 +387,9 @@ class WrappingCollector(Collector):
 
     def searcher(self) -> 'searching.SearcherType':
         return self.child.searcher()
+
+    def current_searcher(self) -> 'searching.SearcherType':
+        return self.child.current_searcher()
 
     def set_query(self, q: 'queries.Query'):
         self.child.set_query(q)
@@ -729,10 +736,10 @@ class CollapsingCollector(WrappingCollector):
         self._limit = limit
         self._order = order
 
-        self._collapse_cat = None  # type: sorting.Categorizer
-        self._order_cat = None  # type: sorting.Categorizer
-        self._lists = None  # type: Dict[Any, List[Tuple[Any, int]]]
-        self._counts = None  # type: Dict[Any, int]
+        self._collapse_cat = None  # type: Optional[sorting.Categorizer]
+        self._order_cat = None  # type: Optional[sorting.Categorizer]
+        self._lists = None  # type: Optional[Dict[Any, List[Tuple[Any, int]]]]
+        self._counts = None  # type: Optional[Dict[Any, int]]
         self._i = 0
 
     def rewrap(self, child: Collector) -> 'CollapsingCollector':
@@ -835,6 +842,74 @@ class CollapsingCollector(WrappingCollector):
         if forget is not None:
             self.child.forget(forget)
         if add:
+            self.child.collect(globalid, localid, score, data)
+
+
+@register("dedup")
+class DeduplicatingCollector(WrappingCollector):
+    # This needs to be outside a TopCollector
+    collector_priority = 200
+
+    def __init__(self, child: Collector, facet: 'sorting.FacetType'):
+        self.child = child
+        self._facet = sorting.FacetType.from_sortedby(facet)
+
+        self._collapse_cat = None  # type: Optional[sorting.Categorizer]
+        self._seen = set()
+        self._deduped = 0
+        self._i = 0
+
+    def rewrap(self, child: Collector) -> 'DeduplicatingCollector':
+        return self.__class__(child, self._facet)
+
+    # Collecting
+
+    def start(self):
+        searcher = self.searcher()
+        self._collapse_cat = self._facet.categorizer(searcher)
+        self._seen = set()
+        self._deduped = 0
+        self.child.start()
+
+    def finish(self):
+        self._collapse_cat.close()
+        data = self.current_data()
+        data["deduped"] = self._deduped
+        self.child.finish()
+
+    def set_subsearcher(self, subsearcher: 'searching.Searcher', offset: int):
+        self._collapse_cat.set_searcher(subsearcher, offset)
+        self.child.set_subsearcher(subsearcher, offset)
+
+    def _should_ignore(self, localid):
+        m = self.current_matcher()
+        seen = self._seen
+        collapse_cat = self._collapse_cat
+        key = collapse_cat.key_for(m, localid)
+        return key in seen
+
+    def all_ids(self) -> Iterable[int]:
+        collapse_cat = self._collapse_cat
+        seen = self._seen = set()
+        count = 0
+        for globalid, localid, score, data in self.matches():
+            key = collapse_cat.key_for(self.current_matcher(), localid)
+            if key in seen:
+                count += 1
+                continue
+            else:
+                seen.add(key)
+            yield globalid
+        self._deduped = count
+
+    def collect(self, globalid: int, localid: int, score: float,
+                data: Dict[str, Any]):
+        seen = self._seen
+        key = self._collapse_cat.key_for(self.current_matcher(), localid)
+        if key in seen:
+            self._deduped += 1
+        else:
+            seen.add(key)
             self.child.collect(globalid, localid, score, data)
 
 

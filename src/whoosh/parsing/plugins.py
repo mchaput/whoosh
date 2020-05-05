@@ -551,8 +551,8 @@ class RangePlugin(Plugin):
                     qs = field.parse_range(
                         fieldname, start, end, qs.startexcl, qs.endexcl
                     ).set_extent(qs.startchar, qs.endchar)
-                except query.QueryParserError:
-                    qs = query.ErrorQuery(sys.exc_info()[1], qs)
+                except query.QueryParserError as e:
+                    qs = query.ErrorQuery(e, qs)
             elif type(qs) is query.Range:
                 qs = qs.specialize(schema)
 

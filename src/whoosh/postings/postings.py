@@ -385,7 +385,7 @@ class MinimalDocListReader(DocListReader):
         return len(self._docids)
 
     def __repr__(self):
-        return "<MDR %r>" % (self._docids, )
+        return "<%s %r>" % (type(self).__name__, self._docids, )
 
     def can_copy_raw_to(self, to_io: 'PostingsIO',
                         to_fmt: 'postform.Format') -> bool:

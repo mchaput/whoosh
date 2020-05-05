@@ -785,7 +785,7 @@ class AndNotMatcher(WrappingMatcher):
         if not self.neg.is_active():
             return
 
-        if self.neg.id() < child.id():
+        if child.is_active() and self.neg.id() < child.id():
             # The negative matcher is behind, so skip it to at least the
             # positive matcher's document
             neg.skip_to(child.id())

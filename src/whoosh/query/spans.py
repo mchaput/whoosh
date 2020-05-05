@@ -45,7 +45,7 @@ For example, to find documents containing "whoosh" at most 5 positions before
 
 import typing
 from abc import abstractmethod
-from typing import Callable, List, Sequence
+from typing import Callable, List, Sequence, Union
 
 from whoosh.query import queries, compound
 from whoosh.query import wrappers as qwrappers
@@ -62,7 +62,7 @@ __all__ = ("Span", "bisect_spans", "posting_to_spans", "SpanWrappingMatcher",
            "SpanBiMatcher", "SpanQuery", "SpanFirst", "SpanNear", "SpanOr",
            "SpanBiQuery", "SpanNot", "SpanNonOverlapping", "SpanContains",
            "SpanNotContains", "SpanWithin", "SpanNotWithin", "SpanBefore",
-           "SpanAfter", "SpanCondition")
+           "SpanAfter", "SpanCondition", "AnnotatedSpans")
 
 
 # Span class
@@ -70,11 +70,12 @@ __all__ = ("Span", "bisect_spans", "posting_to_spans", "SpanWrappingMatcher",
 # TODO: Add fieldname and termbytes to Span object
 class Span:
     __slots__ = ("start", "end", "startchar", "endchar", "boost", "payload",
-                 "fieldname", "text")
+                 "fieldname", "text", "tags")
 
     def __init__(self, start: int, end: int=None, startchar: int=None,
                  endchar: int=None, boost: float=1.0, payload: bytes=None,
-                 fieldname: str=None, text: str=None):
+                 fieldname: str=None, text: str=None,
+                 tags: Union[set, frozenset]=None):
         if end is None:
             end = start + 1
         assert start <= end
@@ -86,11 +87,13 @@ class Span:
         self.payload = payload
         self.fieldname = fieldname
         self.text = text
+        self.tags = frozenset(tags) if tags else None
 
     def __repr__(self):
-        return "<%s %s:%s %s-%s @%s-%s boost=%s payload=%r>" % (
+        return "<%s %s:%s %s-%s @%s-%s boost=%s payload=%r tags=%r>" % (
             type(self).__name__, self.fieldname, self.text, self.start,
-            self.end, self.startchar, self.endchar, self.boost, self.payload
+            self.end, self.startchar, self.endchar, self.boost, self.payload,
+            self.tags,
         )
 
     def __eq__(self, span: 'Span') -> bool:
@@ -99,7 +102,8 @@ class Span:
                 self.startchar == span.startchar and
                 self.endchar == span.endchar and
                 self.boost == span.boost and
-                self.payload == span.payload)
+                self.payload == span.payload and
+                self.tags == span.tags)
 
     def __ne__(self, span: 'Span') -> bool:
         return not self == span
@@ -695,10 +699,11 @@ class SpanBiQuery(SpanQuery):
 
     def __eq__(self, other: 'SpanBiQuery'):
         return (type(self) is type(other) and
-                self.a == other.a and self.b == other.b)
+                self.a == other.a and self.b == other.b and
+                self._q == other._q)
 
     def __hash__(self):
-        return hash(type(self)) ^ hash(self.a) ^ hash(self.b)
+        return hash(type(self)) ^ hash(self.a) ^ hash(self.b) ^ hash(self._q)
 
     def estimate_size(self, reader: 'reading.IndexReader') -> int:
         return self._q.estimate_size(reader)
@@ -707,7 +712,7 @@ class SpanBiQuery(SpanQuery):
         return False
 
     def apply(self, fn):
-        return self.__class__(fn(self.a), fn(self.b))
+        return self.__class__(fn(self.a), fn(self.b), fn(self._q))
 
     def matcher(self, searcher, context=None) -> 'matchers.Matcher':
         ma = self.a.matcher(searcher, context)
@@ -1054,6 +1059,58 @@ class SpanCondition(SpanIntersectionQuery):
     def _get_spans(cls, m: SpanBiMatcher) -> Sequence[Span]:
         return m.a.spans()
 
+
+class AnnotatedSpans(SpanBiQuery):
+    def __init__(self, terms: 'queries.Query', annotations: 'queries.Query'):
+
+        super(AnnotatedSpans, self).__init__(terms, annotations, terms)
+
+    @classmethod
+    def matcher_from_ab(cls, a: matchers.Matcher, b: matchers.Matcher
+                        ) -> matchers.Matcher:
+        m = SpanWrappingMatcher(a, cls._get_spans)
+        m.anno_matcher = b
+        return m
+
+    @classmethod
+    def _get_spans(cls, m: SpanBiMatcher) -> Sequence[Span]:
+        anno = m.anno_matcher
+        annotate = cls._annotate
+
+        if m.is_active():
+            mspans = m.spans()
+
+            mid = m.id()
+            if anno.is_active() and anno.id() < mid:
+                anno.skip_to(mid)
+            if anno.is_active() and anno.id() == mid:
+                anno_spans = anno.spans()
+                annotate(mspans, anno_spans)
+
+            return mspans
+
+        return []
+
+    @staticmethod
+    def _annotate(mspans: Sequence[Span], annos: Sequence[Span]):
+        i = 0
+        lastpos = -1
+        active = []
+        tags = frozenset()
+        for mspan in mspans:
+            start = mspan.start
+            if start > lastpos:
+                if active:
+                    active = [sp for sp in active if sp.end > start]
+
+                while i < len(annos) and annos[i].start <= start:
+                    active.append(annos[i])
+                    i += 1
+
+                tags = frozenset(sp.text for sp in active)
+                lastpos = start
+
+            mspan.tags = tags
 
 
 

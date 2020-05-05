@@ -44,16 +44,14 @@ def test_all():
                     weighting = wclass(*args, **kwargs)
                 else:
                     weighting = wclass()
-            except TypeError:
-                e = sys.exc_info()[1]
+            except TypeError as e:
                 raise TypeError("Error instantiating %r: %s" % (wclass, e))
 
             with ix.searcher(weighting=weighting) as s:
                 try:
                     for word in domain:
                         s.search(query.Term("text", word))
-                except Exception:
-                    e = sys.exc_info()[1]
+                except Exception as e:
                     e.msg = "Error searching with %r: %s" % (wclass, e)
                     raise
 

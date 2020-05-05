@@ -361,7 +361,7 @@ def test_update():
                 w.add_document(**doc)
 
         with ix.writer() as w:
-            w.update_document(id=u"test2", path=u"test/1",
+            w.update_document(id=u"test2", path=u"test/x",
                               text=u"Replacement")
 
 

@@ -1,9 +1,6 @@
-from __future__ import with_statement
-
 import random
 
 from whoosh import fields
-from whoosh.compat import text_type
 from whoosh.util import now
 from whoosh.util.testing import TempIndex
 
@@ -17,8 +14,7 @@ def test_20000_single():
         t = now()
         for i in range(20000):
             w = ix.writer()
-            w.add_document(id=text_type(i),
-                           text=u" ".join(random.sample(domain, 5)))
+            w.add_document(id=str(i), text=u" ".join(random.sample(domain, 5)))
             w.commit()
         print("Write single:", now() - t)
 
@@ -38,7 +34,7 @@ def test_20000_buffered():
         t = now()
         w = BufferedWriter(ix, limit=100, period=None)
         for i in range(20000):
-            w.add_document(id=text_type(i),
+            w.add_document(id=str(i),
                            text=u" ".join(random.sample(domain, 5)))
         w.close()
         print("Write buffered:", now() - t)
@@ -57,7 +53,7 @@ def test_20000_batch():
         t = now()
         w = ix.writer()
         for i in range(20000):
-            w.add_document(id=text_type(i),
+            w.add_document(id=str(i),
                            text=u" ".join(random.sample(domain, 5)))
             if not i % 100:
                 w.commit()

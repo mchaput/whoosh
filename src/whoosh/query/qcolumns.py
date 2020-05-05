@@ -47,7 +47,7 @@ class ColumnQuery(queries.Query):
     SLOWER than searching an indexed field.
     """
 
-    def __init__(self, fieldname, condition):
+    def __init__(self, fieldname, condition, weight_fn, creader=None):
         """
         :param fieldname: the name of the field to look in. If the field does
             not have a column, this query will not match anything.
@@ -60,6 +60,8 @@ class ColumnQuery(queries.Query):
         super(ColumnQuery, self).__init__()
         self.fieldname = fieldname
         self.condition = condition
+        self.weight_fn = weight_fn
+        self.creader = creader
 
     def is_leaf(self):
         return True
@@ -80,8 +82,60 @@ class ColumnQuery(queries.Query):
         if not reader.has_column(fieldname):
             return matchers.NullMatcher()
 
-        creader = reader.column_reader(fieldname)
-        return ColumnMatcher(creader, comp)
+        creader = self.creader or reader.column_reader(fieldname)
+        m = ColumnMatcher(creader, comp)
+        return m
+
+
+class ColumnMatcher(matchers.Matcher):
+    def __init__(self, creader, condition):
+        super(ColumnMatcher, self).__init__()
+        self.creader = creader
+        self.condition = condition
+        self._score = 1.0
+
+        self._i = 0
+        self._find_next()
+
+    def _find_next(self):
+        condition = self.condition
+        creader = self.creader
+
+        while self._i < len(creader):
+            key = creader[self._i]
+            if condition(key):
+                break
+            self._i += 1
+
+    def is_active(self):
+        return self._i < len(self.creader)
+
+    def next(self):
+        if not self.is_active():
+            raise matchers.ReadTooFar
+        self._i += 1
+        self._find_next()
+
+    def reset(self):
+        self._i = 0
+        self._find_next()
+
+    def id(self):
+        return self._i
+
+    def all_ids(self):
+        condition = self.condition
+        for docnum, v in enumerate(self.creader):
+            if condition(v):
+                yield docnum
+
+    def supports(self, astype):
+        return False
+
+    def skip_to_quality(self, minquality):
+        if self._score <= minquality:
+            self._i = len(self.creader)
+            return True
 
 
 # class ColumnAggregateComparison(queries.Query):
@@ -133,58 +187,5 @@ class ColumnQuery(queries.Query):
 #         creader = reader.column_reader(self.fieldname)
 #         comparison_fn = self.comparison_fn
 #         return ColumnMatcher(creader, lambda x: comparison_fn(x, value))
-
-
-# class ColumnMatcher(matchers.Matcher):
-#     def __init__(self, creader, condition):
-#         super(ColumnMatcher, self).__init__()
-#         self.creader = creader
-#         self.condition = condition
-#         self._score = 1.0
-#
-#         self._i = 0
-#         self._find_next()
-#
-#     def _find_next(self):
-#         condition = self.condition
-#         creader = self.creader
-#
-#         while self._i < len(creader):
-#             key =
-#             if condition(x):
-#                 break
-#             self._i += 1
-#
-#     def is_active(self):
-#         return self._i < len(self.creader)
-#
-#     def next(self):
-#         if not self.is_active():
-#             raise matchers.ReadTooFar
-#         self._i += 1
-#         self._find_next()
-#
-#     def reset(self):
-#         self._i = 0
-#         self._find_next()
-#
-#     def id(self):
-#         return self._i
-#
-#     def all_ids(self):
-#         condition = self.condition
-#         for docnum, v in enumerate(self.creader):
-#             if condition(v):
-#                 yield docnum
-#
-#     def supports(self, astype):
-#         return False
-#
-#     def skip_to_quality(self, minquality):
-#         if self._score <= minquality:
-#             self._i = len(self.creader)
-#             return True
-
-
 
 

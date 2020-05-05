@@ -131,6 +131,9 @@ class Column:
             "class": type(self).__name__,
         }
 
+    def is_numeric(self) -> bool:
+        return False
+
     @abstractmethod
     def writer(self, output: OutputFile) -> ColumnWriter:
         """
@@ -606,6 +609,147 @@ class RefBytesReader(ColumnReader):
         self._refs.release()
 
 
+# Path string column
+
+class PathColumn(Column):
+    """
+    Stores path-like (hierarchical, partitioned by a separator character)
+    strings efficiently.
+    """
+
+    def __init__(self, separator: str="/"):
+        self.separator = separator
+
+    def default_value(self, reverse: bool=False):
+        return ''
+
+    def writer(self, output: OutputFile) -> 'PathWriter':
+        return PathWriter(output, self.separator)
+
+    def reader(self, data: Data, basepos: int, length: int, doccount: int,
+               native: bool, reverse: bool=False) -> 'PathReader':
+        return PathReader(data, basepos, length, doccount, native, reverse,
+                          self.separator)
+
+
+class PathWriter(ColumnWriter):
+    def __init__(self, output: OutputFile, separator: str="/"):
+        self._output = output
+        self._sep = separator.encode("utf8")  # type: bytes
+        self._knownparts = {b"": 0}  # type: Dict[bytes, int]
+        self._count = 0
+        self._start = output.tell()
+        self._offsets = array("i")
+
+    def _fill(self, docnum: int):
+        if docnum > self._count:
+            offsets = self._offsets
+            for _ in range(docnum - self._count):
+                offsets.append(-1)
+
+    def add(self, docnum: int, v: bytes):
+        output = self._output
+        offsets = self._offsets
+        knownparts = self._knownparts
+        self._fill(docnum)
+
+        if v:
+            parts = v.split(self._sep)
+            suffix = b''
+            i = 0
+            refs = []
+            while i < len(parts):
+                this = parts[i]
+                if this in knownparts:
+                    refs.append(knownparts[this])
+                elif i < len(parts) - 1:
+                    newref = len(knownparts)
+                    knownparts[this] = newref
+                    refs.append(newref)
+                else:
+                    suffix = this
+                    break
+                i += 1
+            offsets.append(output.tell() - self._start)
+            output.write_byte(len(refs))
+            refstruct = struct.Struct("H" * len(refs))
+            output.write(refstruct.pack(*refs))
+            output.write_byte(len(suffix))
+            output.write(suffix)
+        else:
+            offsets.append(-1)
+        self._count = docnum + 1
+
+    def finish(self, doccount: int):
+        output = self._output
+        knownparts = self._knownparts
+
+        self._fill(doccount)
+        index_offset = output.tell() - self._start
+
+        # Write the compressed path parts
+        output.write_uint_le(len(knownparts) - 1)
+        # Sort parts by position
+        vs = sorted(knownparts.keys(), key=lambda key: knownparts[key])
+        del vs[0]
+        for v in vs:
+            output.write_ushort_le(len(v))
+            output.write(v)
+        # Write the offsets
+        output.write_array(self._offsets)
+        # Write the index offset at the end
+        output.write_uint_le(index_offset)
+
+
+class PathReader(ColumnReader):
+    def __init__(self, data: Data, basepos: int, length: int,
+                 doccount: int, native: bool, reverse: bool=False,
+                 separator: str="/"):
+        super(PathReader, self).__init__(data, basepos, length, doccount,
+                                         native, reverse=reverse)
+        self._sep = separator.encode("utf8")  # type: bytes
+        self._knownparts = {0: b""}  # type: Dict[int, bytes]
+
+        # Get the index offset from the end of the column
+        index_pos = basepos + data.get_uint_le(basepos + length - 4)
+        # Read the number of parts
+        partcount = data.get_uint_le(index_pos)
+        pos = index_pos + 4
+        for i in range(partcount):
+            partlen = data.get_ushort_le(pos)
+            partend = pos + 2 + partlen
+            partbytes = bytes(data[pos + 2:partend])
+            self._knownparts[i + 1] = partbytes
+            pos = partend
+        # Read the offsets array
+        self._offsets = data.map_array("i", pos, doccount, native=native)
+
+    def __getitem__(self, docnum: int) -> bytes:
+        data = self._data
+        offset = self._offsets[docnum]
+        if offset == -1:
+            return b""
+
+        pos = self._basepos + offset
+        partcount = data.get_byte(pos)
+        pos += 1
+        prefix = b""
+        if partcount:
+            knownparts = self._knownparts
+            refstruct = struct.Struct("H" * partcount)
+            refs = refstruct.unpack(data[pos:pos + refstruct.size])
+            prefix = self._sep.join(knownparts[ref] for ref in refs)
+            if not prefix.endswith(b"/"):
+                prefix += b"/"
+            pos += refstruct.size
+        suffixlen = data.get_byte(pos)
+        suffix = data[pos + 1:pos + 1 + suffixlen]
+        return prefix + suffix
+
+    def close(self):
+        self._offsets.release()
+
+
 # Annotations column
 
 class AnnotationColumn(Column):
@@ -737,6 +881,9 @@ class NumericColumn(Column):
 
         self._typecode = typecode
         self._default = default
+
+    def is_numeric(self) -> bool:
+        return True
 
     def default_value(self, reverse: bool=False) -> float:
         return 0 - self._default if reverse else self._default

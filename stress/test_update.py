@@ -1,8 +1,6 @@
-from __future__ import with_statement
 import random
 
 from whoosh import fields, query
-from whoosh.compat import xrange, text_type
 from whoosh.util.testing import TempIndex
 
 
@@ -12,7 +10,7 @@ def test_many_updates():
         for _ in range(10000):
             num = random.randint(0, 5000)
             w = ix.writer()
-            w.update_document(key=text_type(num))
+            w.update_document(key=str(num))
             w.commit()
 
         with ix.searcher() as s:

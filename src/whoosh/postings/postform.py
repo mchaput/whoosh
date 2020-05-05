@@ -83,12 +83,12 @@ class Format:
             "has_payloads": self.has_payloads,
         }
 
-    def can_copy_raw_to(self, fmt: 'Format') -> bool:
+    def can_copy_raw_to(self, to_fmt: 'Format') -> bool:
         # If the format we want to copy to has a feature this object doesn't
         # have, then we can't copy the raw data
         for feature in ("lengths", "weights", "positions", "ranges",
                         "payloads"):
-            if fmt.supports(feature) and not self.supports(feature):
+            if to_fmt.supports(feature) and not self.supports(feature):
                 return False
         return True
 

@@ -1,10 +1,8 @@
-from __future__ import with_statement
 import struct
 
 from nose.tools import assert_equal  #@UnresolvedImport
 
 from whoosh import formats
-from whoosh.compat import next, xrange
 from whoosh.filedb.filepostings import FilePostingReader, FilePostingWriter
 from whoosh.support.testing import TempStorage
 

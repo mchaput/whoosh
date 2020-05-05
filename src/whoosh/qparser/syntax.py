@@ -476,8 +476,7 @@ class RangeNode(SyntaxNode):
                     )
                     if q is not None:
                         return attach(q, self)
-                except query.QueryParserError:
-                    e = sys.exc_info()[1]
+                except query.QueryParserError as e:
                     return attach(query.ErrorQuery(e), self)
 
             if start:

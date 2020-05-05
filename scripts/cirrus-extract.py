@@ -49,7 +49,7 @@ urlbase = 'http://it.wikipedia.org/'
 
 # ----------------------------------------------------------------------
 
-class NextFile(object):
+class NextFile:
     """
     Synchronous generation of next available file name.
     """
@@ -78,7 +78,8 @@ class NextFile(object):
     def _filepath(self):
         return '%s/wiki_%02d' % (self._dirname(), self.file_index)
 
-class OutputSplitter(object):
+
+class OutputSplitter:
     """
     File-like object, that splits output to multiple files of a given max size.
     """
@@ -113,9 +114,10 @@ class OutputSplitter(object):
         else:
             return open(filename, 'w')
 
+
 # ----------------------------------------------------------------------
 
-class Extractor(object):
+class Extractor:
 
     def extract(self, out):
         """

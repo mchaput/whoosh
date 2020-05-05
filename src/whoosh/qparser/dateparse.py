@@ -785,8 +785,7 @@ class DateParserPlugin(plugins.Plugin):
                 return self.errorize(text, node)
             else:
                 n = DateTimeNode(node.fieldname, dt, node.boost)
-        except DateParseError:
-            e = sys.exc_info()[1]
+        except DateParseError as e:
             n = self.errorize(e, node)
         n.startchar = node.startchar
         n.endchar = node.endchar

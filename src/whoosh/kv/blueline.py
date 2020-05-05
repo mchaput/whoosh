@@ -163,8 +163,7 @@ class Blueline(Database):
 
     def open_file(self, name, mode="r+b"):
         return open(self._filepath(name), mode)
-        # except IOError:
-        #     e = sys.exc_info()[1]
+        # except IOError as e:
         #     if e.errno == errno.EMFILE:
         #         raise TooManyOpenFiles
 
@@ -172,8 +171,7 @@ class Blueline(Database):
         if self.use_mmap and use_mmap:
             try:
                 return mmap.mmap(f.fileno(), 0)
-            except (mmap.error, OSError):
-                e = sys.exc_info()[1]
+            except (mmap.error, OSError) as e:
                 # If we got an error because there wasn't enough memory to
                 # open the map, ignore it and fall through, we'll just use the
                 # (slower) "sub-file" implementation
@@ -1271,8 +1269,7 @@ class FileLock:
 
         try:
             fn()
-        except IOError:
-            e = sys.exc_info()[1]
+        except IOError as e:
             if e.errno not in (errno.EAGAIN, errno.EACCES, errno.EDEADLK):
                 raise
             return False

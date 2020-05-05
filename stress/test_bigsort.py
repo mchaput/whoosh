@@ -2,7 +2,6 @@ import os.path, random, shutil
 from datetime import datetime
 
 from whoosh import fields, index, query
-from whoosh.compat import text_type, xrange
 from whoosh.util import now
 
 
@@ -23,7 +22,7 @@ def test_bigsort():
     w = ix.writer(limitmb=512)
     for i in range(times):
         dt = datetime.fromtimestamp(random.randint(15839593, 1294102139))
-        w.add_document(id=text_type(i), date=dt)
+        w.add_document(id=str(i), date=dt)
     w.commit()
     print("Writing took ", now() - t)
 
