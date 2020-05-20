@@ -300,8 +300,8 @@ To limit the amount of time a search can take::
     with myindex.searcher() as s:
         # Get a collector object
         c = s.collector(limit=None, sortedby="title_exact")
-        # Wrap it in a TimeLimitedCollector and set the time limit to 10 seconds
-        tlc = TimeLimitedCollector(c, timelimit=10.0)
+        # Wrap it in a TimeLimitCollector and set the time limit to 10 seconds
+        tlc = TimeLimitCollector(c, timelimit=10.0)
 
         # Try searching
         try:

@@ -1008,7 +1008,7 @@ class TimeLimitCollector(WrappingCollector):
     does not complete within a certain number of seconds::
 
         uc = collectors.UnlimitedCollector()
-        tlc = TimeLimitedCollector(uc, timelimit=5.8)
+        tlc = TimeLimitCollector(uc, timelimit=5.8)
         try:
             mysearcher.search_with_collector(myquery, tlc)
         except collectors.TimeLimit:
