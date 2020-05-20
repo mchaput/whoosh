@@ -51,9 +51,9 @@ class NoTermsException(Exception):
 
 
 class TimeLimit(Exception):
-    """Raised by :class:`TimeLimitedCollector` if the time limit is reached
+    """Raised by :class:`TimeLimitCollector` if the time limit is reached
     before the search finishes. If you have a reference to the collector, you
-    can get partial results by calling :meth:`TimeLimitedCollector.results`.
+    can get partial results by calling :meth:`TimeLimitCollector.results`.
     """
 
     pass
@@ -688,9 +688,9 @@ class Searcher(object):
             # Create a TopCollector
             c = mysearcher.collector(limit=10)
 
-            # Wrap it with a TimeLimitedCollector with a time limit of
+            # Wrap it with a TimeLimitCollector with a time limit of
             # 10.5 seconds
-            from whoosh.collectors import TimeLimitedCollector
+            from whoosh.collectors import TimeLimitCollector
             c = TimeLimitCollector(c, 10.5)
 
             # Search using the custom collector
