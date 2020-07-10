@@ -25,9 +25,10 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+import logging
 import sys
 import typing
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from whoosh.util import now
 
@@ -35,6 +36,9 @@ from whoosh.util import now
 if typing.TYPE_CHECKING:
     from whoosh import fields, index, query
     from whoosh.codec import codecs
+
+
+logger = logging.getLogger(__name__)
 
 
 class Reporter:
@@ -156,58 +160,133 @@ class Reporter:
         self.finish_indexing(segments)
 
 
-class StreamReporter(Reporter):
-    def __init__(self, stream=None):
-        super(StreamReporter, self).__init__()
-        self.stream = stream or sys.stderr
+class ChainReporter(Reporter):
+    def __init__(self, reporters: 'Sequence[Reporter]'):
+        super().__init__()
+        self._reporters = reporters
+
+    def _start_indexing(self, ix: 'index.Index', unique_field: str):
+        super()._start_indexing(ix, unique_field)
+        for r in self._reporters:
+            r._start_indexing(ix, unique_field)
+
+    def _cleared_segments(self):
+        super()._cleared_segments()
+        for r in self._reporters:
+            r._cleared_segments()
+
+    def _delete_by_query(self, q: 'query.Query'):
+        super()._delete_by_query(q)
+        for r in self._reporters:
+            r._delete_by_query(q)
+
+    def _start_new_segment(self, segments: 'List[codecs.Segment]',
+                          segment: 'codecs.Segment'):
+        super()._start_new_segment(segments, segment)
+        for r in self._reporters:
+            r._start_new_segment(segments, segment)
+
+    def _start_document(self, kwargs: Dict[str, Any]):
+        super()._start_document(kwargs)
+        for r in self._reporters:
+            r._start_document(kwargs)
+
+    def _indexing_field(self, fieldname: str, fieldobj: 'fields.FieldType',
+                       value: Any):
+        super()._indexing_field(fieldname, fieldobj, value)
+        for r in self._reporters:
+            r._indexing_field(fieldname, fieldobj, value)
+
+    def _finish_document(self):
+        super()._finish_document()
+        for r in self._reporters:
+            r._finish_document()
+
+    def _finish_segment(self, segments: 'List[codecs.Segment]',
+                        segment: 'codecs.Segment'):
+        super()._finish_segment(segments, segment)
+        for r in self._reporters:
+            r._finish_segment(segments, segment)
+
+    def _start_merge(self, merge_id: str, merging: 'List[codecs.Segment]',
+                     new_segment_id: str):
+        super()._start_merge(merge_id, merging, new_segment_id)
+        for r in self._reporters:
+            r._start_merge(merge_id, merging, new_segment_id)
+
+    def _finish_merge(self, merge_id: str, merged: 'List[codecs.Segment]',
+                      new_segment: 'codecs.Segment'):
+        super()._finish_merge(merge_id, merged, new_segment)
+        for r in self._reporters:
+            r._finish_merge(merge_id, merged, new_segment)
+
+    def _committing(self, optimized=False):
+        super()._committing(optimized)
+        for r in self._reporters:
+            r._committing(optimized)
+
+    def _finish_indexing(self, segments: 'List[codecs.Segment]'):
+        super()._finish_indexing(segments)
+        for r in self._reporters:
+            r._finish_indexing(segments)
+
+
+class LoggingReporter(Reporter):
+    def __init__(self, log=None):
+        super().__init__()
+        self.logger = log or logger
 
     def start_indexing(self):
         store = self.index.storage()
-        print("Started indexing in", store, file=self.stream)
+        self.logger.info("Starting indexing in %r", store)
 
     def cleared_segments(self):
-        print("Cleared segments, index is empty", file=self.stream)
+        self.logger.warning("Cleared segments, index is now empty")
 
     def delete_by_query(self, q: 'query.Query'):
-        print("Deleting documents matching", repr(q), file=self.stream)
+        self.logger.info("Deleting documents matching query %r", q)
 
     def start_new_segment(self, segments: 'List[codecs.Segment]',
                           segment: 'codecs.Segment'):
-        print("Started new segment", segment.segment_id(), file=self.stream)
+        self.logger.info("Starting new segment %r, current=%r",
+                         segment, segments)
 
     def start_document(self, key: Any):
-        print("Indexing document", key, file=self.stream)
+        self.logger.info("Starting document key=%r", key)
 
     def indexing_field(self, fieldname: str, fieldobj: 'fields.FieldType',
                        value: Any):
-        pass
+        self.logger.debug("Indexing %r in %s using %r",
+                          value, fieldname, fieldobj)
 
     def finish_document(self):
-        pass
+        self.logger.info("Finished document")
 
     def finish_segment(self, segments: 'List[codecs.Segment]',
                        segment: 'codecs.Segment'):
-        print("Finished segment", segment.segment_id(), file=self.stream)
+        self.logger.info("Finished new segment %r, current=%r",
+                         segment, segments)
 
     def start_merge(self, merge_id: str, merging: 'List[codecs.Segment]',
                     new_segment_id: str):
-        print("Merging segments", merging, "as", new_segment_id,
-              file=self.stream)
+        self.logger.info("Merging segments %r (%s) info %s",
+                         merging, merge_id, new_segment_id)
 
     def finish_merge(self, merge_id: str, merged: 'List[codecs.Segment]',
                      new_segment: 'codecs.Segment'):
-        print("Merged segments", merged, "into", new_segment, file=self.stream)
+        self.logger.info("Finished merging %r (%s) into %r",
+                         merged, merge_id, new_segment)
 
     def committing(self, optimized=False):
-        print("Committing new data to storage, optimized=", optimized,
-              file=self.stream)
+        self.logger.info("Committing data to storage (optimized=%s)", optimized)
 
     def finish_indexing(self, segments: 'List[codecs.Segment]'):
         doc_count = self.doc_count
         runtime = self.runtime()
         dps = doc_count / runtime
-        print("Finished indexing", doc_count, "in", runtime, "seconds,", dps,
-              "docs/sec", file=self.stream)
+
+        self.logger.info("Finished indexing %s docs in %s secs (%s docs/sec)",
+                         doc_count, runtime, dps)
 
 
 null_reporter = Reporter

@@ -238,7 +238,8 @@ class IndexWriter:
         :param merge_strategy: use this merge strategy to decide how to merge
             segments, overriding the default.
         :param reporter: supply a Reporter object to get feedback on writing
-            progress.
+            progress. If no reporter is given, the writer will instantiate the
+            class in `reporter.default_reporter`.
         """
 
         from whoosh.codec import default_codec
@@ -254,7 +255,7 @@ class IndexWriter:
         self.original_post_limit = self.post_limit = post_limit
         self.merge_strategy = merge_strategy or merging.default_strategy()
         self.executor = executor
-        self.reporter = reporter or reporting.null_reporter()
+        self.reporter = reporter or reporting.default_reporter()
 
         # This object keeps track of the current segments, buffered deletions,
         # and ongoing merges

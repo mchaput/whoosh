@@ -286,6 +286,9 @@ class Query:
             for term in child.terms(reader, phrases=phrases):
                 yield term
 
+    def iter_all_terms(self, phrases=True):
+        return self.terms(phrases=phrases)
+
     def _terms(self, reader: 'reading.IndexReader'=None,
                phrases: bool=True) -> Iterable[Tuple[str, str]]:
         return iter(())

@@ -235,9 +235,6 @@ class BitSet(DocIdSet):
                 for num in source:
                     add(num)
 
-    def __repr__(self):
-        return "%s(%r)" % (self.__class__.__name__, list(self))
-
     def _trim(self):
         bits = self.bits
         last = len(self.bits) - 1
