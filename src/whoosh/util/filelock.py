@@ -110,7 +110,14 @@ class FcntlLock(FileLockBase):
         import fcntl  # @UnresolvedImport
 
         flags = os.O_CREAT | os.O_RDWR
-        self.fd = os.open(self.filename, flags)
+        fname = self.filename
+
+        try:
+            self.fd = os.open(fname, flags)
+        except IOError as e:
+            if e.errno == 13:  # PermissionError
+                e.msg = "Could not create or open a lockfile at %s" % fname
+            raise e
 
         mode = fcntl.LOCK_EX
         if not blocking:
