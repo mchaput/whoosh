@@ -216,6 +216,11 @@ class Results:
         groups = self.data["groups"]
         return groups[name]
 
+    def fields_for_group(self, docnums: Sequence[int]) -> List[Dict[str, Any]]:
+        searcher = self.searcher
+        for docid in docnums:
+            yield searcher.stored_fields(docid)
+
     def has_exact_length(self) -> bool:
         """
         Returns True if this results object already knows the exact number

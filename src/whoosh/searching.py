@@ -413,7 +413,7 @@ class SearcherType:
 
     def _kws_to_query(self, kw: Dict[str, Any]) -> 'queries.Query':
         # Converts a keyword dict to a query
-        from whoosh.query import And, Every, Term
+        from whoosh.query import And, Every, Term, NullQuery
 
         # Convert the values in the dict to bytes
         for k, v in kw.items():
@@ -423,7 +423,10 @@ class SearcherType:
                 fieldname = k
                 op = "contains"
 
-            fieldobj = self.schema[k]
+            try:
+                fieldobj = self.schema[k]
+            except KeyError:
+                return NullQuery()
             if not isinstance(v, bytes):
                 v = fieldobj.to_bytes(v)
             kw[k] = v

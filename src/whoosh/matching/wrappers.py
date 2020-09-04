@@ -494,8 +494,13 @@ class FilterMatcher(WrappingMatcher):
 
     def __repr__(self):
         key = "exclude" if self._exclude else "include"
+        idcount = len(self._ids)
+        if idcount <= 40:
+            idstr = repr(self._ids)
+        else:
+            idstr = "<%s IDs>" % idcount
         return "%s(%r, %s=%r, boost=%s)" % (
-            type(self).__name__, self.child, key, self._ids, self._boost
+            type(self).__name__, self.child, key, idstr, self._boost
         )
 
     def _rewrap(self, newchild: matchers.Matcher):
