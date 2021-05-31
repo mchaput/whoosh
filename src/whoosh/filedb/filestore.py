@@ -97,7 +97,7 @@ class FileSession(storage.Session):
                     self._lock.supports_key():
                 locked = self._lock.acquire(key=random.randint(1, 2**63))
             else:
-                locked = self._lock.acquire()
+                locked = self._lock.acquire(blocking=False)
             if not locked:
                 raise index.LockError("Could not lock writable session")
 
