@@ -812,12 +812,14 @@ class SegmentWriter(IndexWriter):
 
     def searcher(self, **kwargs):
         # If possible, cache a Searcher that doesn't close until we want it to.
-        # We have a write lock, nothing is changing. Only cache if kwargs is emtpy.
-        if kwargs:
+        # We have a write lock, nothing is changing. Only cache if kwargs is emtpy
+        # and the SegmentWriter is still open.
+        if kwargs or self.is_closed:
             return super(SegmentWriter, self).searcher(**kwargs)
 
         if self._searcher is None:
-            s = self._searcher = super(SegmentWriter, self).searcher()
+            s = super(SegmentWriter, self).searcher()
+            self._searcher = s
             s._orig_close = s.close # called in _finish()
             s.close = lambda: None
         return self._searcher
