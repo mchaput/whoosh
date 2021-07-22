@@ -37,6 +37,7 @@ import typing
 from abc import abstractmethod
 from binascii import crc32
 from io import BytesIO
+from json import JSONDecodeError
 from threading import Lock
 from typing import Any, Dict, Iterable, List, Set, Tuple
 
@@ -262,7 +263,10 @@ class BaseFileStorage(storage.Storage):
         generation = -1
         if self.file_exists(filename):
             with self.open_file(filename) as f:
-                data = json.loads(f.read().decode("utf8"))
+                try:
+                    data = json.loads(f.read().decode("utf8"))
+                except JSONDecodeError:
+                    raise index.WhooshIndexError("Corrupt metadata JSON file")
                 id_counter = data.get("id_counter", id_counter)
                 generation = data.get("generation", generation)
         return id_counter + 1, generation

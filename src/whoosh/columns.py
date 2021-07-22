@@ -1872,6 +1872,9 @@ class MultiColumnReader(ColumnReader):
             assert len(offsets) == len(readers)
             self._doc_offsets = offsets
 
+    def __len__(self):
+        return sum(len(r) for r in self._readers)
+
     def __repr__(self):
         return "<%s %r %r>" % (type(self).__name__, self._readers,
                                self._doc_offsets)

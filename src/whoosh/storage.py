@@ -296,16 +296,13 @@ class Storage:
     # Convenience methods
 
     def index_exists(self, indexname: str) -> bool:
-        with self.open(indexname) as session:
-            try:
+        try:
+            with self.open(indexname) as session:
                 # Try loading a TOC with that name to see if we get an error
                 _ = self.load_toc(session)
-            except metadata.FileHeaderError:
-                return False
-            except TocNotFound:
-                return False
-
-            return True
+        except (index.WhooshIndexError, metadata.FileHeaderError, TocNotFound):
+            return False
+        return True
 
     def open_index(self, indexname: str=None, generation: int=None,
                    schema=None):

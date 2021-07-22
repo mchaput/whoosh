@@ -1,7 +1,9 @@
 import random, threading, time
 
-from whoosh import fields, reading
-from whoosh.util.testing import TempIndex
+import pytest
+
+from whoosh import fields, index, reading
+from whoosh.util.testing import TempIndex, TempStorage
 
 
 _simple_schema = fields.Schema(
@@ -362,3 +364,21 @@ def test_cursor():
             cur.next()
             assert cur.text() == "charlie"
             assert cur.term_info().weight() == 2
+
+
+def test_broken_json_metadata():
+    schema = fields.Schema(text=fields.TEXT)
+    with TempStorage() as st:
+        with st.create_index(schema) as ix:
+            with ix.writer() as w:
+                w.add_document(text=u"papa quebec romeo sierra tango")
+                w.add_document(text=u"foxtrot golf hotel india juliet")
+
+        f = st.create_file("MAIN_metadata.json")
+        f.write(b'{"id_counter": 3, "generation":')
+        f.close()
+
+        assert not st.index_exists(ix.indexname)
+        assert pytest.raises(index.WhooshIndexError, st.open_index)
+
+
