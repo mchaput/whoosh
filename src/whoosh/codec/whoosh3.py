@@ -1117,7 +1117,7 @@ class W3LeafMatcher(LeafMatcher):
         vs = self._data[2]
         if fixedsize is None or fixedsize < 0:
             self._values = vs
-        elif fixedsize is 0:
+        elif fixedsize == 0:
             self._values = (None,) * self._blocklength
         else:
             assert isinstance(vs, bytes_type)
