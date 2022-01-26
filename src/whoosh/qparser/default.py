@@ -92,7 +92,8 @@ class QueryParser(object):
 
         from whoosh.qparser import plugins
 
-        return [plugins.WhitespacePlugin(),
+        return [
+                # plugins.WhitespacePlugin(),
                 plugins.SingleQuotePlugin(),
                 plugins.FieldsPlugin(),
                 plugins.WildcardPlugin(),
