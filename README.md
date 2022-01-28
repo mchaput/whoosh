@@ -64,7 +64,7 @@ Getting the source
 
 Download source releases from PyPI at http://pypi.python.org/pypi/Whoosh/
 
-You can check out the latest version of the source code using Mercurial::
+You can check out the latest version of the source code using git:
 
-    hg clone http://bitbucket.org/mchaput/whoosh
+    git clone https://github.com/mchaput/whoosh
 
