@@ -545,6 +545,7 @@ class SegmentWriter(IndexWriter):
         self.merge = True
         self.optimize = False
         self.mergetype = None
+        self._searcher = None
 
     def __repr__(self):
         # Author: Ronald Evers
@@ -809,6 +810,20 @@ class SegmentWriter(IndexWriter):
             raise Exception("Per-doc writer is still open")
         return self.codec.per_document_reader(self.storage, self.get_segment())
 
+    def searcher(self, **kwargs):
+        # If possible, cache a Searcher that doesn't close until we want it to.
+        # We have a write lock, nothing is changing. Only cache if kwargs is emtpy
+        # and the SegmentWriter is still open.
+        if kwargs or self.is_closed:
+            return super(SegmentWriter, self).searcher(**kwargs)
+
+        if self._searcher is None:
+            s = super(SegmentWriter, self).searcher()
+            self._searcher = s
+            s._orig_close = s.close # called in _finish()
+            s.close = lambda: None
+        return self._searcher
+
     # The following methods break out the commit functionality into smaller
     # pieces to allow MpWriter to call them individually
 
@@ -890,6 +905,10 @@ class SegmentWriter(IndexWriter):
         clean_files(self.storage, self.indexname, self.generation, segments)
 
     def _finish(self):
+        if self._searcher is not None:
+            # Close the cached Searcher if we have one.
+            self._searcher._orig_close()
+            self._searcher = None
         self._tempstorage.destroy()
         if self.writelock:
             self.writelock.release()
