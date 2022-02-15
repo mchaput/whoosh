@@ -885,7 +885,7 @@ class DATETIME(NUMERIC):
         if is_ambiguous(at):
             startnum = datetime_to_long(at.floor())
             endnum = datetime_to_long(at.ceil())
-            return query.NumericRange(fieldname, startnum, endnum)
+            return query.NumericRange(fieldname, startnum, endnum, boost=boost)
         else:
             return query.Term(fieldname, at, boost=boost)
 
