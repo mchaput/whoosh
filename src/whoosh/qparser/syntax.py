@@ -450,6 +450,7 @@ class RangeNode(SyntaxNode):
     """
 
     has_fieldname = True
+    has_boost = True
 
     def __init__(self, start, end, startexcl, endexcl):
         self.start = start
