@@ -926,6 +926,9 @@ class Schema:
         Returns the field associated with the given field name.
         """
 
+        if not name:
+            raise KeyError(name)
+
         # If the name is in the dictionary, just return it
         if name in self._fields:
             return self._fields[name]

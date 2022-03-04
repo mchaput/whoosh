@@ -187,7 +187,7 @@ class QueryParser:
             # If a custom field expression exists for this field, use it
             expr = peg.FieldExpr(fexprs[fieldname], expr)
 
-        if self.schema and fieldname in self.schema:
+        if fieldname and self.schema and fieldname in self.schema:
             # If this field wants to parse itself, let it
             field = self.schema[fieldname]
             if field.self_parsing():
