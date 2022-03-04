@@ -708,11 +708,17 @@ class MultifieldPlugin(Plugin):
     @qfilter(90)
     def do_multifield(self, parser: 'parsing.QueryParser', qs: query.Query
                       ) -> query.Query:
+        boosts = self.boosts
         group = self.group
 
         if qs.is_leaf():
             if not qs.field():
-                qs = group([qs.with_fieldname(fn) for fn in self.fieldnames])
+                newqs = []
+                for fn in self.fieldnames:
+                    newq = qs.with_fieldname(fn)
+                    newq.boost = boosts.get(fn, 1.0)
+                    newqs.append(newq)
+                qs = group(newqs)
         else:
             qs.set_children([self.do_multifield(parser, subq)
                              for subq in qs.children()])
