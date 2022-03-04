@@ -490,7 +490,7 @@ class TopCollector(WrappingCollector):
                 heappush(scored, item)
             elif score > scored[0][0]:
                 heapreplace(scored, item)
-                self.set_minscore(score)
+                self.set_minscore(scored[0][0])
         else:
             scored.append(item)
 
