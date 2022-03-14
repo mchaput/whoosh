@@ -495,7 +495,7 @@ class MultifieldParser(QueryParser):
                  plugins: 'List[plugs.Plugin]'=None,
                  esc_char: str="\\",
                  base_datetime: datetime=None,
-                 multifield_boosts=Dict[str, float],
+                 multifield_boosts: Dict[str, float] = None,
                  multifield_group=query.Or,
                  ):
         super(MultifieldParser, self).__init__(None, schema, termclass, group,
