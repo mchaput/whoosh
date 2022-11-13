@@ -30,7 +30,7 @@ from whoosh.analysis.acore import Composable, Token
 from whoosh.util.text import rcompile
 
 
-default_pattern = rcompile(r"\w+(\.?\w+)*")
+default_pattern = rcompile(r"[\w\*]+(\.?[\w\*]+)*")
 
 
 # Tokenizers
