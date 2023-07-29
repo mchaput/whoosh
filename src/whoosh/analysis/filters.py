@@ -53,7 +53,7 @@ url_pattern = rcompile("""
     \\S+?                  # URL body
     (?=\\s|[.]\\s|$|[.]$)  # Stop at space/end, or a dot followed by space/end
 ) | (                      # or...
-    \w+([:.]?\w+)*         # word characters, with opt. internal colons/dots
+    \\w+([:.]?\\w+)*         # word characters, with opt. internal colons/dots
 )
 """, verbose=True)
 
@@ -145,7 +145,7 @@ class MultiFilter(Filter):
 
 
 class TeeFilter(Filter):
-    """Interleaves the results of two or more filters (or filter chains).
+    r"""Interleaves the results of two or more filters (or filter chains).
 
     NOTE: because it needs to create copies of each token for each sub-filter,
     this filter is quite slow.

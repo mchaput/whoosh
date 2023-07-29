@@ -520,7 +520,7 @@ def test_stop_lang():
 
 
 def test_issue358():
-    t = analysis.RegexTokenizer("\w+")
+    t = analysis.RegexTokenizer(r"\w+")
     with pytest.raises(analysis.CompositionError):
         _ = t | analysis.StandardAnalyzer()
 
