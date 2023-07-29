@@ -34,7 +34,7 @@ from whoosh.analysis.filters import Filter
 
 
 class CompoundWordFilter(Filter):
-    """Given a set of words (or any object with a ``__contains__`` method),
+    r"""Given a set of words (or any object with a ``__contains__`` method),
     break any tokens in the stream that are composites of words in the word set
     into their individual parts.
 
@@ -272,7 +272,7 @@ class IntraWordFilter(Filter):
     >>> iwf_i = IntraWordFilter(mergewords=True, mergenums=True)
     >>> iwf_q = IntraWordFilter(mergewords=False, mergenums=False)
     >>> iwf = MultiFilter(index=iwf_i, query=iwf_q)
-    >>> analyzer = RegexTokenizer(r"\S+") | iwf | LowercaseFilter()
+    >>> analyzer = RegexTokenizer(r"\\S+") | iwf | LowercaseFilter()
 
     (See :class:`MultiFilter`.)
     """
@@ -282,7 +282,7 @@ class IntraWordFilter(Filter):
     __inittypes__ = dict(delims=text_type, splitwords=bool, splitnums=bool,
                          mergewords=bool, mergenums=bool)
 
-    def __init__(self, delims=u("-_'\"()!@#$%^&*[]{}<>\|;:,./?`~=+"),
+    def __init__(self, delims=u("-_'\"()!@#$%^&*[]{}<>\\|;:,./?`~=+"),
                  splitwords=True, splitnums=True,
                  mergewords=False, mergenums=False):
         """

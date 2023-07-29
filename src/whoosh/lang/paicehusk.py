@@ -30,7 +30,7 @@ class PaiceHuskStemmer(object):
     (?P<cont>[.>])
     """, re.UNICODE | re.VERBOSE)
 
-    stem_expr = re.compile("^\w+", re.UNICODE)
+    stem_expr = re.compile(r"^\w+", re.UNICODE)
 
     def __init__(self, ruletable):
         """
